@@ -290,11 +290,11 @@ function renderSearchResults(m){
   else if(!bins.length) noMatch(m); // bins and parts were both searched: not "Parts 0"
 }
 // A search that found nothing: what was looked for, a way back, and (for a name long enough to be one) adding it as a part.
-// With a filter on in Parts, it says which, and offers every category instead.
+// With a list or a category picked in Parts, it says which, and offers all parts instead.
 function noMatch(m, filter='', list=false){
   const q=S.q.trim(), add=q.length>=3, what=q?` “${esc(q)}”`:'';
   const says=!filter?`Nothing matches${what}.`:list?`Nothing in “${esc(filter)}”${q?` matches${what}`:''}.`:`No ${esc(filter)} match${what}.`; // a category, or a list such as Low stock
-  const e=h(`<div class="empty"><p>${says}</p><div class="row" style="justify-content:center">${filter?'<button class="btn" id="allcats">Show all categories</button>':''}${q?'<button class="btn" id="clearq">Clear search</button>':''}${add&&!filter?`<button class="btn primary" id="addq">${ICONS.plus} Add “${esc(q)}” as a part</button>`:''}</div></div>`);
+  const e=h(`<div class="empty"><p>${says}</p><div class="row" style="justify-content:center">${filter?'<button class="btn" id="allcats">Show all parts</button>':''}${q?'<button class="btn" id="clearq">Clear search</button>':''}${add&&!filter?`<button class="btn primary" id="addq">${ICONS.plus} Add “${esc(q)}” as a part</button>`:''}</div></div>`);
   e.querySelector('#allcats')?.addEventListener('click',()=>{ localSet('sr.cat',''); render(); });
   e.querySelector('#clearq')?.addEventListener('click',()=>{ S.q=''; const box=document.getElementById('q'); if(box) box.value=''; render(); document.getElementById('q')?.focus(); }); // emptied first, or drawing again puts back what was typed
   e.querySelector('#addq')?.addEventListener('click',()=>editPart({name:q}));
@@ -549,21 +549,36 @@ function printList(b, ps){
 }
 
 // ---- Parts
+// The lists the Show menu offers above the categories, in the order they're worked through, each with how many parts are
+// on it. sort: their own order (by bag number), where a list isn't by name. Bag numbers to sort out is worked out apart.
+const PART_LISTS=[
+  ['__low','Low stock',isLow],
+  ['__check','To check',p=>!!p.check],
+  ['__untagged','Bag tag not written',p=>!!BG.bagOf(p) && !p.tagWritten,'bag'],
+  ['__unbagged','Not yet bagged',p=>!BG.bagOf(p)],
+  ['__nobin','Not in a bin',p=>!binOf(p)],
+  ['__bagged','Bagged',p=>!!BG.bagOf(p),'bag'],
+  ['__clash','Bag numbers to sort out',null],
+];
+const listOf=v=>PART_LISTS.find(l=>l[0]===v);
 function renderParts(m){
-  const cats=[...new Set([...S.parts.values()].map(p=>p.category).filter(Boolean))].sort();
-  const cur=localGet('sr.cat','');
-  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select><button class="btn primary" id="addp" aria-label="New part">${ICONS.plus} Part</button>`);
+  const all=[...S.parts.values()], cats=[...new Set(all.map(p=>p.category).filter(Boolean))].sort();
+  let cur=localGet('sr.cat',''); if(typeof cur!=='string' || cur && !listOf(cur) && !cats.includes(cur)) cur=''; // a category no part has now
+  const n=([v,,keep])=>v==='__clash' ? [...bagClashes().values()].flat().length : all.filter(keep).length;
+  const opt=(v,label,k)=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(label)} (${k})</option>`;
+  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Show" style="width:auto">${opt('','All parts',all.length)}<optgroup label="Lists">${PART_LISTS.map(l=>opt(l[0],l[1],n(l))).join('')}</optgroup>${cats.length?`<optgroup label="Categories">${cats.map(c=>opt(c,c,all.filter(p=>p.category===c).length)).join('')}</optgroup>`:''}</select><button class="btn primary" id="addp" aria-label="New part">${ICONS.plus} Part</button>`);
   tb.querySelector('#cat').onchange=e=>{ localSet('sr.cat',e.target.value); render(); };
   tb.querySelector('#addp')?.addEventListener('click',()=>editPart({}));
   if(cur==='__clash') gapNote(m); else clashBar(m);
+  const list=listOf(cur);
   let parts=searchParts(S.q);
   if(cur==='__clash') parts=bagClashes().size ? [...bagClashes().values()].flat().filter(p=>parts.includes(p)) : [];
-  else if(cur==='__low') parts=parts.filter(isLow); else if(cur==='__unbagged') parts=parts.filter(p=>!p.bag); else if(cur==='__bagged') parts=parts.filter(p=>p.bag); else if(cur==='__nobin') parts=parts.filter(p=>!binOf(p)); else if(cur==='__check') parts=parts.filter(p=>p.check); else if(cur) parts=parts.filter(p=>p.category===cur);
-  if(cur==='__bagged') parts.sort((a,b)=>Number(a.bag)-Number(b.bag));
+  else if(list) parts=parts.filter(list[2]); else if(cur) parts=parts.filter(p=>p.category===cur);
+  if(list?.[3]==='bag') parts.sort((a,b)=>BG.bagOf(a)-BG.bagOf(b));
   else if(!S.q && cur!=='__clash') parts.sort((a,b)=>byName(a.name,b.name));
   found=many(parts.length,'part');
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
-  if(!parts.length && S.parts.size){ noMatch(m, cur ? (tb.querySelector('#cat').selectedOptions[0]?.textContent || cur) : '', cur.startsWith('__')); return; }
+  if(!parts.length && S.parts.size){ noMatch(m, list ? list[1] : cur, !!list); return; }
   if(!parts.length){ m.append(h('<div class="empty"><p>No parts here yet. Add one, or use Pack to bag and tag them as you go.</p></div>')); return; }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
 }
@@ -585,12 +600,14 @@ function renderPartPage(m, pid){
   const mv=h('<button class="btn sm" id="move">Move</button>'); mv.onclick=()=>moveSheet(p); tg.before(mv);
   const ref=!!p.img;
   // the bag number sits under the photo, big enough to match against the bag across the bench
-  // and says when its sticker has been written, as a bin's page does
+  // and says when its sticker has been written, as a bin's page does; where tags can be written, a bag with none yet says
+  // so (a tag that failed and was skipped, say), and Parts › Bag tag not written lists them all
   const bagTag=p.bag?`<div class="bagbadge${clashOf(p)?' twice':''}"${p.tagWritten?` role="img" aria-label="Bag ${bagStr(p.bag)}, tag written"`:''}><small>Bag</small><span class="bagno">${bagStr(p.bag)}</span>${p.tagWritten?`<span class="tagged">${ICONS.nfc}tagged</span>`:''}</div>`:'';
   m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
     <h2>${esc(p.name)}</h2>
     <div class="row" style="gap:6px;margin:4px 0 8px">${p.category?`<span class="chip">${esc(p.category)}</span>`:''}${specChips(p)}${(p.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${isLow(p)?'<span class="chip warn">low stock</span>':''}</div>
     <div class="muted">${b?`In <a href="#bin/${b.id}"><span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span></a> ${esc(b.name||'')}${b.location?` · ${esc(b.location)}`:''}`:'Not in a bin'}${p.from&&isBox(b)?` <span class="tiny">· was in ${esc(p.from)}</span>`:''}</div>
+    ${BG.bagOf(p) && !p.tagWritten && NFC_OK && !FRAMED?'<div class="tiny" id="notag" style="margin-top:4px">No tag on this bag yet</div>':''}
     ${p.mpn?`<div class="tiny mono" style="margin-top:4px">${esc(p.mpn)}</div>`:''}
     ${/^https?:\/\//i.test(p.link||'')?`<div class="tiny" style="margin-top:4px"><a href="${esc(p.link)}" target="_blank" rel="noopener">Product link</a></div>`:''}
   </div></div>`));

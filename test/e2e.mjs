@@ -1640,7 +1640,7 @@ await tzCtx.close();
 
 // ---- every control has a name a screen reader can say, a sheet is named by its heading, and toasts are announced
 const named = async (hash, role, name) => { await page.goto(base + hash); assert.equal(await page.getByRole(role, { name, exact: true }).count(), 1, `${hash}: a ${role} called "${name}"`); };
-await named('#parts', 'searchbox', 'Search'); await named('#parts', 'combobox', 'Category');
+await named('#parts', 'searchbox', 'Search'); await named('#parts', 'combobox', 'Show');
 await named('#bin/box-move', 'combobox', 'Unpack into'); await named('#bom', 'combobox', 'Saved BOMs');
 await named('#scan', 'combobox', 'Packing into'); await named('#part/p-scd41', 'spinbutton', 'Quantity');
 // the + buttons say what they add (they were read as "Bin", "Part", "Box"), and icons beside words aren't read as images
@@ -2507,6 +2507,56 @@ await desk.goto(base);
     }
     await tCtx.close();
   }
+}
+
+// ---- Parts' Show menu: the lists first, each with how many parts are on it, then the categories; Bag tag not written
+// lists the bags with no sticker yet in bag order (a tag that failed and was skipped left a numbered bag nothing found
+// again), and such a part's page says so
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 } },
+    parts: {
+      'p-a': { name: 'SHT31', binId: 'b-env', category: 'Sensors', qty: 1, minQty: 2, unit: 'pcs', tags: [], bag: 7, t: 1 },
+      'p-b': { name: 'BME280', binId: 'b-env', category: 'Sensors', qty: 4, unit: 'pcs', tags: [], bag: 3, tagWritten: true, check: 'Is it a BMP280?', t: 1 },
+      'p-c': { name: 'Buck converter', binId: 'b-env', category: 'Power', qty: 2, unit: 'pcs', tags: [], bag: 2, t: 1 },
+      'p-d': { name: 'Zener diodes', category: 'Passives', qty: 20, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const sCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await sCtx.addInitScript(fakeNfc);
+  await sCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const sp = await sCtx.newPage();
+  sp.problems = []; sp.on('pageerror', e => sp.problems.push(e.message)); sp.on('console', m => { if (m.type() === 'error') sp.problems.push(m.text()); });
+  await sp.goto(base + '#parts'); await sp.waitForSelector('#cat');
+  assert.equal(await sp.getAttribute('#cat', 'aria-label'), 'Show');
+  const menu = () => sp.locator('#cat').evaluate(s => [...s.children].map(c => c.tagName === 'OPTGROUP' ? [c.label, [...c.children].map(o => o.textContent)] : c.textContent));
+  assert.deepEqual(await menu(), ['All parts (4)',
+    ['Lists', ['Low stock (1)', 'To check (1)', 'Bag tag not written (2)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
+    ['Categories', ['Passives (1)', 'Power (1)', 'Sensors (2)']]]);
+  await sp.selectOption('#cat', '__untagged');
+  assert.deepEqual(await sp.locator('.item .t').allTextContents(), ['Buck converter', 'SHT31'], 'in bag order');
+  // the counts follow the inventory: the tag written for bag #002 takes it off the list
+  await sp.click('.item:has-text("Buck converter")'); await sp.waitForSelector('#notag');
+  assert.equal(await sp.textContent('#notag'), 'No tag on this bag yet');
+  await sp.click('#bagtag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait'); await sp.evaluate(() => window.__tap());
+  await sp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-c'].tagWritten === true);
+  await sp.waitForFunction(() => !document.querySelector('.sheet'));
+  await sp.waitForFunction(() => !document.getElementById('notag'));
+  await sp.goto(base + '#parts'); await sp.waitForSelector('#cat');
+  assert.equal(await sp.inputValue('#cat'), '__untagged', 'the list picked stays picked');
+  assert.deepEqual(await sp.locator('.item .t').allTextContents(), ['SHT31']);
+  assert.equal(await sp.locator('#cat option[value="__untagged"]').textContent(), 'Bag tag not written (1)');
+  // a part with no bag, or one whose tag is written, says nothing about a tag
+  for (const id of ['p-b', 'p-d']) { await sp.goto(base + '#part/' + id); await sp.waitForSelector('.binhead h2'); assert.equal(await sp.locator('#notag').count(), 0, id); }
+  // a category no part has any more shows all parts, not an empty list under a menu that says otherwise
+  await sp.evaluate(() => localStorage.setItem('sr.cat', '"Motors"'));
+  await sp.goto(base + '#parts'); await sp.waitForSelector('#cat');
+  assert.equal(await sp.inputValue('#cat'), ''); assert.equal(await sp.locator('.item').count(), 4);
+  // nothing on a list says which list, without its count, and offers all parts
+  await sp.selectOption('#cat', '__check'); await sp.fill('#q', 'zzz');
+  await sp.waitForSelector('#main .empty:has-text("Nothing in “To check” matches “zzz”.")');
+  assert.equal(await sp.textContent('#main .empty #allcats'), 'Show all parts');
+  assert.deepEqual(sp.problems, []);
+  await sCtx.close();
 }
 
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over

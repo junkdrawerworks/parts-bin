@@ -90,6 +90,9 @@ function bagClashes(){ if(clashMemo?.of!==S.parts) clashMemo={of:S.parts, v:new 
 function clashOf(p){ return bagClashes().get(BG.bagOf(p)) || null; }
 const APP_URL = location.protocol==='file:' ? 'https://parts-bin.junkdrawer.works/' : location.origin+location.pathname;
 const NFC_OK = ('NDEFReader' in window);
+// At its own address (parts-bin.junkdrawer.works), where junkdrawer.works/carry.html hands over what the old address,
+// junkdrawer.works/parts-bin/, still has saved. Nowhere else (a local copy, the tests) can it ask.
+const OLD_HOME = location.protocol==='https:' && /^[a-z0-9-]+\.junkdrawer\.works$/.test(location.hostname);
 const FRAMED = (()=>{ try{ return window.self!==window.top; }catch{ return true; } })();
 function partUrl(p){ return APP_URL+(p.bag?'#bag/'+String(p.bag).padStart(3,'0'):'#part/'+p.id); }
 function binUrl(b){ return APP_URL+'#bin/'+b.id; }
@@ -237,7 +240,7 @@ function renderBins(m){
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
   const bins=searchBins('');
-  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div></div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); noBinSection(m); return; }
+  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div>${OLD_HOME?'<p class="tiny" style="margin-top:14px">Used Parts Bin at junkdrawer.works/parts-bin before? <a href="#settings">Bring that inventory over in Settings</a>.</p>':''}</div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); noBinSection(m); return; }
   // moving boxes first, then bins grouped by location
   const boxes=bins.filter(isBox);
   if(boxes.length){
@@ -1382,7 +1385,35 @@ function renderSettings(m){
     <div class="row"><button class="btn" id="exp">Save a backup file</button><button class="btn" id="imp">Load a file</button></div></section>`);
   m.append(bk);
   bk.querySelector('#exp').onclick=exportJson; bk.querySelector('#imp').onclick=importJson;
+  if(OLD_HOME){
+    const oc=h(`<section class="card"><h3>From the old address</h3><p class="muted">Parts Bin used to be at junkdrawer.works/parts-bin. The first time it opened here it brought over what this browser had saved there, but with a poor connection that can miss. This fetches it again and adds whatever isn’t here; nothing here is written over.</p>
+      <div class="row"><button class="btn" id="old">Bring over the inventory from junkdrawer.works/parts-bin</button></div></section>`);
+    m.append(oc);
+    const ob=oc.querySelector('#old');
+    ob.onclick=async()=>{ ob.disabled=true;
+      try{ const text=await fromOldAddress(), n=text==null?null:store.addMissing(text);
+        const list=[[n?.bins,'bin'],[n?.parts,'part'],[n?.projects,'saved BOM']].filter(([k])=>k).map(([k,w])=>`${k} ${w}${k===1?'':'s'}`);
+        toast(!n ? 'There’s nothing saved at junkdrawer.works/parts-bin in this browser.' : !list.length ? 'Everything saved at junkdrawer.works/parts-bin is here already.'
+          : `Brought over ${list.length>1?list.slice(0,-1).join(', ')+' and '+list.at(-1):list[0]} from junkdrawer.works/parts-bin.`, 4500); }
+      catch(e){ toast(e?.code==='quota_exceeded'?e.message:'Couldn’t reach junkdrawer.works. Check the connection and try again.',4500); }
+      finally{ ob.disabled=false; } };
+  }
   m.append(h(`<p class="tiny" style="margin-top:18px">Tags written here open <span class="mono">${esc(APP_URL)}#bag/…</span>. ${NFC_OK&&!FRAMED?'This browser can read and write NFC tags.':'This browser can’t use NFC; Chrome on Android can.'}</p>`));
+}
+
+// What the old address has saved under 'parts-bin', as junkdrawer.works/carry.html hands it over in a hidden frame (the
+// same page carry.js asks); null when it has nothing. Rejects when junkdrawer.works can't be reached in 10 seconds.
+function fromOldAddress(){
+  const HOME='https://junkdrawer.works';
+  return new Promise((resolve,reject)=>{
+    const f=document.createElement('iframe');
+    const done=(ok,v)=>{ clearTimeout(timer); removeEventListener('message',heard); f.remove(); ok?resolve(v):reject(v); };
+    const heard=e=>{ if(e.origin!==HOME || e.source!==f.contentWindow || !e.data?.carried) return; const v=e.data.carried.local?.['parts-bin']; done(true, typeof v==='string'?v:null); };
+    const timer=setTimeout(()=>done(false,new Error('not reached')),10000);
+    addEventListener('message',heard);
+    f.onload=()=>f.contentWindow.postMessage({carry:true},HOME);
+    f.hidden=true; f.title='junkdrawer.works'; f.src=HOME+'/carry.html'; document.body.append(f);
+  });
 }
 
 // ------------------------------------------------------------------ export

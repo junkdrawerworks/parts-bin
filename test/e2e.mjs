@@ -2413,16 +2413,16 @@ await desk.goto(base);
   const APP = 'https://parts-bin.junkdrawer.works/', t0 = 1760000000000;
   const oldDoc = { app: 'parts-bin', v: 1, items: { bins: { 'b-old': { code: 'OLD', name: 'From the old address', t: t0 } }, parts: { 'p-old': { name: 'Carried part', binId: 'b-old', qty: 2, bag: 7, t: t0 } }, projects: {} } };
   const ownDoc = { app: 'parts-bin', v: 1, items: { bins: { 'b-own': { code: 'OWN', name: 'Made here', t: t0 } }, parts: { 'p-own': { name: 'Own part', binId: 'b-own', qty: 1, t: t0 } }, projects: {} } };
-  const carry = async ({ answer, preset }) => {
+  const carry = async ({ answer, preset, carried }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
     await ctx.route(APP + '**', async r => { const p = new URL(r.request().url()).pathname;
       try { await r.fulfill({ body: await readFile(join(root, p === '/' ? 'index.html' : p)), contentType: TYPES[extname(p)] || 'text/html' }); } catch { await r.fulfill({ status: 404, body: '' }); } });
     // the old address's saves, as carry.html hands them over; or a carry.html that loads and never answers
-    await ctx.route('https://junkdrawer.works/carry.html', r => r.fulfill({ contentType: 'text/html', body: `<script>addEventListener('message', e => { ${answer ? `e.source.postMessage({ carried: { local: { 'parts-bin': ${JSON.stringify(JSON.stringify(oldDoc))}, 'sr.cat': '""' }, idb: [] } }, e.origin);` : ''} });</script>` }));
+    await ctx.route('https://junkdrawer.works/carry.html', r => r.fulfill({ contentType: 'text/html', body: `<script>addEventListener('message', e => { ${answer === 'empty' ? 'e.source.postMessage({ carried: { local: {}, idb: [] } }, e.origin);' : answer ? `e.source.postMessage({ carried: { local: { 'parts-bin': ${JSON.stringify(JSON.stringify(oldDoc))}, 'sr.cat': '""' }, idb: [] } }, e.origin);` : ''} });</script>` }));
     await ctx.route('https://accounts.google.com/**', r => r.abort());
     const pg = await ctx.newPage(); pg.problems = [];
     pg.on('pageerror', e => pg.problems.push(e.message));
-    if (preset) { await pg.goto(APP + 'manifest.webmanifest'); await pg.evaluate(d => localStorage.setItem('parts-bin', d), JSON.stringify(preset)); }
+    if (preset || carried) { await pg.goto(APP + 'manifest.webmanifest'); await pg.evaluate(([d, c]) => { if (d) localStorage.setItem('parts-bin', d); if (c) localStorage.setItem('junkdrawer.carried', c); }, [preset && JSON.stringify(preset), carried]); }
     const at = Date.now();
     await pg.goto(APP + '#bins');
     return { ctx, pg, at, saved: () => pg.evaluate(() => ({ cat: localStorage.getItem('sr.cat'), done: localStorage.getItem('junkdrawer.carried'), tries: localStorage.getItem('junkdrawer.carry-tries'), doc: JSON.parse(localStorage.getItem('parts-bin') || 'null') })) };
@@ -2444,6 +2444,31 @@ await desk.goto(base);
   st = await c.saved(); assert.ok(st.done); assert.deepEqual(st.doc, ownDoc, 'the inventory made here was written over');
   assert.equal(st.cat, '""', 'what this address didn’t have came over'); // so carry.js did run
   assert.equal(await c.pg.locator('.bin:has-text("From the old address")').count(), 0);
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+  // carried long ago (or given up on after three tries), with something already saved here: Settings brings over what the
+  // old address has, adding what isn't here and writing over nothing (the old inventory was out of reach for good)
+  const ownNewer = { ...ownDoc, items: { ...ownDoc.items, parts: { ...ownDoc.items.parts, 'p-old': { name: 'Renamed here', binId: 'b-own', qty: 9, t: t0 - 5 } } } };
+  c = await carry({ answer: true, preset: ownNewer, carried: 'gave up' });
+  await c.pg.waitForSelector('.bin:has-text("Made here")', { timeout: 10000 });
+  await c.pg.goto(APP + '#settings'); await c.pg.click('#old');
+  await c.pg.waitForSelector('#toast:has-text("Brought over 1 bin from junkdrawer.works/parts-bin.")');
+  st = await c.saved();
+  assert.equal(st.doc.items.bins['b-old'].name, 'From the old address');
+  assert.deepEqual(st.doc.items.parts['p-old'], ownNewer.items.parts['p-old'], 'a part that’s here is left as it is, though the old copy is newer');
+  assert.deepEqual(st.doc.items.bins['b-own'], ownDoc.items.bins['b-own']);
+  await c.pg.click('#old'); await c.pg.waitForSelector('#toast:has-text("Everything saved at junkdrawer.works/parts-bin is here already.")');
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+  // nothing saved there, or junkdrawer.works not answering: it says so; and the empty Bins screen points to it
+  c = await carry({ answer: 'empty', carried: 'gave up' });
+  await c.pg.waitForSelector('text=No bins yet');
+  assert.match(await c.pg.textContent('#main .empty'), /Used Parts Bin at junkdrawer\.works\/parts-bin before\? Bring that inventory over in Settings\./);
+  await c.pg.click('#main .empty a[href="#settings"]'); await c.pg.click('#old');
+  await c.pg.waitForSelector('#toast:has-text("There’s nothing saved at junkdrawer.works/parts-bin in this browser.")');
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+  c = await carry({ answer: false, carried: 'gave up' });
+  await c.pg.goto(APP + '#settings'); await c.pg.click('#old');
+  await c.pg.waitForSelector('#toast:has-text("Couldn’t reach junkdrawer.works. Check the connection and try again.")', { timeout: 15000 });
+  assert.equal(await c.pg.isEnabled('#old'), true);
   assert.deepEqual(c.pg.problems, []); await c.ctx.close();
 }
 

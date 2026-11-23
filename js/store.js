@@ -107,4 +107,20 @@ export const store = {
     write(merged);
     return { changed, back, there };
   },
+  // The inventory saved at Parts Bin's old address (junkdrawer.works/parts-bin/), as carry.html hands it over: what isn't
+  // here at all is added, and nothing here is written over. Returns how many bins, parts and saved BOMs came over, and
+  // null when there was no inventory there.
+  addMissing(text) {
+    let raw = null; try { raw = JSON.parse(text); } catch { /* nothing readable */ }
+    if (raw?.app !== M.APP) return null;
+    const old = M.cleanDoc(raw), n = { bins: 0, parts: 0, projects: 0 };
+    const next = { ...doc, items: { ...doc.items } };
+    for (const k of M.KINDS) for (const [id, x] of Object.entries(old.items[k])) {
+      if (Object.hasOwn(doc.items[k], id)) continue;
+      next.items[k] = { ...next.items[k], [id]: x };
+      if (!M.gone(x)) n[k]++;
+    }
+    if (M.KINDS.some(k => next.items[k] !== doc.items[k])) write(next);
+    return n;
+  },
 };

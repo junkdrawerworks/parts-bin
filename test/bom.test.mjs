@@ -1,7 +1,24 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBom, matchPart, isPartNumber, shortBy, needs } from '../js/bom.js';
+import { norm, parseBom, matchPart, isPartNumber, shortBy, needs } from '../js/bom.js';
+
+test('norm folds the ways a name can be typed', () => {
+  // search, bags and BOM check all read names through it
+  assert.equal(norm('ESP32-S3'), 'esp32 s3');
+  assert.equal(norm('SCD41 CO₂ sensor'), 'scd41 co2 sensor', 'a subscript is the digit, not a gap');
+  assert.equal(norm('ＥＳＰ３２'), 'esp32', 'full-width letters, as some phone keyboards type them');
+  assert.equal(norm('100µF capacitor'), '100uf capacitor');
+  assert.equal(norm('100μF capacitor'), '100uf capacitor', 'micro sign or Greek mu');
+  assert.equal(norm('10kΩ resistor'), '10k resistor');
+  assert.equal(norm('10 kΩ potentiometer'), '10k potentiometer');
+  assert.equal(norm('220Ω resistor'), '220 resistor');
+  assert.equal(norm('220 ohm resistors'), '220 resistors');
+  assert.equal(norm('4.7k Ohms'), '4.7k');
+  assert.equal(norm('40mm speaker 4 ohm'), '40mm speaker 4');
+  assert.equal(norm('Ohm’s law kit'), 'ohm s law kit', 'only an ohm after a number is dropped');
+  assert.equal(norm(null), '');
+});
 
 test('a count first or last, or none', () => {
   assert.deepEqual(parseBom('2x XIAO ESP32-S3\n1 SCD41 breakout\n3 WS2812 strip segment\nM3 heat-set inserts x8\nSCD41 ×1\nLED strip, 3\nProto board\n# a note\n\n'), [

@@ -1,8 +1,11 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory. Search uses norm() too.
 // No page code, so tests run it in Node.
 
-// Lower case, with anything but letters, digits, dots and plus signs read as a space: "ESP32-S3" is "esp32 s3".
-export const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9.+]+/g, ' ').trim();
+// Lower case, with anything but letters, digits, dots and plus signs read as a space: "ESP32-S3" is "esp32 s3". Unicode
+// is folded first, so CO₂ is co2 and a full-width ＥＳＰ３２ is esp32; µ (or μ) is u, so 100µF is 100uf; and an ohm after a
+// number goes, as it's how a resistor's value is written, not what it's called: "10 kΩ" and "220 ohm" are 10k and 220.
+export const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace(/[µμ]/g, 'u')
+  .replace(/(\d)\s*([km]?)\s*(?:ω|ohms?)(?![a-z])/g, '$1$2').replace(/[^a-z0-9.+]+/g, ' ').trim();
 
 // One part per line (or per ;), with its count first or last: "2x XIAO ESP32-S3", "SCD41 ×1". Lines starting with # are
 // skipped, and a bullet in front is dropped. A name can start with a digit (1N4148, 74HC595, 18650 cells), so each way of

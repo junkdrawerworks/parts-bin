@@ -218,6 +218,7 @@ a{color:var(--accent-ink)}
 .cloud .dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .cloud[data-s="busy"] .dot{background:var(--warn)}
 .cloud[data-s="tap"] .dot,.cloud[data-s="error"] .dot{background:var(--bad)}
+.cloud[data-s="offline"] .dot{background:var(--ink3)}
 .brand .cloud{margin-left:auto}
 .mobile-cloud{display:none}
 /* in the corner of the page's top, scrolling away with it, not over the rows below */

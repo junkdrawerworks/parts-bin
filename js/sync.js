@@ -20,6 +20,7 @@ const FILE = { name: 'Parts Bin.json', mimeType: 'application/json', appProperti
 // KT is shared by every junkdrawer.works project: one sign-in, good for an hour, serves them all.
 const KS = 'parts-bin.sync', KT = 'junkdrawer.google';
 const RETRY = { retry: true }, FULL = { full: true };
+const OFFLINE = 'Offline. Changes are kept on this device and go to Drive when you’re back online.';
 
 const get = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
 const put = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
@@ -159,6 +160,7 @@ function sync() {
   if (!CLIENT_ID || !st.on) return Promise.resolve(false);
   if (!live()) { signedOut(); return Promise.resolve(false); }
   if (busy) { again = true; return busy; }
+  if (navigator.onLine === false) { setStatus('offline', OFFLINE); return Promise.resolve(false); } // the 'online' event syncs
   setStatus('busy');
   busy = run(0).then(changed => {
     setStatus('ok');
@@ -169,6 +171,8 @@ function sync() {
     else if (e === FULL) setStatus('error', 'This browser’s storage is full, so what Drive brought in wasn’t kept here.' + (get(INBOX)?.batches?.length ? ' Dismiss what’s waiting in the Inbox to make room.' : ''));
     else if (e?.reason === 'storageQuotaExceeded') setStatus('error', 'Your Google Drive is full, so the inventory wasn’t saved there. It’s kept on this device. Free some space in Drive, then tap Sync now.');
     else if (isBusy(e)) setStatus('error', 'Google Drive is busy. Try again in a minute.');
+    // no connection at all (a request that never answers is something else: Drive not reached, below)
+    else if (navigator.onLine === false || e instanceof TypeError) setStatus('offline', OFFLINE);
     else if (e?.unreadable) setStatus('error', 'The file in your Drive isn’t readable, so it was left alone. Save a backup here, then delete that file from the Parts Bin folder to start it fresh.');
     else setStatus('error', e === RETRY ? 'Another device kept saving. Try again in a moment.' : 'Couldn’t reach Google Drive. Check the connection and try again.');
     return false;
@@ -251,15 +255,17 @@ function ago(t) {
   if (s < 86400) return Math.round(s / 3600) + ' h ago';
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+const lastSynced = () => (st.last ? ` Last synced ${ago(st.last)}.` : '');
 function title() {
   return status === 'busy' ? 'Syncing with Google Drive'
-    : status === 'tap' ? (note ? note + ' Tap to sign in to Google again.' : 'Tap to sign in to Google again and sync')
-      : status === 'error' ? note + ' Tap to try again.'
-        : 'Synced with Google Drive' + (st.last ? ' ' + ago(st.last) : '') + '. Tap to sync now.';
+    : status === 'tap' ? (note ? note + ' Tap to sign in to Google again.' : 'Tap to sign in to Google again and sync.') + lastSynced()
+      : status === 'error' ? note + lastSynced() + ' Tap to try again.'
+        : status === 'offline' ? note + lastSynced()
+          : 'Synced with Google Drive' + (st.last ? ' ' + ago(st.last) : '') + '. Tap to sync now.';
 }
 const CLOUD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10.5a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.7 9.1 4.7 4.7 0 0 0 7 18.5z"/></svg>';
 
-// The header button: a cloud with a dot, green when synced, amber while syncing, red when it needs a tap.
+// The header button: a cloud with a dot, green when synced, amber while syncing, red when it needs a tap, grey offline.
 function chip(btn) {
   if (!btn) return;
   if (!CLIENT_ID) { btn.hidden = true; return; }
@@ -282,13 +288,13 @@ function card(host) {
   let armed = false;
   const line = () => status === 'busy' ? 'Syncing now.'
     // what went wrong signing in, when something did (Drive not allowed, the window not finishing); otherwise the hour
-    : status === 'tap' ? (note ? esc(note) : 'Google signs you out after an hour. Tap <b>Sync now</b> to sign back in; your changes are safe here meanwhile.')
-      : status === 'error' ? esc(note)
-        : st.last ? `Last synced ${ago(st.last)}.` : '';
+    : status === 'tap' ? (note ? esc(note) : 'Google signs you out after an hour. Tap <b>Sync now</b> to sign back in; your changes are safe here meanwhile.') + lastSynced()
+      : status === 'error' || status === 'offline' ? esc(note) + lastSynced()
+        : lastSynced().trim();
   function draw() {
     if (!host.isConnected) return false; // the screen it was on has gone
     host.innerHTML = st.on
-      ? `<h3>Saved to Google Drive</h3>
+      ? `<h3>${status === 'error' || status === 'tap' ? 'Google Drive: not synced' : 'Saved to Google Drive'}</h3>
         <p class="muted">Your inventory is saved to <b>${esc(st.email || 'your Google Drive')}</b>, in a folder called “Parts Bin”, and shows up on every device where you turn this on. ${line()}</p>
         <div class="row"><button class="btn" type="button" data-a="now"${status === 'busy' ? ' disabled' : ''}>Sync now</button>
         <button class="btn" type="button" data-a="off">${armed ? 'Tap again to stop' : 'Stop saving on this device'}</button></div>`

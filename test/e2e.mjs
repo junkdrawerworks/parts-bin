@@ -594,7 +594,7 @@ await page.goto(base + '#settings'); await page.waitForSelector('#drivecard [dat
 await fullFor(page, 'parts-bin', true);
 await page.click('#drivecard [data-a="now"]');
 await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'error', null, { timeout: 8000 });
-assert.match(await page.textContent('#drivecard'), /This browser’s storage is full, so what Drive brought in wasn’t kept here\.\s+Sync now/);
+assert.match(await page.textContent('#drivecard'), /This browser’s storage is full, so what Drive brought in wasn’t kept here\. Last synced [^.]+\.\s+Sync now/);
 assert.doesNotMatch(await page.getAttribute('#cloud-m', 'title'), /Synced/);
 assert.equal((await part(iron.id)).qty, ironQty + 1, 'the count here is what’s really kept');
 await fullFor(page, 'parts-bin', false);
@@ -634,7 +634,7 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sp.click('#drivecard [data-a="now"]');
   await sp.waitForFunction(() => /You signed in as work@gmail\.com/.test(document.querySelector('#drivecard').textContent), null, { timeout: 10000 });
   assert.match(await card(), /You signed in as work@gmail\.com, but this device saves to states@gmail\.com’s Drive\. Sign in as states@gmail\.com, or stop saving here and turn it on again to use the other account\./);
-  assert.match(await card(), /Saved to Google Drive|not synced/);
+  assert.match(await card(), /^\s*Google Drive: not synced/);
   assert.deepEqual(g.files().filter(f => f.owner === 'work'), [], 'a file was made in the other account’s Drive');
   assert.deepEqual(g.calls.slice(before).filter(c => !c.startsWith('GET /drive/v3/about')), [], 'the other account’s Drive was used');
   // a change saved meanwhile doesn't go there either, and the card still says why
@@ -656,7 +656,7 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   let writes = 0;
   await sp.route('https://www.googleapis.com/upload/**', r => (r.request().method() === 'OPTIONS' ? r.fallback() : (writes++, r.fulfill(driveSays(403, 'storageQuotaExceeded')))));
   await touch('Full drive'); await sp.click('#drivecard [data-a="now"]'); await chipIs('error');
-  assert.match(await card(), /Your Google Drive is full, so the inventory wasn’t saved there\. It’s kept on this device\. Free some space in Drive, then tap Sync now\./);
+  assert.match(await card(), /^\s*Google Drive: not synced.*Your Google Drive is full, so the inventory wasn’t saved there\. It’s kept on this device\. Free some space in Drive, then tap Sync now\. Last synced (just now|\d+ min ago)\./s);
   assert.equal(writes, 1, 'a full Drive isn’t asked again and again');
   await sp.unroute('https://www.googleapis.com/upload/**');
   // Drive busy: tried once more a few seconds later, then the card says so
@@ -681,6 +681,23 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   assert.notEqual(myFile().id, oldId); assert.equal(JSON.parse(myFile().body).items.bins['b-w'].name, 'Made afresh');
   await sp.unroute('https://www.googleapis.com/upload/drive/v3/files/**');
   await sp.evaluate(() => { delete window.__driveBackoff; });
+  // offline: a grey dot, not the red of something wrong, and the card says changes are kept here and when it last synced
+  // (it said "Couldn't reach Google Drive. Check the connection")
+  const dot = () => sp.$eval('#cloud-m .dot', d => getComputedStyle(d).backgroundColor);
+  const grey = await sp.evaluate(() => { const i = document.createElement('i'); i.style.color = 'var(--ink3)'; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c; });
+  await sCtx.setOffline(true);
+  await touch('Offline'); await sp.click('#drivecard [data-a="now"]'); await chipIs('offline');
+  assert.match(await card(), /^\s*Saved to Google Drive.*Offline\. Changes are kept on this device and go to Drive when you’re back online\. Last synced (just now|\d+ min ago)\./s);
+  assert.equal(await dot(), grey);
+  assert.match(await sp.getAttribute('#cloud-m', 'title'), /^Offline\..*Last synced/);
+  // back online: it syncs by itself
+  await sCtx.setOffline(false); await chipIs('ok');
+  assert.equal(JSON.parse(myFile().body).items.bins['b-w'].name, 'Offline');
+  // a connection that drops as the file goes up reads as offline too
+  await sp.route('https://www.googleapis.com/upload/**', r => r.abort('internetdisconnected'));
+  await touch('Dropped'); await sp.click('#drivecard [data-a="now"]'); await chipIs('offline');
+  await sp.unroute('https://www.googleapis.com/upload/**');
+  await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
   assert.deepEqual(sp.problems.filter(p => !p.startsWith('Failed to load resource')), [], 'problems on the Drive states device'); // Drive saying no, as it was asked to
   await sCtx.close();
 }

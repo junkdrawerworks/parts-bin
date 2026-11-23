@@ -5,6 +5,7 @@
 // Nothing about this shows away from parts-bin.junkdrawer.works.
 import { cleanDoc, canon, mergeDocs, APP } from './model.js';
 import { KEY } from './store.js';
+import { KEY as INBOX } from './inbox.js';
 
 // The junkdrawer.works OAuth client, shared by every junkdrawer.works project. Google only accepts it
 // from the addresses it lists, so anywhere else (localhost, the single-file copy) nothing about Drive shows.
@@ -18,7 +19,7 @@ const FOLDER = { name: 'Parts Bin', mimeType: 'application/vnd.google-apps.folde
 const FILE = { name: 'Parts Bin.json', mimeType: 'application/json', appProperties: { partsbin: 'sync' } };
 // KT is shared by every junkdrawer.works project: one sign-in, good for an hour, serves them all.
 const KS = 'parts-bin.sync', KT = 'junkdrawer.google';
-const RETRY = { retry: true };
+const RETRY = { retry: true }, FULL = { full: true };
 
 const get = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
 const put = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
@@ -114,8 +115,10 @@ async function run(tries) {
     }
     if (canon(readLocal()) !== localText) throw RETRY; // saved here meanwhile: merge again
     const changed = out !== localText;
-    if (changed) { try { localStorage.setItem(KEY, out); } catch { /* keep what's on screen */ } }
-    st.fileId = file.id; st.last = Date.now(); saveSt();
+    st.fileId = file.id;
+    // This browser's storage is full: Drive has the merged copy, so nothing is lost, but this isn't synced, and says so.
+    if (changed) { try { localStorage.setItem(KEY, out); } catch { saveSt(); throw FULL; } }
+    st.last = Date.now(); saveSt();
     return changed;
   } catch (e) {
     if (e === RETRY && tries < 4) return run(tries + 1);
@@ -134,6 +137,7 @@ function sync() {
     return changed;
   }, e => {
     if (e?.auth) setStatus('tap');
+    else if (e === FULL) setStatus('error', 'This browser’s storage is full, so what Drive brought in wasn’t kept here.' + (get(INBOX)?.batches?.length ? ' Dismiss what’s waiting in the Inbox to make room.' : ''));
     else if (e?.unreadable) setStatus('error', 'The file in your Drive isn’t readable, so it was left alone. Save a backup here, then delete that file from the Parts Bin folder to start it fresh.');
     else setStatus('error', e === RETRY ? 'Another device kept saving. Try again in a moment.' : 'Couldn’t reach Google Drive. Check the connection and try again.');
     return false;

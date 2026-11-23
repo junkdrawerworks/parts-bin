@@ -452,6 +452,30 @@ await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s ==
 assert.equal(onDrive(iron.id).qty, ironQty + 1, 'the count that waited reached Drive');
 await page.evaluate(() => { delete window.__driveTimeout; });
 
+// ---- with this browser's storage full, a sync that brings a change says it couldn't keep it (it said "Synced just now", and
+// the change wasn't here)
+await laptop.page.goto(base + '#part/' + iron.id); await laptop.page.waitForSelector('#inc');
+await laptop.page.evaluate(() => document.querySelector('#cloud').click());
+await laptop.page.waitForFunction(q => document.querySelector('#qv')?.value === String(q), ironQty + 1, { timeout: 8000 });
+await laptop.page.click('#inc');
+await until(() => onDrive(iron.id).qty === ironQty + 2, 'the laptop’s count to reach Drive');
+const fullFor = (p, key, on) => p.evaluate(([key, on]) => {
+  if (!on) { Storage.prototype.setItem = window.__setItem; return; }
+  window.__setItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function (k, v) { if (k === key) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); return window.__setItem.call(this, k, v); };
+}, [key, on]);
+await page.goto(base + '#settings'); await page.waitForSelector('#drivecard [data-a="now"]');
+await fullFor(page, 'parts-bin', true);
+await page.click('#drivecard [data-a="now"]');
+await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'error', null, { timeout: 8000 });
+assert.match(await page.textContent('#drivecard'), /This browser’s storage is full, so what Drive brought in wasn’t kept here\.\s+Sync now/);
+assert.doesNotMatch(await page.getAttribute('#cloud-m', 'title'), /Synced/);
+assert.equal((await part(iron.id)).qty, ironQty + 1, 'the count here is what’s really kept');
+await fullFor(page, 'parts-bin', false);
+await page.click('#drivecard [data-a="now"]');
+await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 8000 });
+assert.equal((await part(iron.id)).qty, ironQty + 2);
+
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');

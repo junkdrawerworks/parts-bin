@@ -1083,7 +1083,7 @@ function batchSection(b){
   // may be on another device that hasn't synced here yet.
   if(lost.length){
     const n=lost.length, note=h(`<div class="note lost" style="margin-bottom:14px"><p>${n} suggestion${n===1?' is':'s are'} for ${n===1?'a part that isn’t':'parts that aren’t'} in this browser’s inventory. If another device has ${n===1?'it':'them'}, sync here first and ${n===1?'it':'they'}’ll show up; otherwise skip ${n===1?'it':'them'}.</p>
-      ${lost.map(x=>`<div class="row" data-k="${esc(x.k)}"><span class="grow">${x.name?esc(x.name):`<span class="mono">${esc(x.id)}</span>`}</span><button class="btn sm" data-a="skip">Skip</button></div>`).join('')}</div>`);
+      ${lost.map(x=>`<div class="row" data-k="${esc(x.k)}"><span class="grow">${x.name?esc(x.name):`<span class="mono">${esc(x.id)}</span>`}</span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(x.name||x.id)}">Skip</button></div>`).join('')}</div>`);
     note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ settled(b,[r.dataset.k]); IN.resolve(INBOX,b.id,[r.dataset.k]); keepInbox(); render(); });
     sec.append(note);
   }
@@ -1117,7 +1117,7 @@ function nearParts(name){
     .filter(x=>x.s).sort((x,y)=>y.s-x.s).slice(0,2).map(x=>x.p);
 }
 function itemHead(x, title, sub=''){
-  return `<div class="inb-head"><div class="thumb${x.img?' refphoto':''}">${ICONS.parts}${refImg(x)}</div><div class="grow"><div class="t">${title}</div>
+  return `<div class="inb-head"><div class="thumb${x.img?' refphoto':''}">${ICONS.parts}${refImg(x)}</div><div class="grow"><h4 class="t">${title}</h4>
     <div class="row chips">${x.category?`<span class="chip">${esc(x.category)}</span>`:''}${specChips(x)}${x.mpn?`<span class="tiny mono">${esc(x.mpn)}</span>`:''}</div>${sub}</div></div>`;
 }
 function newCard(b,x){
@@ -1128,9 +1128,9 @@ function newCard(b,x){
     ${x.check?`<div class="checknote"><div><b>Check.</b> ${esc(x.check)}</div></div>`:''}
     <div class="matchlist">${cands.map(row).join('')}
       <button type="button" data-id=""><span><b>${cands.length?'It’s a different part':'Add it'}</b>${cands.length?'<div class="s">Not one of these</div>':''}</span><span class="chip warn">new part</span></button></div>
-    <div class="row"><span class="tiny grow">${cands.length?'Pick the row that’s in the bag.':'Opens filled in, to check and save.'}</span><button class="btn sm" data-a="skip">Skip</button></div></div>`);
+    <div class="row"><span class="tiny grow">${cands.length?'Pick the row that’s in the bag.':'Opens filled in, to check and save.'}</span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(x.name)}">Skip</button></div></div>`);
   el.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openFromInbox(b,x,btn.dataset.id?S.parts.get(btn.dataset.id):null));
-  el.querySelector('[data-a="skip"]').onclick=()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); };
+  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); said('Skipped '+x.name); toCard(next); };
   return el;
 }
 // Opens the usual part sheet, filled in. A part that's already listed keeps its record: blanks are filled, nothing it
@@ -1159,22 +1159,24 @@ function updateCard(b,x){
   const to=r=>{
     if(r.k==='notes' && r.from) return '+ '+esc(x.notes);
     if(r.k==='tags'){ const add=x.tags.filter(t=>!(p.tags||[]).includes(t)); return '+ '+esc(add.join(', ')); }
-    if(r.k==='img'||r.k==='link') return `${r.from?'<s>'+esc(shortUrl(r.from))+'</s> ':''}${esc(shortUrl(r.to))}`;
-    return `${IN.show(r.from)?'<s>'+esc(IN.show(r.from))+'</s> ':''}${esc(IN.show(r.to))}`;
+    // what it says now, struck out, and what it would say: read out as "was …" and "now …", as a strike isn't
+    const was=(old,now)=>old?`<s><span class="sr">was </span>${esc(old)}</s> <span class="sr">now </span>${esc(now)}`:esc(now);
+    if(r.k==='img'||r.k==='link') return was(r.from&&shortUrl(r.from), shortUrl(r.to));
+    return was(IN.show(r.from), IN.show(r.to));
   };
   const el=h(`<div class="card inb" data-k="${esc(x.k)}">
     ${itemHead({img:x.img||p.img}, `<a href="#part/${esc(p.id)}">${esc(p.name)}</a>`, `<div class="tiny">${p.bag?esc(bagStr(p.bag))+' · ':''}${bin?esc(bin.code):'no bin'}</div>`)}
     <div class="diff">${d.map(r=>`<label><input type="checkbox" data-k="${r.k}"${untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'?' warn':''}">${to(r)}</span></label>`).join('')}</div>
-    <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip">Skip</button><button class="btn primary sm" data-a="apply">Apply</button></div></div>`);
+    <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(p.name)}">Skip</button><button class="btn primary sm" data-a="apply" aria-label="Apply to ${esc(p.name)}">Apply</button></div></div>`);
   el.querySelectorAll('.diff input').forEach(i=>i.onchange=()=>{ const u=untickedOf(b,x); if(i.checked) u.delete(i.dataset.k); else u.add(i.dataset.k); });
-  el.querySelector('[data-a="skip"]').onclick=()=>{ settled(b,[x.k]); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); };
-  el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:ticked(b,x)}]);
+  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); settled(b,[x.k]); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); said('Skipped '+p.name); toCard(next); };
+  el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:ticked(b,x)}], cardAfter(el));
   return el;
 }
 // keys: which fields to take from a suggestion. Two suggestions for one part build on each
 // other, and each part is written once. The suggestions leave the Inbox once they're saved; a save refused (storage
 // full) leaves them waiting.
-async function applyUpdates(b, list){
+async function applyUpdates(b, list, next=null){
   const now=new Map(), changes=new Map();
   for(const {x,keys} of list){
     const p=now.get(x.id)||S.parts.get(x.id); if(!p) continue;
@@ -1187,8 +1189,20 @@ async function applyUpdates(b, list){
   const parts=changes.size;
   settled(b,list.map(q=>q.x.k)); IN.resolve(INBOX,b.id,list.map(q=>q.x.k)); keepInbox();
   toast(parts?`Updated ${parts} part${parts===1?'':'s'}`:'Nothing applied');
-  render();
+  render(); toCard(next);
 }
+// After a card is skipped or applied, the keyboard goes on to the next card's heading (or the first card left, or the
+// empty Inbox's), rather than dropping to the top of the page. cardAfter: which card that is, found before the Inbox
+// is drawn again.
+function cardAfter(card){ const all=[...document.querySelectorAll('#main .card.inb')], n=all[all.indexOf(card)+1]; return n ? [n.closest('[data-batch]')?.dataset.batch, n.dataset.k] : null; }
+function toCard(next){
+  const c=next && [...document.querySelectorAll('#main .card.inb')].find(e=>e.dataset.k===next[1] && e.closest('[data-batch]')?.dataset.batch===next[0]);
+  const t=(c||document.querySelector('#main .card.inb'))?.querySelector('.inb-head .t') || document.querySelector('#main .empty h3');
+  if(t){ t.tabIndex=-1; t.focus(); }
+}
+// Said to a screen reader only, with nothing on screen (the card going is what shows). An older message still showing
+// goes first, as its fading out would take this with it; one shown just now by the same tap (storage full) is said instead.
+function said(msg){ if(toastFresh) return; if(!document.getElementById('toast').hidden) hideToast(); const say=document.getElementById('say'); say.textContent=''; requestAnimationFrame(()=>{ say.textContent=msg; }); }
 // Hands Claude the parts to look up. On a phone this opens the share sheet (pick Claude); elsewhere it copies.
 function claudeText(parts){
   // Its bin and bag let Claude match a photographed bag to the record that has its number; its tags and what's still to

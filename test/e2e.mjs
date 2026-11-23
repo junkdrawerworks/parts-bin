@@ -1650,6 +1650,45 @@ await desk.goto(base);
   await hCtx.close();
 }
 
+// ---- the Inbox from the keyboard: Skip and Apply say which part, each item is a heading, a struck-out old value is read
+// as what it was, and after Skip or Apply the keyboard goes on to the next card (it dropped to the top of the page, and
+// Skip said nothing)
+{
+  const INB = await import('file://' + join(root, 'js/inbox.js'));
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts: {
+    'p-bh': { name: 'BH1750 light sensor (GY-302)', category: 'Light', qty: 2, unit: 'pcs', tags: [], t: 1 },
+    'p-ss': { name: 'SSD1306', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });
+  const iCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await iCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const ip = await iCtx.newPage();
+  ip.problems = []; ip.on('pageerror', e => ip.problems.push(e.message)); ip.on('console', m => { if (m.type() === 'error') ip.problems.push(m.text()); });
+  await ip.goto(base + '#' + await INB.encode({ partsbin: 1, batch: { id: 'ptest-keys', name: 'Bench', source: 'details', items: [
+    { name: 'Rotary encoder', qty: 4 }, { id: 'p-bh', category: 'Sensors', addr: '0x23' }, { id: 'p-ss', iface: ['I2C'] }] } }));
+  await ip.waitForSelector('.card.inb'); await ip.waitForSelector('#toast:has-text("3 from Claude to check")');
+  const at = () => ip.evaluate(() => document.activeElement.closest('.card.inb')?.querySelector('.inb-head .t')?.textContent || document.activeElement.tagName + ' ' + document.activeElement.textContent);
+  assert.equal(await ip.getByRole('heading', { level: 4, name: 'BH1750 light sensor (GY-302)' }).count(), 1, 'an item isn’t a heading');
+  assert.equal(await ip.getByRole('button', { name: 'Skip BH1750 light sensor (GY-302)', exact: true }).count(), 1);
+  assert.equal(await ip.getByRole('button', { name: 'Apply to BH1750 light sensor (GY-302)', exact: true }).count(), 1);
+  assert.equal(await ip.getByRole('button', { name: 'Skip Rotary encoder', exact: true }).count(), 1);
+  assert.equal(await ip.textContent('.card.inb[data-k="i1"] .diff input[data-k="category"] ~ .v'), 'was Light now Sensors');
+  assert.equal(await ip.textContent('.card.inb[data-k="i1"] .diff input[data-k="category"] ~ .v s'), 'was Light');
+  // Skip goes on to the next card, and says what it skipped
+  await ip.getByRole('button', { name: 'Skip Rotary encoder' }).focus(); await ip.keyboard.press('Enter');
+  await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 2);
+  assert.equal(await at(), 'BH1750 light sensor (GY-302)');
+  assert.equal(await ip.textContent('#say'), 'Skipped Rotary encoder');
+  // Apply the same
+  await ip.getByRole('button', { name: 'Apply to BH1750 light sensor (GY-302)' }).focus(); await ip.keyboard.press('Enter');
+  await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 1);
+  assert.equal(await at(), 'SSD1306');
+  // and after the last, the Inbox says it's empty
+  await ip.getByRole('button', { name: 'Apply to SSD1306' }).focus(); await ip.keyboard.press('Enter');
+  await ip.waitForSelector('text=Nothing waiting');
+  assert.equal(await at(), 'H3 Nothing waiting');
+  assert.deepEqual(ip.problems, []);
+  await iCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

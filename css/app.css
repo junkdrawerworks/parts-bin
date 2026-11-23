@@ -274,7 +274,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .batchbar{margin:0 0 10px}
 .card.inb{padding:12px 14px}
 .inb-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
-.inb-head .t{font-weight:600;font-size:16px;overflow-wrap:anywhere}
+.inb-head .t{font-weight:600;font-size:16px;overflow-wrap:anywhere;margin:0}
+.inb-head .t:focus{outline:none} /* focused after the card before it went, so it's read out */
 .inb-head .t a{color:inherit}
 .inb-head .q{font-size:14px;color:var(--ink2);white-space:nowrap}
 .card.inb .chips{gap:6px;margin-top:4px}

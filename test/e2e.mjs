@@ -368,8 +368,9 @@ await page.selectOption('#cat', '__low'); await page.waitForSelector('#main .emp
 await page.selectOption('#cat', '');
 
 // ---- a receipt adds to what's in stock, and a part that's already bagged isn't tagged again
-await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', made: '2026-11-23', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>' }] } }));
+await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', made: '2026-11-23', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>', volts: '5–32 V in', logic: '5 V tolerant' }] } }));
 await page.waitForSelector('.card.inb[data-k="i1"]');
+assert.deepEqual(await page.locator('.card.inb[data-k="i1"] .chip.spec').allTextContents(), ['5–32 V in', '5 V tolerant logic'], 'a supply that says "in" isn’t "in supply"');
 assert.match(await page.textContent('.batch .section-h .tiny'), /^From a receipt · (23 Nov|Nov 23) · 2 left$/, 'the day Claude made it');
 assert.equal(await page.locator('.card.inb .t b, .card.inb i, .card.inb img:not(.ref)').count(), 0, 'what a batch says is shown as text, never as markup');
 assert.equal(await page.evaluate(() => window.__xss), undefined);

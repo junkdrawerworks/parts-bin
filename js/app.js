@@ -787,9 +787,10 @@ async function readTag(){
 }
 
 // ------------------------------------------------------------------ specs and reference photos
+// A supply already written as an input or output ("5–32 V in") isn't given "supply" as well.
 function specChips(p){
   return [...(p.iface||[]).map(x=>`<span class="chip spec">${esc(x)}</span>`), p.addr?`<span class="chip spec mono">${esc(p.addr)}</span>`:'',
-    p.volts?`<span class="chip spec">${esc(p.volts)} supply</span>`:'', p.logic?`<span class="chip spec">${esc(p.logic)} logic</span>`:''].join('');
+    p.volts?`<span class="chip spec">${esc(p.volts)}${/\b(in|input|out)$/i.test(String(p.volts).trim())?'':' supply'}</span>`:'', p.logic?`<span class="chip spec">${esc(p.logic)} logic</span>`:''].join('');
 }
 // A reference photo is a typical one from the maker's or a shop's site, loaded from there. It never replaces the
 // part icon in the page: if the picture is gone, the icon underneath shows again.

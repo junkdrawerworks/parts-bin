@@ -1759,6 +1759,18 @@ await aiCtx.close();
   assert.equal(await fp.locator('.binhead .photo img.ref').count(), 0);
   // a reload keeps them (and a part with one still reads as having no details, for Claude to fill in)
   await fp.goto(base + '#part/p-bme'); await fp.reload(); await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  // a photo of one part, then something else typed in and saved: the photo and what it was taken for don't come back
+  says = { items: [{ matchId: null, name: 'L298N motor driver', category: 'Modules', qty: 1, box: [0.075, 0.15, 0.4, 0.85] }] };
+  await fp.goto(base + '#scan'); await fp.waitForSelector('#file', { state: 'attached' });
+  await fp.setInputFiles('#file', { name: 'one.png', mimeType: 'image/png', buffer: bench });
+  await fp.waitForSelector('#status:has-text("New: L298N motor driver")');
+  await fp.fill('#desc', 'Mini breadboard'); await fp.click('.matchlist [data-id=""]:has-text("Mini breadboard")');
+  await fp.waitForSelector('.sheet #p-name'); assert.equal(await fp.inputValue('#p-name'), 'Mini breadboard');
+  await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  await fp.waitForSelector('.packed :text("Mini breadboard")');
+  assert.equal(await fp.locator('#result img.preview').count(), 0, 'the photo is put away');
+  assert.equal(await fp.textContent('#status'), '');
+  assert.equal(await fp.locator('.matchlist').count(), 0);
   assert.deepEqual(fp.problems, []);
   await fCtx.close();
 }

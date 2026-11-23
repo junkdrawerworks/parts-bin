@@ -1011,11 +1011,13 @@ function renderScan(m){
   // After a save. Saving has drawn the screen again already, keeping the description (render), so it's emptied there too.
   function reset(){ file=null; packDraft=''; if(fi) fi.value=''; for(const d of [ui.querySelector('#desc'), document.getElementById('desc')]) if(d) d.value=''; res.innerHTML=''; st.textContent=''; }
   // A part saved from what a photo was identified as takes its picture cut from the photo, when it has no reference photo
-  // or picture of its own yet, and leaves the photo's other parts for the next bag.
+  // or picture of its own yet, and leaves the photo's other parts for the next bag. A photo of one part is done with once a
+  // bag is saved, whatever it was saved as (typed in instead, say), as it has no Done with this photo: it came back after.
   const packed=(p,seed)=>{ PACKED.push(p.id); if(PACKED.length>50) PACKED.shift(); localSet('pb.packed',true);
     const i=SHOT?SHOT.items.indexOf(seed):-1;
     if(i>=0){ if(seed.thumb && !p.img && !photos.has(p.id)) photos.put(p.id, seed.thumb).catch(()=>toast('This browser couldn’t keep the photo.'));
       SHOT.items.splice(i,1); SHOT.at=0; if(!SHOT.items.length) SHOT=null; }
+    else if(SHOT && SHOT.items.length<2) SHOT=null;
     reset(); render(); };
   function openEditor(seed, matched, again=null){
     const destId=head.querySelector('#dest').value;

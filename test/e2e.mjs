@@ -159,6 +159,7 @@ await page.waitForSelector('#tz.wait');
 await page.evaluate(() => window.__tap());
 await page.waitForFunction(() => !document.querySelector('.sheet'));
 assert.match((await page.evaluate(() => window.__written))[1], /#bag\/002$/);
+await page.evaluate(() => scrollTo(0, 0)); // typing took the field to the top of the screen: the README shows the whole of Pack
 await shot(page, 'phone-pack');
 
 // ---- Parts → + Part: a new part goes into a new bag and is tagged on save
@@ -942,6 +943,7 @@ assert.deepEqual(under(await box('.binhead a'), 0, 32), [], 'the bin link on a p
 await page.goto(base + '#bins'); await page.waitForSelector('#addbin');
 assert.deepEqual(under(await box('#readtag'), 44, 44), [], 'the NFC button is under 44 px');
 assert.deepEqual(under(await box('#addbin'), 0, 44), [], '+ Bin is under 44 px');
+assert.ok(await page.evaluate(() => Math.abs(document.querySelector('.topbar h2').getBoundingClientRect().top - document.querySelector('.search').getBoundingClientRect().top) < 20), 'with the Drive button, search drops under the title');
 // long names wrap rather than push the page sideways: a bin named in full (listed in a box's Unpack into), a saved BOM, a
 // part name with no spaces
 await page.evaluate(() => {

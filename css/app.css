@@ -269,7 +269,7 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .jd-foot a:hover,.jd-foot a:focus-visible{text-decoration:underline}
 /* on a phone the footer ends above the tab bar, so it can be seen and tapped */
 @media(max-width:760px){.jd-foot{padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}}
-@media(max-width:760px){ body:has(#cloud-m:not([hidden])) :is(.topbar,.pagehead){padding-right:52px} }
+@media(max-width:760px){ body:has(#cloud-m:not([hidden])) :is(.topbar,.pagehead){padding-right:46px} }
 /* on a phone, buttons a fingertip can hit: 44 px (40 px for the small ones in a row of several), and the bin and Product
    links on a part's page reach above and below their line (WCAG 2.2 SC 2.5.5 asks 44 by 44 CSS px) */
 @media(max-width:760px){

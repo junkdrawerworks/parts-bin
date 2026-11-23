@@ -224,6 +224,7 @@ await page.goto(base + '#bins');
 await page.reload();
 await page.waitForFunction(() => window.__reader?.onreading);
 assert.ok(await page.$('#readtag.on'), 'the NFC button shows it is listening');
+assert.equal(await page.getAttribute('#readtag', 'aria-pressed'), 'true', 'only the look says it is listening');
 await page.evaluate(u => window.__read(u), base + '#bag/001');
 await page.waitForSelector('h2:has-text("BME280")');
 // an old tag from the Stockroom artifact opens here too, and offers to rewrite it for Parts Bin
@@ -1109,6 +1110,11 @@ const named = async (hash, role, name) => { await page.goto(base + hash); assert
 await named('#parts', 'searchbox', 'Search'); await named('#parts', 'combobox', 'Category');
 await named('#bin/box-move', 'combobox', 'Unpack into'); await named('#bom', 'combobox', 'Saved BOMs');
 await named('#scan', 'combobox', 'Packing into'); await named('#part/p-scd41', 'spinbutton', 'Quantity');
+// the + buttons say what they add (they were read as "Bin", "Part", "Box"), and icons beside words aren't read as images
+await named('#bins', 'button', 'New bin'); await named('#parts', 'button', 'New part'); await named('#bin/bin-env', 'button', 'New part');
+await named('#scan', 'button', 'New bin'); await named('#scan', 'button', 'New box');
+assert.equal(await page.locator('svg:not([aria-hidden="true"])').count(), 0, 'an icon read as an image');
+await page.goto(base + '#part/p-scd41');
 await page.click('#edit');
 assert.equal(await page.getByRole('dialog', { name: 'Edit part' }).count(), 1);
 await page.click('.sheet #save');

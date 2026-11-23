@@ -27,6 +27,8 @@ const ICONS = {
   camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 13l2.5-8h11L20 13v6H4z"/><path d="M4 13h5a3 3 0 006 0h5"/></svg>',
 };
+// An icon is drawn beside words that say what it is, so a screen reader leaves it out.
+for(const k in ICONS) ICONS[k]=ICONS[k].replace('<svg ','<svg aria-hidden="true" focusable="false" ');
 const NAV = [['bins','Bins'],['parts','Parts'],['bom','BOM check'],['scan','Pack'],['settings','Settings']];
 
 // ------------------------------------------------------------------ utils
@@ -169,7 +171,7 @@ function renderNav(){
   document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
 }
 function topbar(m, title, extra=''){
-  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
+  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
   m.append(el);
   el.querySelector('#readtag')?.addEventListener('click', readTag);
   const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(q.isConnected) redrawResults(m, el); },160); };
@@ -189,7 +191,7 @@ function redrawResults(m, tb){
 
 // ---- Bins
 function renderBins(m){
-  const tb=topbar(m,'Bins', S.canWrite?`<button class="btn primary" id="addbin">${ICONS.plus} Bin</button>`:'');
+  const tb=topbar(m,'Bins', S.canWrite?`<button class="btn primary" id="addbin" aria-label="New bin">${ICONS.plus} Bin</button>`:'');
   clashBar(m); codeNote(m);
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
@@ -321,7 +323,7 @@ function renderBin(m, binId){
   const ps=partsInBin(binId); if(isBox(b)) ps.sort(byBag); // a box's bags in number order, as they're labelled and printed
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back to bins">${ICONS.back}</button><span class="grow"></span>
     <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>
-    ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`);
+    ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add" aria-label="New part">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`);
   m.append(head);
   head.querySelector('#back').onclick=()=>go('bins');
   head.querySelector('#tag')?.addEventListener('click',()=>tagSheet(b));
@@ -378,7 +380,7 @@ function printList(b, ps){
 function renderParts(m){
   const cats=[...new Set([...S.parts.values()].map(p=>p.category).filter(Boolean))].sort();
   const cur=localGet('sr.cat','');
-  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select>${S.canWrite?`<button class="btn primary" id="addp">${ICONS.plus} Part</button>`:''}`);
+  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select>${S.canWrite?`<button class="btn primary" id="addp" aria-label="New part">${ICONS.plus} Part</button>`:''}`);
   tb.querySelector('#cat').onchange=e=>{ localSet('sr.cat',e.target.value); render(); };
   tb.querySelector('#addp')?.addEventListener('click',()=>editPart({}));
   if(cur==='__clash') gapNote(m); else clashBar(m);
@@ -521,7 +523,7 @@ function renderScan(m){
   let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
   const nb=nextBag();
   const head=h(`<div class="packhead">
-    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(contLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
+    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(contLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin" aria-label="New bin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox" aria-label="New box">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
   m.append(staleNote(), head);
   head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
@@ -950,7 +952,7 @@ async function listen(gesture=false){
   try{
     const r=new NDEFReader(); await r.scan({signal:ctl.signal});
     r.onreading=onTag; r.onreadingerror=()=>{};
-    document.getElementById('readtag')?.classList.add('on');
+    const rt=document.getElementById('readtag'); rt?.classList.add('on'); rt?.setAttribute('aria-pressed','true');
     return true;
   }catch(e){
     if(reading===ctl) reading=null;

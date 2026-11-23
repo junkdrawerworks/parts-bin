@@ -50,8 +50,15 @@ function id(){ return Math.random().toString(36).slice(2,10)+Date.now().toString
 // A message is about the screen it was shown on, so it goes when another screen opens (a tag read on Bins doesn't follow
 // you to BOM check), unless it was shown on the way there: toast() then go() in one go, or keepToast().
 let toastFresh=false, toastCarry=false;
-function toast(msg,ms=1800){ const t=document.getElementById('toast'), say=document.getElementById('say'); t.textContent=say.textContent=msg; t.hidden=false; toastCarry=false; toastFresh=true; queueMicrotask(()=>{ toastFresh=false; }); clearTimeout(t._t); t._t=setTimeout(hideToast,ms); }
-function hideToast(){ const t=document.getElementById('toast'); clearTimeout(t._t); t.hidden=true; document.getElementById('say').textContent=''; toastCarry=false; }
+// It fades in and out (the class), and #say reads it out for a screen reader.
+function toast(msg,ms=1800){
+  const t=document.getElementById('toast'), say=document.getElementById('say'); t.textContent=say.textContent=msg;
+  clearTimeout(t._t); t.hidden=false; void t.offsetWidth; t.classList.add('on');
+  toastCarry=false; toastFresh=true; queueMicrotask(()=>{ toastFresh=false; });
+  t._t=setTimeout(()=>{ t.classList.remove('on'); t._t=setTimeout(hideToast,200); },ms);
+}
+// gone at once (another screen has opened), or at the end of the fade
+function hideToast(){ const t=document.getElementById('toast'); clearTimeout(t._t); t.classList.remove('on'); t.hidden=true; document.getElementById('say').textContent=''; toastCarry=false; }
 function keepToast(){ if(!document.getElementById('toast').hidden) toastCarry=true; }
 function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; }
 function fmtQty(p){ return (p.qty ?? 0) + (p.unit && p.unit!=='pcs' ? ' '+p.unit : ''); }
@@ -531,7 +538,11 @@ function sheet(html, onClose){
     queueMicrotask(()=>{ if(!openSheet && !isStepping() && history.state?.sheet===me.id) stepOff(); });
   }
   const title=bg.querySelector('.sheet h3'); if(title){ title.id='sheet-title'; bg.firstElementChild.setAttribute('aria-labelledby','sheet-title'); }
-  root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true); wirePhoto(bg); const f=bg.querySelector('input:not([type=file]),textarea,select'); f&&f.focus();
+  root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true); wirePhoto(bg);
+  // The keyboard goes to the first field, but not on a touch screen, where it would pop up over half the sheet before
+  // anything needs typing: there the sheet itself has it, so a screen reader starts at its heading.
+  const box=bg.firstElementChild, f=bg.querySelector('input:not([type=file]),textarea,select'); box.tabIndex=-1;
+  if(f && !matchMedia('(pointer:coarse)').matches) f.focus(); else box.focus({preventScroll:true});
   openSheet=me; keepStep();
   return {el:bg.querySelector('.sheet'), close};
 }

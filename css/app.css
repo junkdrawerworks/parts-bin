@@ -99,7 +99,9 @@ a{color:var(--accent-ink)}
 .note.lost p{margin:0 0 4px}
 .note.lost .row{border-top:1px solid var(--line);padding:6px 0 0;margin-top:6px;overflow-wrap:anywhere}
 .note.lost .row .grow{min-width:0;color:var(--ink)}
-.toast{position:fixed;left:50%;bottom:calc(72px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--label);color:var(--label-ink);padding:9px 14px;border-radius:var(--r);font-weight:600;font-size:14px;box-shadow:var(--shadow);z-index:20;transition:opacity .2s}
+.toast{position:fixed;left:50%;bottom:calc(72px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--label);color:var(--label-ink);padding:9px 14px;border-radius:var(--r);font-weight:600;font-size:14px;box-shadow:var(--shadow);z-index:20;opacity:0;transition:opacity .2s}
+.toast.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}
 @media(min-width:761px){.toast{bottom:24px}}
 
 /* ---- bins grid ---- */
@@ -138,7 +140,9 @@ a{color:var(--accent-ink)}
 .sheet{background:var(--panel);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:12px 12px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:var(--shadow)}
 @media(min-width:761px){.sheet{border-radius:10px}}
 .sheet h3{font-size:22px;margin-bottom:12px}
-.sheet .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+.sheet:focus{outline:none}
+/* Save and Cancel stay at the bottom of a long sheet, over what scrolls under them */
+.sheet .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:calc(-18px - env(safe-area-inset-bottom,0px));z-index:1;background:var(--panel);border-top:1px solid var(--line);margin-inline:-18px;padding:10px 18px calc(10px + env(safe-area-inset-bottom,0px))}
 .sheet .actions .left{margin-right:auto}
 .qty{display:flex;align-items:center;gap:6px}
 .qty input{width:80px;text-align:center;font-family:"JetBrains Mono",monospace}

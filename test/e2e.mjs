@@ -1152,6 +1152,7 @@ await desk.goto(base);
 
   // a box is called a box: + Box opens "New box" (it said "New bin", then "Bin added"), and the title follows the Type
   await np.goto(base + '#scan'); await np.click('#newbox'); await np.waitForSelector('.sheet #f-kind');
+  assert.equal(await np.evaluate(() => document.activeElement.id), 'f-code', 'on a laptop the first field has the keyboard');
   assert.equal(await np.textContent('.sheet h3'), 'New box');
   await np.selectOption('#f-kind', 'bin'); assert.equal(await np.textContent('.sheet h3'), 'New bin');
   await np.selectOption('#f-kind', 'box'); assert.equal(await np.textContent('.sheet h3'), 'New box');
@@ -1221,6 +1222,17 @@ await desk.goto(base);
   await lp.goto(base + '#part/p7'); await lp.waitForSelector('#inc');
   assert.equal(await draws(() => lp.click('#inc')), 1, 'a save drew the part page more than once');
   assert.equal(await lp.inputValue('#qv'), '71');
+  // on a phone, a sheet opens without the keyboard (it popped up over half the sheet) and Save is in reach at the bottom
+  // of the screen without scrolling the long part sheet
+  await lp.click('#edit'); await lp.waitForSelector('.sheet #p-name');
+  assert.ok(await lp.evaluate(() => document.activeElement.classList.contains('sheet')), 'a field took the keyboard as the sheet opened');
+  const inView = sel => lp.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }, sel);
+  assert.ok(await lp.evaluate(() => { const s = document.querySelector('.sheet'); return s.scrollHeight > s.clientHeight + 200; }), 'the part sheet is long enough to scroll');
+  assert.ok(await inView('.sheet #save'), 'Save is below the bottom of the screen');
+  await lp.evaluate(() => { const s = document.querySelector('.sheet'); s.scrollTop = s.scrollHeight / 2; });
+  assert.ok(await inView('.sheet #save'), 'Save scrolled away with the sheet');
+  await lp.click('.sheet #cancel');
+  await lp.waitForFunction(() => !document.querySelector('.sheet'));
   assert.deepEqual(lp.problems, [], 'problems with a long inventory');
   await lCtx.close();
 }

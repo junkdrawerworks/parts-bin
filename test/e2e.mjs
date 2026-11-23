@@ -272,6 +272,16 @@ await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#chec
 assert.equal(await page.textContent('.bom-table .chip.warn'), 'short 0.2');
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '0.2 × m heat shrink tubing 3mm');
+// two lines for one part are checked together: each fits the stock alone, but not both (both said have, and the shopping
+// list left them out); the shortfall is bought once
+const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280'].qty);
+await page.fill('#bom', `${bmeStock - 1} BME280\nBME280 x2\n1 SCD41`); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['short 1', 'short 1', 'have']);
+assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-child(2) .tiny:last-child'), `${bmeStock + 1} needed across 2 lines`);
+assert.match(await page.textContent('.bom-summary'), /1 have.*2 short.*0 missing/);
+await page.click('#out #copy');
+await page.waitForFunction(() => window.__shared === '1 × BME280');
+await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card
 const IN = await import('../js/inbox.js');

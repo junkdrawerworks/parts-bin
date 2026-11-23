@@ -64,3 +64,15 @@ export function matchPart(name, parts) {
 // How many more a line needs than there are, to the thousandth: 0.3 m wanted with 0.1 m in stock is short 0.2 (plain
 // subtraction says 0.19999999999999998).
 export const shortBy = (need, have) => Math.round((need - have) * 1000) / 1000;
+
+// What the lines matched to each part need between them, by part id: { qty, lines }. Two lines for one part ("2x M3
+// heat-set insert" and "M3 heat-set inserts x6") need 8, which 6 in stock doesn't cover, though each line alone fits.
+export function needs(items) {
+  const out = new Map();
+  for (const r of items) {
+    if (!r.m) continue;
+    const n = out.get(r.m.p.id) || { qty: 0, lines: 0 };
+    out.set(r.m.p.id, { qty: Math.round((n.qty + r.qty) * 1000) / 1000, lines: n.lines + 1 });
+  }
+  return out;
+}

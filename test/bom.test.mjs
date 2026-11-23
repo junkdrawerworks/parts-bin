@@ -1,7 +1,7 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBom, matchPart, isPartNumber, shortBy } from '../js/bom.js';
+import { parseBom, matchPart, isPartNumber, shortBy, needs } from '../js/bom.js';
 
 test('a count first or last, or none', () => {
   assert.deepEqual(parseBom('2x XIAO ESP32-S3\n1 SCD41 breakout\n3 WS2812 strip segment\nM3 heat-set inserts x8\nSCD41 ×1\nLED strip, 3\nProto board\n# a note\n\n'), [
@@ -109,6 +109,14 @@ test('a part without the line’s value or variant is only a fuzzy match', () =>
   assert.equal(matchPart('40pin header', [{ id: 'h', name: 'Male header 40 pin' }]).conf, 1);
   assert.equal(matchPart('1k resistor', [...parts, { id: 'r1k', name: '1k resistor' }]).p.id, 'r1k');
   assert.equal(matchPart('ESP32-C3', [...parts, { id: 'c3', name: 'ESP32-C3 SuperMini' }]).p.id, 'c3');
+});
+
+test('lines that need the same part add up', () => {
+  const ins = { id: 'ins', name: 'M3 heat-set inserts', qty: 6 }, tube = { id: 'hs', name: 'Heat shrink tubing', qty: 0.1 };
+  const n = needs([{ qty: 2, m: { p: ins } }, { qty: 6, m: { p: ins } }, { qty: 1, m: null }, { qty: 0.1, m: { p: tube } }, { qty: 0.2, m: { p: tube } }]);
+  assert.deepEqual(n.get('ins'), { qty: 8, lines: 2 });
+  assert.deepEqual(n.get('hs'), { qty: 0.3, lines: 2 }, 'to the thousandth, as shortBy');
+  assert.equal(n.size, 2, 'a line with no part isn’t counted');
 });
 
 test('a shortfall in metres or grams reads as a person would write it', () => {

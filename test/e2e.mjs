@@ -1999,6 +1999,50 @@ await desk.goto(base);
   await uCtx.close();
 }
 
+// ---- holding one tag after another: each page a tag opens takes the place of the one the tag before it opened, so one
+// Back goes to where you were before the first (it went back through every bag held up); a page opened from a link is a
+// step of its own, as before
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 } },
+    parts: {
+      'p-a': { name: 'BME280', binId: 'b-env', qty: 2, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 },
+      'p-b': { name: 'INA219', binId: 'b-pwr', qty: 1, unit: 'pcs', tags: [], bag: 2, tagWritten: true, t: 1 },
+      'p-c': { name: 'SCD41', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 3, tagWritten: true, t: 1 },
+    } } });
+  const tCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await tCtx.addInitScript(fakeNfc);
+  await tCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const tp = await tCtx.newPage();
+  tp.problems = []; tp.on('pageerror', e => tp.problems.push(e.message)); tp.on('console', m => { if (m.type() === 'error') tp.problems.push(m.text()); });
+  const hold = async (url, hash) => { await tp.evaluate(u => window.__read(u), url); await tp.waitForFunction(h => location.hash === h, hash); await tp.waitForSelector('.binhead'); };
+  const back = async hash => { await tp.evaluate(() => history.back()); await tp.waitForFunction(h => location.hash === h, hash); };
+  await tp.goto(base + '#parts'); await tp.waitForSelector('#main .list .item');
+  await tp.goto(base + '#bins'); await tp.waitForSelector('.bin');
+  await tp.waitForFunction(() => !!window.__reader);
+  await hold(base + '#bag/001', '#bag/001');
+  await hold(base + '#bag/002', '#bag/002');
+  await hold(base + '#bin/b-pwr', '#bin/b-pwr');
+  await hold(base + '#bag/003', '#bag/003');
+  await back('#bins');
+  await back('#parts');
+  // a link on a page a tag opened is a step of its own, and the next tag doesn't take its place
+  await tp.goto(base + '#bins'); await tp.waitForSelector('.bin');
+  await hold(base + '#bag/001', '#bag/001');
+  await tp.click('.binhead a[href="#bin/b-env"]'); await tp.waitForFunction(() => location.hash === '#bin/b-env');
+  await hold(base + '#bag/002', '#bag/002');
+  await back('#bin/b-env');
+  await back('#bag/001');
+  await back('#bins');
+  // the same tag held again on its own page, then another: Back still goes to where the first was held
+  await hold(base + '#bag/003', '#bag/003');
+  await tp.evaluate(() => window.__read(location.origin + '/#bag/003')); await tp.waitForTimeout(150);
+  await hold(base + '#bag/001', '#bag/001');
+  await back('#bins');
+  assert.deepEqual(tp.problems, []);
+  await tCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

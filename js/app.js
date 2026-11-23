@@ -37,12 +37,17 @@ function parseHash(){ const h=location.hash.replace(/^#\/?/,''); const [view,...
 // A page opened as a sheet closes (a new bin's, or Parts after Delete) takes the sheet's step in the history, so Back from
 // it goes to the page the sheet was on. While Parts Bin is stepping back off a closed sheet, the page opens once that lands.
 // Each page keeps its place in its own step of the history, so Back to a long list lands where it was (see render()).
-function go(view,arg){
+// A page opened by holding a tag takes the place of the page the tag before it opened, so after a run of tags one Back goes
+// to where you were before the first (it went back through every bag held up). A page opened any other way is a step of
+// its own, as before.
+function go(view,arg,{tag=false}={}){
   const u = arg ? `#${view}/${arg}` : `#${view}`;
   if(toastFresh) toastCarry=true; // "Deleted …", then Parts: the message goes with it
-  if(isStepping()){ nextPage=u; return; } // the place is kept once the step back has landed
+  if(isStepping()){ nextPage=u; nextTag=tag; return; } // the place is kept once the step back has landed
   keepPlace();
-  if(!openSheet && history.state?.sheet) location.replace(u); else location.hash=u;
+  const moved=location.hash!==u;
+  if(!openSheet && (history.state?.sheet || tag && moved && history.state?.tag)) location.replace(u); else location.hash=u;
+  if(tag && moved) try{ history.replaceState({tag:true},''); }catch{}
 }
 function keepPlace(){ try{ history.replaceState({...history.state, y:window.scrollY},''); }catch{} } // with a sheet's step, kept with it
 // Whether there's a page of Parts Bin's to go back to. A sheet that has closed leaves its step ahead of this one, and
@@ -851,7 +856,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
 const BEHIND='.app,.mobile-cloud,#tabbar,.jd-foot';
 // stepping: when Parts Bin last stepped back off a closed sheet, until that lands. One that never lands (with nothing behind
 // it) stops counting after two seconds, so it can't hold up opening anything else.
-let openSheet=null, stepping=0, nextPage='';
+let openSheet=null, stepping=0, nextPage='', nextTag=false;
 const isStepping=()=>Date.now()-stepping<2000;
 function stepOff(){ stepping=Date.now(); history.back(); }
 function keepStep(){
@@ -860,7 +865,7 @@ function keepStep(){
   try{ if(history.state?.sheet) history.replaceState(s,''); else history.pushState(s,''); }catch{} // a frame that can't: no step, as before
 }
 window.addEventListener('popstate',()=>{
-  if(isStepping()){ stepping=0; keepStep(); if(nextPage){ const u=nextPage; nextPage=''; keepPlace(); location.hash=u; } return; } // the step back has landed
+  if(isStepping()){ stepping=0; keepStep(); if(nextPage){ const u=nextPage, tag=nextTag; nextPage=''; nextTag=false; const [v,...a]=u.slice(1).split('/'); go(v,a.join('/'),{tag}); } return; } // the step back has landed
   if(openSheet && history.state?.sheet!==openSheet.id) openSheet.close(); // Back, or another page opened over it
 });
 function sheet(html, onClose){
@@ -1192,7 +1197,7 @@ function onTag(ev){
     if(open){ const hit=findTarget(t), here=['bag','bin','part'].includes(S.route.view) && findTarget(S.route);
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
     try{ navigator.vibrate?.(40); }catch{}
-    go(t.view, t.arg);
+    go(t.view, t.arg, {tag:true});
     if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>offerRewrite(hit),150); }
     return;
   }

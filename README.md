@@ -13,7 +13,7 @@
 
 ## How it works
 
-- **Pack.** Pick the bin or box you're filling, type what's in the bag and pick the match (or a new part), check the count, save. The tag screen opens already listening: hold a blank sticker to the phone and it gets that bag's link. The next bag number is waiting.
+- **Pack.** Pick the bin or box you're filling, type what's in the bag and pick the match (or a new part), check the count, save. A part that's already in a bag keeps its number, so the sticker on that bag still opens it. For a new bag, the tag screen opens already listening: hold a blank sticker to the phone and it gets that bag's link. The next bag number is waiting.
 - **Tap a tag to find a bag.** While Parts Bin is open it listens for tags, so holding any bag or bin sticker to the phone opens it right here. (The first time, tap the tag button by the search box to allow NFC; after that it starts by itself.) Tags written by the old Stockroom artifact open here too, with an offer to rewrite them so they open Parts Bin even when the page is closed.
 - **One bag, one number.** Two devices numbering bags before they've synced can give out the same number. When that happens, Bins, Parts and Pack say so, Parts › *Bag numbers to sort out* lists both parts (the one with the tag first, as its sticker carries the number) and the numbers no part has, and the other part's page gives it the next number and writes its tag. A tag for a number on two parts opens the one with the tag.
 - **BOM check.** Paste a parts list, or pick a saved one, and get have / short / missing with where each part lives, plus a shopping list.

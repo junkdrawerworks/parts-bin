@@ -803,6 +803,50 @@ await desk.goto(base);
   await page.goto(base + '#bins'); await page.waitForSelector('.bin');
 }
 
+// ---- Pack with parts already in bags: a fresh phone with a bin, a moving box picked to pack into, BME280 in tagged bag
+// #001, SCD41 in tagged bag #002, a buzzer that another device also numbered #002, and SGP30 not bagged yet
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'bin-env': { code: 'ENV', name: 'Environmental', location: 'Workroom', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', location: 'Moving boxes', t: 1 } },
+    parts: {
+      'p-bme': { name: 'BME280 (Adafruit)', binId: 'bin-env', category: 'Sensors', qty: 3, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 },
+      'p-scd': { name: 'SCD41', binId: 'bin-env', category: 'Sensors', qty: 2, unit: 'pcs', tags: [], bag: 2, tagWritten: true, t: 1 },
+      'p-buzz': { name: 'Buzzer', category: '', qty: 1, unit: 'pcs', tags: [], bag: 2, t: 1 },
+      'p-sgp': { name: 'SGP30', binId: 'bin-env', category: '', qty: 1, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const bagCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await bagCtx.addInitScript(fakeNfc);
+  await bagCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('sr.packbox', '"box-1"'); } }, seed);
+  const pg = await bagCtx.newPage();
+  pg.problems = []; pg.on('pageerror', e => pg.problems.push(e.message)); pg.on('console', m => { if (m.type() === 'error') pg.problems.push(m.text()); });
+  const got = id => pg.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const gone = () => pg.waitForFunction(() => !document.querySelector('.sheet'));
+  await pg.goto(base + '#scan'); await pg.waitForSelector('#desc');
+  assert.equal(await pg.inputValue('#dest'), 'box-1');
+  // picking BME280 keeps it in bag #001 (it used to be given the next number, and the sticker on its bag opened "No bag"),
+  // with its tag left as it is
+  await pg.fill('#desc', 'BME280'); await pg.click('.matchlist [data-id="p-bme"]');
+  await pg.waitForSelector('.sheet #p-bag');
+  assert.equal(await pg.inputValue('#p-bag'), '1'); assert.equal(await pg.isChecked('#p-dotag'), false);
+  assert.equal(await pg.textContent('.sheet #save'), 'Save');
+  await pg.click('.sheet #save'); await gone();
+  let bme = await got('p-bme');
+  assert.equal(bme.bag, 1); assert.equal(bme.binId, 'box-1'); assert.equal(bme.tagWritten, true);
+  assert.equal(await pg.evaluate(() => window.__tap()), false, 'no tag sheet waiting');
+  assert.match(await pg.textContent('.packhead .big'), /#003/, 'the next bag number didn’t move on');
+  await pg.goto(base + '#bag/001'); await pg.waitForSelector('.binhead h2');
+  assert.equal(await pg.textContent('.binhead h2'), 'BME280 (Adafruit)', 'the sticker on bag #001 still opens it');
+  // a part with no bag yet gets the next number, and its tag is written
+  await pg.goto(base + '#scan'); await pg.fill('#desc', 'SGP30'); await pg.click('.matchlist [data-id="p-sgp"]');
+  await pg.waitForSelector('.sheet #p-bag');
+  assert.equal(await pg.inputValue('#p-bag'), '3'); assert.ok(await pg.isChecked('#p-dotag'));
+  await pg.click('.sheet #save'); await pg.waitForSelector('#tz.wait'); await pg.evaluate(() => window.__tap()); await gone();
+  assert.equal((await got('p-sgp')).bag, 3); assert.equal((await got('p-sgp')).tagWritten, true);
+
+  assert.deepEqual(pg.problems, [], 'problems while packing bagged parts');
+  await bagCtx.close();
+}
+
 // ---- works offline once it has been opened: the inventory, the screens and the fonts, with no network at all
 const offCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
 const off = await offCtx.newPage();

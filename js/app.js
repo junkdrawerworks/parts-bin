@@ -400,8 +400,10 @@ function renderScan(m){
     const base = matched ? {...matched} : {name:seed.name||'', category:seed.category||'', mpn:seed.mpn||'', unit:seed.unit||'pcs', tags:Array.isArray(seed.tags)?seed.tags.map(String):[], notes:seed.notes||''};
     if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · '); }
     else base.qty=Number(seed.qty)||1;
-    base.bag = nextBag(); if(destId) base.binId=destId;
-    editPart(base, {photoFile:null, stay:true, tag:true, afterSave:()=>{ reset(); render(); }});
+    // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
+    // number when the sheet opens, and its tag is written.
+    if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
+    editPart(base, {photoFile:null, stay:true, tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ reset(); render(); }});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -421,7 +423,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
       const box=h(`<div><div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${esc(matched.category||'')} · in stock ${esc(fmtQty(matched))}${binOf(matched)?' · '+esc(binOf(matched).code):''}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
         ${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${esc(p.category||'')} · in stock ${esc(fmtQty(p))}${binOf(p)?' · '+esc(binOf(p).code):''}</div></span><span class="chip">existing</span></button>`).join('')}
         <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
-        <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record and get this bag number; the count you enter next replaces the old count.</div></div>`);
+        <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
       res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box);
       box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
     }catch(e){ st.textContent = e.code==='not_granted' ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }

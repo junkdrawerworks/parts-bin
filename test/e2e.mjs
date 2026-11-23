@@ -602,6 +602,33 @@ await page.click('#drivecard [data-a="now"]');
 await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 8000 });
 assert.equal((await part(iron.id)).qty, ironQty + 2);
 
+// ---- Drive when it can't save: each way it goes wrong says what's really wrong and what to do (on a device of its own,
+// with a Drive of its own)
+{
+  const { ctx: sCtx, page: sp } = await device();
+  const card = () => sp.textContent('#drivecard'), chipIs = s => sp.waitForFunction(s => document.querySelector('#cloud-m').dataset.s === s, s, { timeout: 10000 });
+  await sp.evaluate(() => localStorage.setItem('__who', 'states'));
+  await sp.goto(base + '#settings'); await sp.click('[data-a="on"]');
+  await sp.waitForFunction(() => /Last synced/.test(document.querySelector('#drivecard')?.textContent), null, { timeout: 10000 });
+  const expire = async () => {
+    await sp.evaluate(() => { const t = JSON.parse(localStorage.getItem('junkdrawer.google')); t.exp = Date.now() - 1000; localStorage.setItem('junkdrawer.google', JSON.stringify(t)); });
+    await sp.reload(); await sp.waitForSelector('#drivecard [data-a="now"]'); await chipIs('tap'); await sp.waitForFunction(() => window.__cfg);
+  };
+  // signed out after the hour, and Google's window comes back without Drive allowed: the card and the button say to leave
+  // the Drive box ticked (they said only that Google signs you out after an hour)
+  await expire();
+  assert.match(await card(), /Google signs you out after an hour/);
+  await sp.evaluate(() => { window.__cfg.scope = 'email profile'; });
+  await sp.click('#drivecard [data-a="now"]');
+  await sp.waitForFunction(() => /leave the Drive box ticked/.test(document.querySelector('#drivecard').textContent));
+  assert.match(await sp.getAttribute('#cloud-m', 'title'), /leave the Drive box ticked/);
+  await sp.evaluate(() => { window.__cfg.scope = 'https://www.googleapis.com/auth/drive.file'; });
+  await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  assert.doesNotMatch(await card(), /leave the Drive box ticked/);
+  assert.deepEqual(sp.problems, [], 'problems on the Drive states device');
+  await sCtx.close();
+}
+
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');

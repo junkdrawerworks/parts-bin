@@ -188,7 +188,7 @@ function gotToken(r) {
   }
   tok = { token: r.access_token, exp: Date.now() + (+r.expires_in || 3600) * 1000, scope: r.scope || SCOPE, email: st.email || tok?.email || '' };
   put(KT, tok);
-  st.on = true; saveSt();
+  st.on = true; saveSt(); setStatus('busy'); // a good sign-in: what went wrong last time no longer says so
   (st.email ? Promise.resolve() : whoami()).then(sync);
 }
 // Turn it on. With a sign-in from any junkdrawer.works project still good, no Google window at all.
@@ -224,7 +224,7 @@ function ago(t) {
 }
 function title() {
   return status === 'busy' ? 'Syncing with Google Drive'
-    : status === 'tap' ? 'Tap to sign in to Google again and sync'
+    : status === 'tap' ? (note ? note + ' Tap to sign in to Google again.' : 'Tap to sign in to Google again and sync')
       : status === 'error' ? note + ' Tap to try again.'
         : 'Synced with Google Drive' + (st.last ? ' ' + ago(st.last) : '') + '. Tap to sync now.';
 }
@@ -252,7 +252,8 @@ function card(host) {
   host.hidden = false;
   let armed = false;
   const line = () => status === 'busy' ? 'Syncing now.'
-    : status === 'tap' ? 'Google signs you out after an hour. Tap <b>Sync now</b> to sign back in; your changes are safe here meanwhile.'
+    // what went wrong signing in, when something did (Drive not allowed, the window not finishing); otherwise the hour
+    : status === 'tap' ? (note ? esc(note) : 'Google signs you out after an hour. Tap <b>Sync now</b> to sign back in; your changes are safe here meanwhile.')
       : status === 'error' ? esc(note)
         : st.last ? `Last synced ${ago(st.last)}.` : '';
   function draw() {

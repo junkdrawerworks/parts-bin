@@ -396,6 +396,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .gapnote{margin:-4px 0 12px}
 .gapnote p{margin:0}
 .gapnote .run{white-space:nowrap} /* a run isn't split at its dash */
+.sheethead{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sheethead h3{margin:0}
 .tickline{display:flex;gap:10px;align-items:center;padding:6px 0;cursor:pointer;font-size:14.5px}
 .tickline input{width:20px;height:20px;padding:0;flex:none;accent-color:var(--accent)}
 .linkbtn{background:none;border:0;padding:6px 0;color:var(--accent-ink);font-weight:600;text-decoration:underline;cursor:pointer}

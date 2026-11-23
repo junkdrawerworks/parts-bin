@@ -970,7 +970,8 @@ function editPart(p, opts={}){
   // Where no tag can be written (an iPhone, a laptop), a part already in a bag shows its bag with no tick box: there's
   // no tag to write, and unticking it wouldn't take it out of the bag (emptying Bag number does).
   const inBag=!(NFC_OK&&!FRAMED) && !!BG.bagOf(p);
-  const {el,close}=sheet(`<h3>${isNew?'New part':'Edit part'}</h3>
+  const {el,close}=sheet(`${isNew?'<h3>New part</h3>':'<div class="sheethead"><h3>Edit part</h3><button class="btn sm" id="copyp">Copy as new part</button></div>'}
+    ${opts.copyOf?`<p class="muted" style="margin:-4px 0 10px">A copy of ${esc(opts.copyOf)}. Change the name, then save.</p>`:''}
     <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="e.g. Seeed XIAO ESP32-S3"></div>
     ${inBag?'<div class="bagtag inbag">':`<label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>`}
       <span class="bt-num" id="p-bagshow">${esc(bagStr(p.bag||nextBag()))}</span>
@@ -1024,6 +1025,16 @@ function editPart(p, opts={}){
   // Save writes only what was typed here over the part as it is by then, so a count changed on the phone meanwhile stays,
   // and a bag number handed out here moves on if one of them has used it (below).
   drive.pull();
+  // Copy as new part: a new part with what this one says now (as the sheet shows it) for its category, unit, bin, keywords,
+  // reorder level and specs, a count of 1 and the next bag number, its name ready to change. For 10k, 4.7k and 1k resistors
+  // in a row. Nothing changed here is saved to this part.
+  el.querySelector('#copyp')?.addEventListener('click',()=>{
+    const v=k=>PART_FORM[k][2](el.querySelector(PART_FORM[k][0]).value), binId=v('binId'), name=v('name')||p.name;
+    const seed={name, qty:1, binId}; for(const k of ['category','unit','tags','minQty','iface','addr','volts','logic']) seed[k]=v(k);
+    if(isBox(S.bins.get(binId)) && was?.binId===binId) seed.from=was.from||''; // in the same box, it came from the same bin
+    close(); editPart(seed,{copyOf:name});
+  });
+  if(opts.copyOf){ const f=el.querySelector('#p-name'); f.focus(); f.select(); }
   el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);
     if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
     try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });

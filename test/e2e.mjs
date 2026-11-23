@@ -2104,6 +2104,63 @@ await desk.goto(base);
   await oCtx.close();
 }
 
+// ---- Copy as new part: from a part's Edit sheet, a new part with its category, unit, bin, keywords, reorder level and
+// specs, a count of 1, the next bag number and its name ready to change; the part copied stays as it was
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-pas': { code: 'PAS', name: 'Passives', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-10k': { name: 'Resistor 10k 1/4W', binId: 'b-pas', category: 'Resistors', qty: 80, unit: 'pcs', minQty: 20, tags: ['through-hole', '1%'], mpn: 'CF14JT10K0', notes: 'From the kit', link: 'https://example.com/10k', iface: ['I2C'], volts: '250 V', bag: 4, tagWritten: true, t: 1 },
+      'p-wire': { name: 'Hookup wire red', binId: 'box-1', from: 'WIRE', category: 'Wire', qty: 3, unit: 'm', tags: [], bag: 9, t: 1 },
+    } } });
+  const cCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await cCtx.addInitScript(fakeNfc);
+  await cCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const cp = await cCtx.newPage();
+  cp.problems = []; cp.on('pageerror', e => cp.problems.push(e.message)); cp.on('console', m => { if (m.type() === 'error') cp.problems.push(m.text()); });
+  const parts = () => cp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts);
+  const closed = () => cp.waitForFunction(() => !document.querySelector('.sheet'));
+  await cp.goto(base + '#part/p-10k'); await cp.waitForSelector('#edit');
+  const before = (await parts())['p-10k'];
+  await cp.click('#edit'); await cp.waitForSelector('.sheet #copyp');
+  assert.equal(await cp.locator('.sheet #copyp').count(), 1);
+  await cp.click('.sheet #copyp'); await cp.waitForSelector('.sheet h3:text("New part")');
+  assert.match(await cp.textContent('.sheet p.muted'), /^A copy of Resistor 10k 1\/4W\. Change the name, then save\.$/);
+  assert.equal(await cp.locator('.sheet #copyp').count(), 0, 'a new part has nothing to copy yet');
+  // the name ready to change: it has the keyboard, all of it selected
+  assert.deepEqual(await cp.evaluate(() => { const f = document.activeElement; return [f.id, f.selectionStart, f.selectionEnd, f.value.length]; }), ['p-name', 0, 17, 17]);
+  assert.equal(await cp.inputValue('#p-cat'), 'Resistors'); assert.equal(await cp.inputValue('#p-unit'), 'pcs');
+  assert.equal(await cp.inputValue('#p-bin'), 'b-pas'); assert.equal(await cp.inputValue('#p-tags'), 'through-hole, 1%');
+  assert.equal(await cp.inputValue('#p-min'), '20'); assert.equal(await cp.inputValue('#p-iface'), 'I2C'); assert.equal(await cp.inputValue('#p-volts'), '250 V');
+  assert.equal(await cp.inputValue('#p-qty'), '1'); assert.equal(await cp.inputValue('#p-bag'), '10');
+  assert.equal(await cp.inputValue('#p-mpn'), ''); assert.equal(await cp.inputValue('#p-notes'), ''); assert.equal(await cp.inputValue('#p-link'), '');
+  await cp.keyboard.type('Resistor 4.7k 1/4W');
+  await cp.click('.sheet #save'); await cp.waitForSelector('#tz.wait');
+  await cp.evaluate(() => window.__tap()); await closed();
+  const all = await parts(), mine = Object.entries(all).find(([, x]) => x.name === 'Resistor 4.7k 1/4W');
+  assert.ok(mine, 'the copy was saved');
+  const [cid, c] = mine;
+  assert.deepEqual([c.category, c.unit, c.binId, c.tags, c.minQty, c.iface, c.volts, c.qty, c.bag, c.tagWritten, c.mpn, c.notes, c.from],
+    ['Resistors', 'pcs', 'b-pas', ['through-hole', '1%'], 20, ['I2C'], '250 V', 1, 10, true, '', '', '']);
+  assert.match((await cp.evaluate(() => window.__written)).at(-1), /#bag\/010$/);
+  assert.deepEqual(all['p-10k'], before, 'the part copied changed');
+  assert.notEqual(cid, 'p-10k');
+  // what the sheet says when Copy is tapped is what's copied, and nothing changed there is saved to the part copied
+  await cp.goto(base + '#part/p-10k'); await cp.click('#edit'); await cp.waitForSelector('.sheet #copyp');
+  await cp.fill('#p-cat', 'Passives'); await cp.click('.sheet #copyp'); await cp.waitForSelector('.sheet h3:text("New part")');
+  assert.equal(await cp.inputValue('#p-cat'), 'Passives');
+  await cp.click('.sheet #cancel'); await closed();
+  assert.equal((await parts())['p-10k'].category, 'Resistors');
+  // a part in a box: the copy goes in the same box, from the same bin
+  await cp.goto(base + '#part/p-wire'); await cp.click('#edit'); await cp.click('.sheet #copyp'); await cp.waitForSelector('.sheet h3:text("New part")');
+  await cp.fill('#p-name', 'Hookup wire black'); assert.equal(await cp.inputValue('#p-unit'), 'm');
+  await cp.click('.sheet #save'); await cp.waitForSelector('#tz.wait'); await cp.click('.sheet #done'); await closed();
+  const w = Object.values(await parts()).find(x => x.name === 'Hookup wire black');
+  assert.deepEqual([w.binId, w.from, w.unit, w.qty, w.bag], ['box-1', 'WIRE', 'm', 1, 11]);
+  assert.deepEqual(cp.problems, []);
+  await cCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

@@ -1697,7 +1697,7 @@ await page.reload(); // the pretend clipboard again
 // ---- photo ids from the Stockroom artifact (its photos stayed on claude.ai) show the icon, or the reference photo
 const blobs = []; page.on('request', r => { if (r.url().includes('/_blob/')) blobs.push(r.url()); });
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.bins['bin-env'].photo = 'asset-abc123'; d.items.parts['p-scd41'].photo = 'asset-def456'; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
-await page.goto(base + '#bins'); await page.waitForSelector('.bin:has-text("Environmental") .photo svg');
+await page.goto(base + '#bins'); await page.waitForSelector('.bin:has-text("Environmental") .photo svg', { state: 'attached' }); // on a phone the tile has no picture box
 await page.goto(base + '#part/p-scd41'); await page.waitForFunction(() => document.querySelector('.binhead .refphoto img.ref')?.naturalWidth > 0);
 assert.deepEqual(blobs, [], 'asked this site for a photo it can’t have');
 const desk = await browser.newPage({ viewport: { width: 1280, height: 820 } });
@@ -2481,6 +2481,32 @@ await desk.goto(base);
   assert.equal(await qp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-10k'].qty), 50, 'the part copied changed');
   assert.deepEqual(qp.problems, []);
   await qCtx.close();
+}
+
+// ---- on a phone a bin's tile is its label, count and name, about 70 px tall (the empty picture box made it 220 px, two
+// rows of bins to a screen); on a laptop it keeps its picture box
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental sensors and breakouts', location: 'Workroom', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', location: 'Workroom', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', sealed: true, t: 1 } },
+    parts: { 'p-a': { name: 'SHT31', binId: 'b-env', qty: 1, minQty: 2, unit: 'pcs', tags: [], t: 1 } } } });
+  for (const [w, hgt, phone] of [[390, 844, true], [1280, 800, false]]) {
+    const tCtx = await browser.newContext({ viewport: { width: w, height: hgt }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone, serviceWorkers: 'block' });
+    await tCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+    const tp = await tCtx.newPage();
+    await tp.goto(base + '#bins'); await tp.waitForSelector('.bin');
+    const tiles = await tp.locator('.bin').evaluateAll(els => els.map(e => ({ h: e.getBoundingClientRect().height, w: e.scrollWidth - e.clientWidth, photo: getComputedStyle(e.querySelector('.photo')).display !== 'none', text: e.innerText.replace(/\s+/g, ' ').trim() })));
+    assert.equal(tiles.length, 3);
+    for (const t of tiles) {
+      assert.equal(t.photo, !phone, t.text);
+      if (phone) assert.ok(t.h <= 80, `${t.text}: ${t.h} px`); else assert.ok(t.h > 150, `${t.text}: ${t.h} px`);
+      assert.equal(t.w, 0, 'nothing runs out of the tile: ' + t.text);
+    }
+    if (phone) { // two to a row, as before
+      const xs = await tp.locator('.bins').nth(1).locator('.bin').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top)));
+      assert.equal(xs[0], xs[1]);
+    }
+    await tCtx.close();
+  }
 }
 
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over

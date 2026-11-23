@@ -1460,6 +1460,7 @@ await desk.goto(base);
   await tp.goto(base + '#bins'); await tp.waitForSelector('.codenote');
   assert.equal(await tp.locator('.codenote').count(), 1);
   assert.match(await tp.textContent('.codenote'), /BOX 01 is on two boxes\. Rename one, and rewrite its label\./);
+  assert.match(await tp.textContent('#sidefoot'), /^3 bins · 1 part\b/, 'one part is "1 part"');
   // Pack's list: no trailing " · " on a box with no name, and the two told apart
   await tp.goto(base + '#scan'); await tp.waitForSelector('#dest');
   assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01 · 0 bags', 'BOX 01 · 1 bag', 'C1 · Cables']);

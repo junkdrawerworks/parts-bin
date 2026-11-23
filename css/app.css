@@ -215,7 +215,7 @@ a{color:var(--accent-ink)}
 .tagzone.bad{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
 .cloud{position:relative;background:none;border:1px solid var(--line);border-radius:var(--r);padding:6px 8px;color:var(--ink2);display:inline-flex}
 .cloud svg{width:20px;height:20px}
-.cloud .dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.cloud .dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 1.5px var(--bg)}
 .cloud[data-s="busy"] .dot{background:var(--warn)}
 .cloud[data-s="tap"] .dot,.cloud[data-s="error"] .dot{background:var(--bad)}
 .cloud[data-s="offline"] .dot{background:var(--ink3)}

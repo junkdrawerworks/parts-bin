@@ -162,7 +162,7 @@ function renderNav(){
   document.getElementById('nav').innerHTML = mk(); document.getElementById('tabbar').innerHTML = mk();
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
   const n=S.parts.size, b=S.bins.size, low=[...S.parts.values()].filter(isLow).length;
-  document.getElementById('sidefoot').innerHTML = `${b} bins · ${n} parts${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
+  document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
 }
 function topbar(m, title, extra=''){
   const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);

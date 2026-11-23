@@ -116,3 +116,21 @@ test('a link from the skill’s script opens in the app', t => {
     assert.deepEqual(IN.cleanBatch(JSON.parse(readFileSync(file, 'utf8'))), b, 'the file holds the same batch as the link');
   });
 });
+
+// What a part's page or the Inbox shares with Claude ("Parts Bin: …") is something the script reads as an inventory.
+test('the list the app shares reads in the skill’s script, bins and bags included', t => {
+  const md = readFileSync(join(root, 'skill/parts-bin-cataloger/SKILL.md'), 'utf8');
+  const py = /## Appendix: make_partsbin\.py\s+```python\n([\s\S]*?)\n```/.exec(md)?.[1];
+  try { execFileSync('python3', ['--version']); } catch { return t.skip('no python3 here'); }
+  const dir = mkdtempSync(join(tmpdir(), 'pb-share-'));
+  writeFileSync(join(dir, 'make_partsbin.py'), py);
+  writeFileSync(join(dir, 'shared.txt'), 'Parts Bin: fill in details for these 2 parts (…), and give me the Inbox link.\n\n' + JSON.stringify({ partsbin: 1, ask: 'details', parts: [
+    { id: 'p-scd41', name: 'SCD41', category: 'Sensors', bin: 'ENV', bag: '#005', tags: ['co2'], check: 'Bench test it' },
+    { id: 'p-iron', name: 'Soldering iron' }] }));
+  const out = execFileSync('python3', [join(dir, 'make_partsbin.py'), '--inventory', join(dir, 'shared.txt'), '--list'], { encoding: 'utf8' });
+  assert.match(out, /^p-scd41 \| SCD41 \| Sensors \| ENV \| #005 \| {2}\| {2}\| check$/m, out);
+  writeFileSync(join(dir, 'b.json'), JSON.stringify({ source: 'details', parts: [{ id: 'p-scd41', tags: ['co2'], check: 'Bench test it', volts: '2.4–5.5 V' }] }));
+  const made = execFileSync('python3', [join(dir, 'make_partsbin.py'), join(dir, 'b.json'), '--inventory', join(dir, 'shared.txt'), '--out', dir], { encoding: 'utf8' });
+  const link = /^Link .*?: (https:\/\/\S+)$/m.exec(made)?.[1];
+  return IN.read(link).then(raw => assert.deepEqual(IN.cleanBatch(raw).items.map(({ k, ...x }) => x), [{ volts: '2.4–5.5 V', id: 'p-scd41' }], 'what the part already says is left out'));
+});

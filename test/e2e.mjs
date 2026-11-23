@@ -249,6 +249,7 @@ const photoLink = base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptes
 await page.goto(photoLink);
 await page.waitForSelector('.batch .card.inb');
 assert.equal(await page.evaluate(() => location.hash), '#inbox', 'the long code is gone from the address');
+assert.equal(await page.textContent('.batch .section-h .tiny'), 'From a photo · 3 left', 'no date when the batch has none');
 assert.equal(await page.locator('.card.inb').count(), 3);
 assert.equal(await page.textContent('#tabbar .badge'), '3');
 await page.waitForFunction(() => document.querySelector('.card.inb[data-k="i0"] img.ref')?.naturalWidth > 0);
@@ -367,8 +368,9 @@ await page.selectOption('#cat', '__low'); await page.waitForSelector('#main .emp
 await page.selectOption('#cat', '');
 
 // ---- a receipt adds to what's in stock, and a part that's already bagged isn't tagged again
-await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>' }] } }));
+await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', made: '2026-11-23', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>' }] } }));
 await page.waitForSelector('.card.inb[data-k="i1"]');
+assert.match(await page.textContent('.batch .section-h .tiny'), /^From a receipt · (23 Nov|Nov 23) · 2 left$/, 'the day Claude made it');
 assert.equal(await page.locator('.card.inb .t b, .card.inb i, .card.inb img:not(.ref)').count(), 0, 'what a batch says is shown as text, never as markup');
 assert.equal(await page.evaluate(() => window.__xss), undefined);
 await page.click('.card.inb[data-k="i1"] [data-a="skip"]');
@@ -386,6 +388,8 @@ await page.click('#ask');
 const shared = await page.evaluate(() => window.__shared);
 assert.match(shared, /^Parts Bin: fill in details for this part/);
 assert.deepEqual(JSON.parse(shared.slice(shared.indexOf('{'))).parts.map(x => x.id), [iron.id]);
+// with its bin and bag, so Claude can match a bag photo to it (the skill's script reads both)
+assert.deepEqual(JSON.parse(shared.slice(shared.indexOf('{'))).parts[0], { id: iron.id, name: 'Soldering iron', bin: 'ENV', bag: '#002' });
 await page.goto(base + '#part/p-scd41'); assert.equal(await page.locator('#ask').count(), 0, 'a part with details doesn’t ask');
 
 // ---- a field unticked on one card stays unticked when another card is applied, and Apply all leaves it out (it applied

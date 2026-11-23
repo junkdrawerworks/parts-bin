@@ -880,7 +880,8 @@ function batchSection(b){
   // to bag. A suggestion for a part this browser doesn't have is never offered as a new part: that would make a second
   // record of it once the device that has it syncs.
   const ups=b.items.filter(isUpdate), news=b.items.filter(x=>!x.id), lost=b.items.filter(x=>x.id&&!S.parts.has(x.id));
-  const sec=h(`<section class="batch" data-batch="${esc(b.id)}"><div class="section-h"><h3>${esc(b.name||SOURCES[b.source])}</h3><span class="tiny">${b.name?esc(SOURCES[b.source])+' · ':''}${b.items.length} left</span></div>
+  const made=/^(\d{4})-(\d{2})-(\d{2})$/.exec(b.made||''), day=made?new Date(+made[1],made[2]-1,+made[3]).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'';
+  const sec=h(`<section class="batch" data-batch="${esc(b.id)}"><div class="section-h"><h3>${esc(b.name||SOURCES[b.source])}</h3><span class="tiny">${[b.name?SOURCES[b.source]:'', day, b.items.length+' left'].filter(Boolean).map(esc).join(' · ')}</span></div>
     <div class="row batchbar">${ups.length>1?`<button class="btn primary" data-a="all">Apply all ${ups.length}</button>`:''}<span class="grow"></span><button class="btn sm" data-a="drop">Dismiss the rest</button></div></section>`);
   sec.querySelector('[data-a="all"]')?.addEventListener('click',()=>applyUpdates(b, ups.map(x=>({x,keys:ticked(b,x)}))));
   sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; settled(b,null); IN.resolve(INBOX,b.id,null); keepInbox(); render(); };
@@ -989,7 +990,10 @@ async function applyUpdates(b, list){
 }
 // Hands Claude the parts to look up. On a phone this opens the share sheet (pick Claude); elsewhere it copies.
 function claudeText(parts){
-  const rows=parts.map(p=>{ const r={id:p.id, name:p.name}; for(const k of ['category','mpn','addr','volts','logic','link']) if(p[k]) r[k]=p[k]; if((p.iface||[]).length) r.iface=p.iface; if(p.notes) r.notes=String(p.notes).slice(0,140); return r; });
+  // Its bin and bag let Claude match a photographed bag to the record that has its number; its tags and what's still to
+  // check keep a suggestion from offering what the part already says. (The skill's script reads these from the list.)
+  const rows=parts.map(p=>{ const r={id:p.id, name:p.name}; for(const k of ['category','mpn','addr','volts','logic','link']) if(p[k]) r[k]=p[k]; if((p.iface||[]).length) r.iface=p.iface; if(p.notes) r.notes=String(p.notes).slice(0,140);
+    const bin=binOf(p); if(bin) r.bin=bin.code; if(BG.bagOf(p)) r.bag=bagStr(BG.bagOf(p)); if((p.tags||[]).length) r.tags=p.tags; if(p.check) r.check=p.check; return r; });
   return `Parts Bin: fill in details for ${rows.length===1?'this part':`these ${rows.length} parts`} (category, interface, I2C address, supply and logic voltage, part number, link, reference photo), flag anything I should test before trusting it, and give me the Inbox link.\n\n${JSON.stringify({partsbin:1, ask:'details', parts:rows})}`;
 }
 async function sendToClaude(parts){

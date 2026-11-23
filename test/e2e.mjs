@@ -2774,6 +2774,53 @@ await desk.goto(base);
   await kCtx.close();
 }
 
+// ---- Parts with no details go to Claude 40 at a time, a category's together, and this browser notes which have gone
+// (one button sent every bare part at once: with a big inventory, more than Claude's reply could carry in links)
+{
+  const parts = {};
+  for (let i = 1; i <= 30; i++) parts['p-s' + i] = { name: 'Sensor ' + i, category: 'Sensors', qty: 1, unit: 'pcs', tags: [], t: 1 };
+  for (let i = 1; i <= 10; i++) parts['p-d' + i] = { name: 'Display ' + i, category: 'Displays', qty: 1, unit: 'pcs', tags: [], t: 1 };
+  for (let i = 1; i <= 5; i++) parts['p-n' + i] = { name: 'Thing ' + i, qty: 1, unit: 'pcs', tags: [], t: 1 };
+  parts['p-full'] = { name: 'BME280', category: 'Sensors', mpn: 'BME280', qty: 1, unit: 'pcs', tags: [], t: 1 };
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts } });
+  const cCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await cCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  await cCtx.addInitScript(fakeNfc);
+  const cp = await cCtx.newPage();
+  cp.problems = []; cp.on('pageerror', e => cp.problems.push(e.message));
+  await cp.goto(base + '#inbox');
+  await cp.waitForSelector('#inb-share');
+  assert.equal(await cp.textContent('#inb-share'), 'Send Claude the next 40 of 45 with no details');
+  assert.equal(await cp.locator('#inb-sent').count(), 0);
+  const sentList = async () => JSON.parse((await cp.evaluate(() => window.__shared)).split('\n\n')[1]).parts.map(p => p.name);
+  await cp.click('#inb-share'); await cp.waitForSelector('#inb-sent');
+  const first = await sentList();
+  assert.equal(first.length, 40);
+  assert.deepEqual(first.slice(0, 11), ['Display 1', 'Display 2', 'Display 3', 'Display 4', 'Display 5', 'Display 6', 'Display 7', 'Display 8', 'Display 9', 'Display 10', 'Sensor 1'], 'a category together, in name order');
+  assert.ok(!first.includes('BME280') && !first.some(n => n.startsWith('Thing')), 'parts with no category come last');
+  assert.equal(await cp.textContent('#inb-sent'), 'Sent 40 · 5 to go');
+  assert.equal(await cp.textContent('#inb-share'), 'Send Claude the next 5 of 45 with no details');
+  await cp.reload(); await cp.waitForSelector('#inb-sent');
+  assert.equal(await cp.textContent('#inb-sent'), 'Sent 40 · 5 to go', 'kept in this browser');
+  await cp.click('#inb-share'); await cp.waitForFunction(() => document.querySelector('#inb-sent')?.textContent === 'Sent all 45');
+  assert.deepEqual(await sentList(), ['Thing 1', 'Thing 2', 'Thing 3', 'Thing 4', 'Thing 5']);
+  assert.equal(await cp.locator('#inb-share').count(), 0);
+  // a part that gets its details drops off the list, and Start again sends from the first again
+  await cp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-d1'].mpn = 'ST7789'; d.items.parts['p-d1'].t = 2; localStorage.setItem('parts-bin', JSON.stringify(d)); });
+  await cp.reload(); await cp.waitForSelector('#inb-sent');
+  assert.equal(await cp.textContent('#inb-sent'), 'Sent all 44');
+  await cp.click('#inb-again'); await cp.waitForSelector('#inb-share');
+  assert.equal(await cp.textContent('#inb-share'), 'Send Claude the next 40 of 44 with no details');
+  assert.equal(await cp.locator('#inb-sent').count(), 0);
+  // a small inventory sends its few as before
+  await cp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); for (const id of Object.keys(d.items.parts)) if (!['p-s1', 'p-s2', 'p-full'].includes(id)) delete d.items.parts[id]; localStorage.setItem('parts-bin', JSON.stringify(d)); localStorage.removeItem('pb.sentbare'); });
+  await cp.reload(); await cp.waitForSelector('#inb-share');
+  assert.equal(await cp.textContent('#inb-share'), 'Send Claude 2 parts with no details');
+  await cp.click('#inb-share'); await cp.waitForSelector('#inb-sent');
+  assert.equal(await cp.textContent('#inb-sent'), 'Sent all 2');
+  assert.deepEqual(cp.problems, []);
+  await cCtx.close();
+}
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

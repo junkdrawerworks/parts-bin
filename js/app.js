@@ -1471,6 +1471,18 @@ function zoomRef(p){
 function host(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch{ return ''; } }
 function shortUrl(u){ try{ const x=new URL(u), tail=x.pathname.replace(/\/$/,'').split('/').pop(); return x.hostname.replace(/^www\./,'')+(tail?'/…/'+tail.slice(-28):''); }catch{ return String(u).slice(0,40); } }
 function lacksDetails(p){ return !(p.iface||[]).length && !p.volts && !p.img && !p.link && !p.mpn; }
+// Parts with no details go to Claude 40 at a time, the most its reply puts in one link (the skill splits there), so each
+// round can be finished; a category's parts go together, so Claude answers them alike. Which have been sent is this
+// browser's own note (not synced): a part that gets its details drops off the list either way.
+const CHUNK=40, SENT_KEY='pb.sentbare';
+const num=n=>n.toLocaleString('en');
+function bareChunk(){
+  const was=new Set(localGet(SENT_KEY,[]));
+  const bare=[...S.parts.values()].filter(lacksDetails).sort((a,b)=>(!a.category-!b.category) || byName(a.category||'',b.category||'') || byName(a.name,b.name));
+  const sent=bare.filter(p=>was.has(p.id)).length;
+  return { bare, sent, next:bare.filter(p=>!was.has(p.id)).slice(0,CHUNK) };
+}
+function noteSent(parts){ const live=new Set(S.parts.keys()); localSet(SENT_KEY,[...new Set([...localGet(SENT_KEY,[]).filter(id=>live.has(id)), ...parts.map(p=>p.id)])]); }
 
 // ------------------------------------------------------------------ inbox: batches from Claude
 // Claude reads a photo, a receipt or a product page and replies with a link. Opening it puts the parts here to check;
@@ -1558,11 +1570,14 @@ function renderInbox(m){
   intake.querySelector('#inb-go').onclick=open; paste.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); open(); } };
   intake.querySelector('#inb-file').onclick=importJson;
   m.append(intake);
-  const bare=[...S.parts.values()].filter(lacksDetails);
+  const {bare, next, sent}=bareChunk(), left=bare.length-sent, one=bare.length<=CHUNK && !sent;
   const det=h(`<section class="card"><h3>Fill in details</h3>
     <p class="muted">Claude can suggest a category, interface, I2C address, voltages, a part number, a link and a reference photo for parts you already have, and flag the ones worth testing. Ask it to fill in details for your Parts Bin parts, or send it the list from here. The suggestions come back to this inbox, and nothing changes until you apply it.</p>
-    ${bare.length?`<div class="row"><button class="btn" id="inb-share">Send Claude ${bare.length} part${bare.length===1?'':'s'} with no details</button></div>`:S.parts.size?'<div class="row"><span class="tiny">Every part has some details already.</span></div>':''}</section>`);
-  det.querySelector('#inb-share')?.addEventListener('click',()=>sendToClaude(bare));
+    ${!bare.length?(S.parts.size?'<div class="row"><span class="tiny">Every part has some details already.</span></div>':'')
+      :`<div class="row">${next.length?`<button class="btn" id="inb-share">${one?`Send Claude ${bare.length} part${bare.length===1?'':'s'} with no details`:`Send Claude the next ${next.length} of ${num(bare.length)} with no details`}</button>`:''}
+        ${sent?`<span class="tiny" id="inb-sent">${left?`Sent ${num(sent)} · ${num(left)} to go`:`Sent all ${num(sent)}`}</span><button class="btn sm" id="inb-again">Start again</button>`:''}</div>`}</section>`);
+  det.querySelector('#inb-share')?.addEventListener('click',async()=>{ if(await sendToClaude(next)){ noteSent(next); render(); } });
+  det.querySelector('#inb-again')?.addEventListener('click',()=>{ localSet(SENT_KEY,[]); render(); });
   m.append(det);
   wireRefs(m);
 }
@@ -1711,10 +1726,12 @@ function claudeText(parts){
     const bin=binOf(p); if(bin) r.bin=bin.code; if(BG.bagOf(p)) r.bag=bagStr(BG.bagOf(p)); if((p.tags||[]).length) r.tags=p.tags; if(p.check) r.check=p.check; return r; });
   return `Parts Bin: fill in details for ${rows.length===1?'this part':`these ${rows.length} parts`} (category, interface, I2C address, supply and logic voltage, part number, link, reference photo), flag anything I should test before trusting it, and give me the Inbox link.\n\n${JSON.stringify({partsbin:1, ask:'details', parts:rows})}`;
 }
+// true once the list has gone to the share sheet, the clipboard, or a sheet to copy it from by hand
 async function sendToClaude(parts){
   const text=claudeText(parts);
-  if(navigator.share && matchMedia('(pointer:coarse)').matches){ try{ await navigator.share({text}); return; }catch(e){ if(e.name==='AbortError') return; } }
+  if(navigator.share && matchMedia('(pointer:coarse)').matches){ try{ await navigator.share({text}); return true; }catch(e){ if(e.name==='AbortError') return false; } }
   await copyText(text,'Copied. Paste it into a chat with Claude.','Copy this to Claude',3500);
+  return true;
 }
 // Copies text to the clipboard. Where the browser refuses (or has no clipboard), the text opens in a sheet, selected, to copy by hand.
 async function copyText(text, done, title, ms=1800){

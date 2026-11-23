@@ -1209,6 +1209,18 @@ await desk.goto(base);
   await lp.click('#tabbar [data-go="bins"]'); await lp.waitForSelector('.bin');
   await lp.click('#tabbar [data-go="parts"]'); await lp.waitForSelector('.list .item');
   assert.equal(await lp.evaluate(() => scrollY), 0, 'Parts from the tab bar opens at the top');
+  // a save or a sync draws the screen once (it drew it twice, once for the bins and once for the parts: about a second
+  // for a long list on a slow phone)
+  const draws = async change => {
+    await lp.evaluate(() => { window.__draws = 0; window.__mo?.disconnect(); window.__mo = new MutationObserver(rs => { for (const r of rs) if (r.removedNodes.length) window.__draws++; }); window.__mo.observe(document.getElementById('main'), { childList: true }); });
+    await change(); await lp.waitForTimeout(300);
+    return lp.evaluate(() => { window.__mo.disconnect(); return window.__draws; });
+  };
+  assert.equal(await draws(() => lp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts.p7.qty = 70; d.items.parts.p7.t = Date.now(); localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); })), 1, 'a sync drew Parts more than once');
+  await lp.waitForSelector('.list .item:has-text("Resistor 007") .q:has-text("70")');
+  await lp.goto(base + '#part/p7'); await lp.waitForSelector('#inc');
+  assert.equal(await draws(() => lp.click('#inc')), 1, 'a save drew the part page more than once');
+  assert.equal(await lp.inputValue('#qv'), '71');
   assert.deepEqual(lp.problems, [], 'problems with a long inventory');
   await lCtx.close();
 }

@@ -912,7 +912,16 @@ function batchSection(b){
   return sec;
 }
 // Parts already listed that this could be: the one Claude named first, then near matches on the name or part number.
+// Worked out once for each copy of the inventory: scoring every part for every card took most of drawing the Inbox, and
+// a Skip draws it again with the same parts.
+let candMemo=null;
 function candidates(x){
+  if(candMemo?.of!==S.parts) candMemo={of:S.parts, v:new Map()};
+  const k=JSON.stringify([x.match||'', x.name||'', x.mpn||'']);
+  if(!candMemo.v.has(k)) candMemo.v.set(k, findCandidates(x));
+  return candMemo.v.get(k);
+}
+function findCandidates(x){
   const out=[]; const add=(p,why)=>{ if(p && !out.some(c=>c.p.id===p.id)) out.push({p,why}); };
   add(x.match && S.parts.get(x.match),'match');
   for(const p of nearParts(x.name)) add(p,'near');
@@ -1070,11 +1079,14 @@ if(history.state?.sheet) stepOff(); // reloaded on a sheet's step (a phone reope
 S.db=localDb; S.user=null; S.canWrite=true;
 S.sample=makeSample(); S.imgOk=!!S.sample; S.assets=null; S.downloads=null;
 let got=0;
-// Settings shows nothing from the inventory, so a change to it there (a sync, another tab) only redraws the counts beside it.
-const inventoryChanged=()=>{ if(parseHash().view==='settings') renderNav(); else render(); };
-localDb.collection('bins').onSnapshot(snap=>{ S.bins=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(S.loaded) inventoryChanged(); else if(++got>=2){ S.loaded=true; render(); } });
-localDb.collection('parts').onSnapshot(snap=>{ S.parts=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); noteNewClashes(); if(S.loaded) inventoryChanged(); else if(++got>=2){ S.loaded=true; render(); } });
-localDb.collection('projects').onSnapshot(snap=>{ S.projects=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(S.loaded&&S.route.view==='bom') render(); });
+// A save or a sync tells bins, parts and projects apart, and the screen is drawn once after all three (it was drawn
+// once for each, 1.5 s for a long Parts list on a slow phone). Settings shows nothing from the inventory, so a change
+// to it there (a sync, another tab) only redraws the counts beside it.
+let inventoryChanged=false;
+localDb.collection('bins').onSnapshot(snap=>{ S.bins=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(S.loaded) inventoryChanged=true; else if(++got>=2){ S.loaded=true; render(); } });
+localDb.collection('parts').onSnapshot(snap=>{ S.parts=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); noteNewClashes(); if(S.loaded) inventoryChanged=true; else if(++got>=2){ S.loaded=true; render(); } });
+localDb.collection('projects').onSnapshot(snap=>{ S.projects=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(S.loaded&&S.route.view==='bom') inventoryChanged=true; });
+store.onDelivered(()=>{ if(!inventoryChanged) return; inventoryChanged=false; if(parseHash().view==='settings') renderNav(); else render(); });
 render();
 store.onSave(()=>drive.changed()); // a change that couldn't be kept is refused where it was made (writeFail)
 drive.onUpdate(()=>store.reload());

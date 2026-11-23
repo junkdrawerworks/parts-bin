@@ -9,6 +9,7 @@ const get = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { r
 let doc = M.cleanDoc(get(KEY));
 const subs = { bins: [], parts: [], projects: [] };
 const saved = [];
+const delivered = [];
 
 // A change this browser can't keep (its storage is full) is refused, and nothing changes: the screens only ever show
 // what's really saved, and set(), update() and delete() reject so the page can say so.
@@ -32,6 +33,7 @@ function deliver() {
     const docs = M.live(doc, kind).map(x => { const { t, del, id, ...data } = x; return { id, data: () => ({ ...data, updatedAt: iso(t) }) }; });
     for (const f of subs[kind]) { try { f({ docs, size: docs.length, empty: !docs.length }); } catch (e) { console.error(e); } }
   }
+  for (const f of delivered) { try { f(); } catch (e) { console.error(e); } }
 }
 function split(path) {
   const [kind, id] = String(path).split('/');
@@ -66,6 +68,7 @@ export const db = {
 export const store = {
   get doc() { return doc; },
   onSave(f) { saved.push(f); }, // after each change that was kept
+  onDelivered(f) { delivered.push(f); }, // after every collection has been told of a change, so a page draws once
   reload() { doc = M.cleanDoc(get(KEY)); notify(); },
   backup: () => JSON.stringify({ ...JSON.parse(M.canon(doc)), saved: new Date().toISOString() }, null, 1),
   // Merges a file in item by item, so nothing here is lost. Returns how many items it added or changed, and how many of

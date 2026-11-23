@@ -685,6 +685,17 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sp.evaluate(() => localStorage.setItem('__who', 'states'));
   await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
   assert.equal(JSON.parse(g.files().find(f => f.owner === 'states' && f.appProperties?.partsbin === 'sync').body).items.bins['b-w'].name, 'Work bench');
+  // another junkdrawer.works project signs in as the other account, and its sign-in is shared: it isn't used here either
+  // (it was taken on as it was, and the inventory went into that account's Drive)
+  await sp.evaluate(() => { localStorage.setItem('junkdrawer.google', JSON.stringify({ token: 'tok-work', exp: Date.now() + 3600000, scope: 'https://www.googleapis.com/auth/drive.file', email: 'work@gmail.com' })); });
+  await sp.reload(); await sp.waitForSelector('#drivecard [data-a="now"]'); await chipIs('tap'); await sp.waitForFunction(() => window.__cfg);
+  const beforeShared = g.calls.length;
+  await sp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.bins['b-w'] = { ...d.items.bins['b-w'], name: 'Shared sign-in', t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await sp.waitForTimeout(1600);
+  assert.deepEqual(g.calls.slice(beforeShared).filter(c => !c.startsWith('GET /drive/v3/about')), [], 'another project’s sign-in for the other account was used');
+  assert.deepEqual(g.files().filter(f => f.owner === 'work'), [], 'a file was made in the other account’s Drive');
+  await sp.click('#drivecard [data-a="now"]'); await chipIs('ok'); // signs in as this device's account
+  assert.equal(JSON.parse(g.files().find(f => f.owner === 'states' && f.appProperties?.partsbin === 'sync').body).items.bins['b-w'].name, 'Shared sign-in');
   // Drive full: the card says so and that the inventory is kept here (it said to check the connection)
   const touch = name => sp.evaluate(name => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.bins['b-w'] = { ...d.items.bins['b-w'], name, t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, name);
   const driveSays = (status, reason) => ({ status, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ error: { errors: [{ domain: 'global', reason, message: reason }], code: status, message: reason } }) });
@@ -739,6 +750,14 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sp.route('https://www.googleapis.com/upload/**', r => r.abort('internetdisconnected'));
   await touch('Dropped'); await sp.click('#drivecard [data-a="now"]'); await chipIs('offline');
   await sp.unroute('https://www.googleapis.com/upload/**');
+  await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  // Drive answering something this page can't use isn't offline: that's for no connection (it said "Offline" for any
+  // fault in the sync, with the phone online and nothing to bring it back)
+  const listing = u => u.hostname === 'www.googleapis.com' && u.pathname === '/drive/v3/files';
+  await sp.route(listing, r => (r.request().method() === 'GET' ? r.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: '{"files":5}' }) : r.fallback()));
+  await touch('Odd answer'); await sp.click('#drivecard [data-a="now"]'); await chipIs('error');
+  assert.doesNotMatch(await card(), /Offline/);
+  await sp.unroute(listing);
   await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
   // signed out: Pack's line has Sync now, which signs in from the tap; only the line changes, not what's being typed
   await expire();

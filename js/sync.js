@@ -34,8 +34,11 @@ const ups = [], watchers = [];
 
 const saveSt = () => put(KS, st);
 const good = t => !!(t && t.token && t.exp - 60000 > Date.now() && String(t.scope || '').includes(SCOPE));
-// A sign-in with more than a minute left: this page's, or a newer one another junkdrawer.works project saved.
-const live = () => good(tok) || (good(get(KT)) && !!(tok = get(KT)));
+// A sign-in with more than a minute left: this page's, or a newer one another junkdrawer.works project saved, as long
+// as it's for the account this device saves to (another project may have signed in as someone's other account, and the
+// whole inventory would go into that Drive).
+const mine = t => !st.email || !t?.email || t.email.toLowerCase() === st.email.toLowerCase();
+const live = () => (good(tok) && mine(tok)) || (good(get(KT)) && mine(get(KT)) && !!(tok = get(KT)));
 function setStatus(s, n = '') { status = s; note = n; for (const f of [...watchers]) { try { if (f() === false) watchers.splice(watchers.indexOf(f), 1); } catch { watchers.splice(watchers.indexOf(f), 1); } } }
 // Signed out: what went wrong at the last sign-in still says so until the next one.
 const signedOut = () => setStatus('tap', status === 'tap' ? note : '');
@@ -69,7 +72,8 @@ async function api(method, path, body, type, as = null) { // as: a sign-in not t
     for (;;) { const { done, value } = await reader.read(); if (done) break; wait(); text += dec.decode(value, { stream: true }); }
     return JSON.parse(text + dec.decode());
   } catch (e) {
-    throw e?.name === 'AbortError' ? { http: 0 } : e;
+    // no connection: fetch, or the file coming down, fails with a TypeError (anything else that does is a fault, not offline)
+    throw e?.name === 'AbortError' ? { http: 0 } : e instanceof TypeError ? { offline: true } : e;
   } finally { clearTimeout(timer); }
 }
 const query = meta => {
@@ -172,7 +176,7 @@ function sync() {
     else if (e?.reason === 'storageQuotaExceeded') setStatus('error', 'Your Google Drive is full, so the inventory wasn’t saved there. It’s kept on this device. Free some space in Drive, then tap Sync now.');
     else if (isBusy(e)) setStatus('error', 'Google Drive is busy. Try again in a minute.');
     // no connection at all (a request that never answers is something else: Drive not reached, below)
-    else if (navigator.onLine === false || e instanceof TypeError) setStatus('offline', OFFLINE);
+    else if (navigator.onLine === false || e?.offline) setStatus('offline', OFFLINE);
     else if (e?.unreadable) setStatus('error', 'The file in your Drive isn’t readable, so it was left alone. Save a backup here, then delete that file from the Parts Bin folder to start it fresh.');
     else setStatus('error', e === RETRY ? 'Another device kept saving. Try again in a moment.' : 'Couldn’t reach Google Drive. Check the connection and try again.');
     return false;

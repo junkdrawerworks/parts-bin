@@ -904,6 +904,13 @@ await desk.goto(base);
   await pg.waitForSelector('#toast:has-text("Bag #011 is already used")'); assert.equal(await pg.inputValue('#p-bag'), '11');
   await pg.click('.sheet #cancel'); await gone();
 
+  // a match with no category or bin reads cleanly (it was "#002 ·  · in stock 1")
+  await pg.goto(base + '#scan'); await pg.fill('#desc', 'Buzzer'); await pg.waitForSelector('.matchlist [data-id="p-buzz"]');
+  assert.equal(await pg.textContent('.matchlist [data-id="p-buzz"] .s'), '#002 · in stock 1');
+  await pg.fill('#desc', 'SGP30'); await pg.waitForSelector('.matchlist [data-id="p-sgp"]');
+  assert.equal(await pg.textContent('.matchlist [data-id="p-sgp"] .s'), '#003 · in stock 1 · BOX 01');
+  await pg.fill('#desc', '');
+
   // a sticker whose number no part has now says what may have happened, and where to go from there (it was a dead end)
   await pg.goto(base + '#bag/042'); await pg.waitForSelector('#main .empty');
   assert.equal(await pg.textContent('#main .empty p'), 'No part has bag #042 now. It may have been renumbered or deleted.');

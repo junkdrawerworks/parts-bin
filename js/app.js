@@ -55,6 +55,8 @@ function photoImg(idv){ const u=assetUrl(idv); return u ? `<img src="${u}" alt="
 function isBox(b){ return !!b && b.kind==='box'; }
 function nextBag(){ let m=0; for(const p of S.parts.values()) m=Math.max(m,BG.bagOf(p)); return m+1; }
 function bagStr(n){ return n ? '#'+String(n).padStart(3,'0') : ''; }
+// The line under a part in a list of matches: its bag, category, count and bin, leaving out what it doesn't have.
+function subLine(p){ return [bagStr(p.bag), p.category, 'in stock '+fmtQty(p), binOf(p)?.code].filter(Boolean).map(esc).join(' · '); }
 // Bag numbers on more than one part (bags.js), worked out once for each copy of the inventory.
 let clashMemo=null;
 function bagClashes(){ if(clashMemo?.of!==S.parts) clashMemo={of:S.parts, v:new Map(BG.clashes(S.parts.values()))}; return clashMemo.v; }
@@ -431,8 +433,8 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
       st.textContent = matched ? `Looks like: ${matched.name}` : (j.name ? `New: ${j.name}` : '');
       // candidates list: model's match first, then local text matches on the name
       const local=searchParts(j.name||desc).slice(0,4).filter(p=>!matched||p.id!==matched.id);
-      const box=h(`<div><div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${esc(matched.category||'')} · in stock ${esc(fmtQty(matched))}${binOf(matched)?' · '+esc(binOf(matched).code):''}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
-        ${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${esc(p.category||'')} · in stock ${esc(fmtQty(p))}${binOf(p)?' · '+esc(binOf(p).code):''}</div></span><span class="chip">existing</span></button>`).join('')}
+      const box=h(`<div><div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${subLine(matched)}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
+        ${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
         <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
         <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
       res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box); listedFor=desc||null;
@@ -453,7 +455,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
     listedFor=q||null;
     if(!q) return;
     const hits=searchParts(q).slice(0,6);
-    const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${p.bag?esc(bagStr(p.bag))+' · ':''}${esc(p.category||'')} · in stock ${esc(fmtQty(p))}${binOf(p)?' · '+esc(binOf(p).code):''}</div></span><span class="chip">existing</span></button>`).join('')}
+    const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
       <button type="button" data-id=""><span><b>${esc(q)}</b><div class="s">Not in the inventory yet</div></span><span class="chip warn">new part</span></button></div></div>`);
     res.append(box);
     box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor({name:q}, btn.dataset.id?S.parts.get(btn.dataset.id):null));
@@ -855,7 +857,7 @@ function itemHead(x, title, sub=''){
 }
 function newCard(b,x){
   const cands=candidates(x);
-  const row=c=>`<button type="button" class="${c.why==='match'?'pick':''}" data-id="${esc(c.p.id)}"><span><b>${esc(c.p.name)}</b><div class="s">${c.p.bag?esc(bagStr(c.p.bag))+' · ':''}in stock ${esc(fmtQty(c.p))}${binOf(c.p)?' · '+esc(binOf(c.p).code):''}</div></span><span class="chip ${c.why==='match'?'ok':''}">${c.why==='match'?'same part':'existing'}</span></button>`;
+  const row=c=>`<button type="button" class="${c.why==='match'?'pick':''}" data-id="${esc(c.p.id)}"><span><b>${esc(c.p.name)}</b><div class="s">${subLine(c.p)}</div></span><span class="chip ${c.why==='match'?'ok':''}">${c.why==='match'?'same part':'existing'}</span></button>`;
   const el=h(`<div class="card inb" data-k="${esc(x.k)}">
     ${itemHead(x, `${esc(x.name)}${x.qty!=null?` <span class="mono q">×${esc(x.qty)}</span>`:''}`, x.notes?`<div class="tiny">${esc(x.notes)}</div>`:'')}
     ${x.check?`<div class="checknote"><div><b>Check.</b> ${esc(x.check)}</div></div>`:''}

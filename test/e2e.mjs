@@ -914,6 +914,25 @@ await desk.goto(base);
   await bagCtx.close();
 }
 
+// ---- a browser with no NFC (an iPhone, a laptop) and one bin
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });
+  const nCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await nCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const np = await nCtx.newPage();
+  np.problems = []; np.on('pageerror', e => np.problems.push(e.message)); np.on('console', m => { if (m.type() === 'error') np.problems.push(m.text()); });
+  const got = id => np.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  // where there's no clipboard at all, a tag's Copy link shows the link to copy by hand (it did nothing)
+  await np.goto(base + '#part/p-loose'); await np.evaluate(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined, configurable: true }));
+  await np.click('text=Bag tag'); await np.click('.sheet #copy');
+  await np.waitForSelector('.sheet textarea');
+  assert.equal(await np.inputValue('.sheet textarea'), base + '#bag/001'); assert.equal((await got('p-loose')).bag, 1);
+  await np.click('.sheet #done');
+
+  assert.deepEqual(np.problems, [], 'problems with no NFC');
+  await nCtx.close();
+}
+
 // ---- works offline once it has been opened: the inventory, the screens and the fonts, with no network at all
 const offCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
 const off = await offCtx.newPage();

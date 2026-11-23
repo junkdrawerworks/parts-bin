@@ -646,7 +646,7 @@ function tagSheet(b, kind='bin', opts={}){
   // rather than put two bags on one number.
   const taken=()=>{ if(!newBag || ![...S.parts.values()].some(x=>x.id!==b.id && Number(x.bag)===newBag)) return false; close(); toast(`Bag ${bagStr(newBag)} has just been used. Tap Bag tag again for the next number.`,4000); return true; };
   const claim=async()=>{ if(taken()) return false; if(!newBag) return true; try{ await S.db.doc('parts/'+b.id).update({bag:newBag}); }catch(e){ if(e?.code!=='invalid_argument'){ writeFail(e); return false; } } return true; };
-  el.querySelector('#copy').onclick=async()=>{ if(!await claim()) return; navigator.clipboard?.writeText(url).then(()=>toast('Link copied'),()=>toast(url,4000)); };
+  el.querySelector('#copy').onclick=async()=>{ if(!await claim()) return; copyText(url,'Link copied','Copy the tag link'); };
   const st=el.querySelector('#t-status'), tz=el.querySelector('#tz');
   async function write(overwrite=false){
     if(taken()) return;

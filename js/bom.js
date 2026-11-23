@@ -325,11 +325,12 @@ export function unitOf(r) {
 
 // What the lines matched to each part need between them, by part id: { qty, lines }, in the part's unit. Two lines for
 // one part ("2x M3 heat-set insert" and "M3 heat-set inserts x6") need 8, which 6 in stock doesn't cover, though each
-// line alone fits.
-export function needs(items) {
+// line alone fits. A near match (matchPart's near) isn't counted unless withNear: "3 1k resistor" finding the 10k resistor
+// may be the wrong part, and counted it made "2 10k resistor" say short with 4 in stock.
+export function needs(items, withNear = false) {
   const out = new Map();
   for (const r of items) {
-    if (!r.m) continue;
+    if (!r.m || (r.m.near && !withNear)) continue;
     const n = out.get(r.m.p.id) || { qty: 0, lines: 0 };
     out.set(r.m.p.id, { qty: Math.round((n.qty + inPartUnit(r)) * 1000) / 1000, lines: n.lines + 1 });
   }

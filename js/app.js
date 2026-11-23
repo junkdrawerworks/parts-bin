@@ -571,7 +571,8 @@ function renderBom(m){
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchLine(r,S.parts.values())}));
     if(!items.some(r=>!r.heading)){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
-    const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
+    // (a near match isn't counted in its part's need, nor had: see below)
+    const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || r.m.near || stock(r)<need.get(r.m.p.id).qty;
     const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
     // A near match (the part found has another value or variant than the line: a 10k resistor for "1k resistor") isn't
     // counted as had: it says check, and goes on the shopping list with what was found, in case it's the wrong part.
@@ -688,11 +689,13 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
 const round3=x=>Math.round(x*1000)/1000;
 function builtSheet(items){
   drive.pull(); // what other devices have taken since this device's last sync
-  const need=needs(items), rows=[], seen=new Set();
+  // a part's near matches count only when it has no other line: "3 1k resistor" doesn't take from the 10k resistors
+  // "2 10k resistor" took from
+  const sure=needs(items), all=needs(items,true), rows=[], seen=new Set();
   for(const r of items){
     if(!r.m || seen.has(r.m.p.id)) continue; seen.add(r.m.p.id);
-    const p=S.parts.get(r.m.p.id)||r.m.p, stock=Number(p.qty||0), n=need.get(p.id).qty, take=round3(Math.max(0,Math.min(n,stock)));
-    rows.push({p, take, stock, after:round3(stock-take), short:n>stock, loose:items.some(x=>x.m?.p.id===p.id && x.m.conf<0.8)});
+    const p=S.parts.get(r.m.p.id)||r.m.p, stock=Number(p.qty||0), mixed=sure.has(p.id), n=(mixed?sure:all).get(p.id).qty, take=round3(Math.max(0,Math.min(n,stock)));
+    rows.push({p, take, stock, after:round3(stock-take), short:n>stock, loose:items.some(x=>x.m?.p.id===p.id && x.m.conf<0.8 && !(mixed && x.m.near))});
   }
   const q=(p,v)=>esc(fmtQty({...p, qty:v}));
   const {el,close}=sheet(`<h3>Built it: take these from stock</h3>

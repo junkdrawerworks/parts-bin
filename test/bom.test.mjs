@@ -343,6 +343,14 @@ test('a part without a value or variant the line has is a near match', () => {
   assert.equal(matchPart('U1 SCD41', [scd]).near, false, 'a designator looked past');
 });
 
+test('a near match isn’t counted in its part’s need', () => {
+  // "3 1k resistor" finding the 10k resistor made "2 10k resistor" need 5, short with 4 in stock
+  const r10k = { id: 'r', name: '10k resistor', qty: 4 }, lines = ['2 10k resistor', '3 1k resistor'].map(l => parseBom(l)[0]).map(r => ({ ...r, m: matchPart(r.name, [r10k]) }));
+  assert.equal(lines[1].m.near, true);
+  assert.deepEqual(needs(lines).get('r'), { qty: 2, lines: 1 });
+  assert.deepEqual(needs(lines, true).get('r'), { qty: 5, lines: 2 }, 'Built it counts them for a part with no other line');
+});
+
 test('a length or weight against a part counted in pieces is one piece', () => {
   // "2m USB-C cable" found the USB-C cable kept in pieces, and with one in stock said short 1 m
   const cable = { id: 'c', name: 'USB-C cable 2m', qty: 1, unit: 'pcs' }, jumpers = { id: 'j', name: 'Jumper wire kit', qty: 2 };

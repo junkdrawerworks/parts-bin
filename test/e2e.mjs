@@ -457,6 +457,13 @@ await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '0.1 m heat shrink tubing 5mm (check: you have a Heat shrink tubing 3mm)');
 await page.fill('#bom', '1 SCD41'); await page.click('#check');
 assert.match(await page.textContent('.bom-summary'), /^You have everything for this\./, 'a sure match is as it was');
+// a near match isn't counted in its part's need: the 0.1 m of 3mm in stock covers the 3mm line (it said short 0.1 m, the
+// 5mm line counted in), and Built it takes only the 3mm line's 0.1 m, ticked
+await page.fill('#bom', '0.1 m heat shrink tubing 3mm\n0.1 m heat shrink tubing 5mm'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['have', 'check']);
+await page.click('#out #built'); await page.waitForSelector('.sheet .built');
+assert.deepEqual(await page.$$eval('.sheet .built label', ls => ls.map(l => [l.querySelector('.bn').textContent, l.querySelector('.bq').textContent, l.querySelector('input').checked])), [['Heat shrink tubing 3mm', '0.1 m → 0 m', true]]);
+await page.click('.sheet #cancel'); await page.waitForFunction(() => !document.querySelector('.sheet'));
 // two lines for one part are checked together: each fits the stock alone, but not both (both said have, and the shopping
 // list left them out); the shortfall is bought once
 const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280'].qty);

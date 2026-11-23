@@ -162,3 +162,26 @@ test('the list the app shares reads in the skill’s script, bins and bags inclu
   const link = /^Link .*?: (https:\/\/\S+)$/m.exec(made)?.[1];
   return IN.read(link).then(raw => assert.deepEqual(IN.cleanBatch(raw).items.map(({ k, ...x }) => x), [{ volts: '2.4–5.5 V', id: 'p-scd41' }], 'what the part already says is left out'));
 });
+
+test('Undo after a Skip puts the item back in its place, and a batch that went with its last item back where it was', () => {
+  const mk = (id, n) => IN.cleanBatch({ partsbin: 1, batch: { id, name: id, source: 'photo', items: Array.from({ length: n }, (_, i) => ({ name: id + ' part ' + i })) } });
+  const st = IN.clean(null);
+  for (const b of [mk('b-old', 2), mk('b-mid', 1), mk('b-new', 3)]) IN.addBatch(st, b);
+  assert.deepEqual(st.batches.map(b => b.id), ['b-new', 'b-mid', 'b-old']);
+  const snap = b => ({ ...b, items: undefined, pos: st.batches.indexOf(b) });
+  // the middle card of three
+  let b = st.batches[0], s = snap(b), items = b.items.filter(x => x.k === 'i1');
+  IN.resolve(st, b.id, ['i1']);
+  assert.ok(IN.unresolve(st, s, items));
+  assert.deepEqual(st.batches[0].items.map(x => x.k), ['i0', 'i1', 'i2']);
+  // the last card of a batch: the batch goes, is noted as finished, and comes back in its place
+  b = st.batches[1]; s = snap(b); items = b.items.slice();
+  IN.resolve(st, b.id, ['i0']);
+  assert.deepEqual(st.batches.map(b => b.id), ['b-new', 'b-old']); assert.ok(Object.hasOwn(st.seen, 'b-mid'));
+  assert.ok(IN.unresolve(st, s, items));
+  assert.deepEqual(st.batches.map(b => b.id), ['b-new', 'b-mid', 'b-old']); assert.ok(!Object.hasOwn(st.seen, 'b-mid'), 'its link opens it again');
+  assert.deepEqual(st.batches[1].items, items); assert.equal(IN.count(st), 6);
+  assert.deepEqual(IN.clean(JSON.parse(JSON.stringify(st))), st, 'saved and read back the same');
+  // put back twice (a double tap): no item twice
+  assert.ok(IN.unresolve(st, s, items)); assert.equal(IN.count(st), 6);
+});

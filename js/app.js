@@ -1488,8 +1488,21 @@ function batchDone(b, add){
   TALLY.delete(b.id);
   return `“${b.name||SOURCES[b.source]}” done: ${Object.entries(t).filter(([,k])=>k).map(([w,k])=>`${k} ${w}`).join(', ')}`;
 }
-// A card skipped says which (and the batch, after its last), on screen as well as to a screen reader (toast() says it too).
-function skipped(b, keys, name){ IN.resolve(INBOX,b.id,keys); const fin=batchDone(b,{skipped:keys.length}); if(keepInbox()) toast(fin||'Skipped '+name, fin?3500:1800); }
+// A card skipped says which (and the batch, after its last), on screen as well as to a screen reader (toast() says it too),
+// with Undo: Skip and Apply sit side by side on a small card, and a suggestion skipped couldn't be got back.
+function skipped(b, keys, name){
+  const snap={...b, pos:INBOX.batches.indexOf(b)}, items=b.items.filter(x=>keys.includes(x.k)), tally={...(TALLY.get(b.id)||{updated:0, saved:0, skipped:0})};
+  const off=keys.map(k=>[b.id+' '+k, UNTICKED.get(b.id+' '+k)]).filter(([,v])=>v);
+  settled(b,keys); IN.resolve(INBOX,b.id,keys); const fin=batchDone(b,{skipped:keys.length});
+  if(keepInbox()) toast(fin||'Skipped '+name, fin?3500:1800, {label:'Undo', run:()=>unskip(snap, items, tally, off, name)});
+}
+// Undo: the card back where it was, with the fields that were unticked on it still unticked, and the keyboard on it.
+function unskip(snap, items, tally, off, name){
+  if(!IN.unresolve(INBOX, snap, items)){ toast('The inbox is full, so that can’t come back. Finish or dismiss a batch first.',4500); return; }
+  TALLY.set(snap.id, tally); for(const [k,v] of off) UNTICKED.set(k,v);
+  keepInbox(); if(S.route.view==='inbox') render(); else go('inbox');
+  toCard([snap.id, items[0].k]); toast(`${name} is back in the Inbox`);
+}
 // The fields unticked on each suggestion's card, by batch and item, so drawing the Inbox again (after a save, a sync, a
 // change in another tab) leaves them unticked, and Apply all leaves them out. Forgotten once the suggestion is dealt with.
 const UNTICKED=new Map();
@@ -1570,7 +1583,7 @@ function batchSection(b){
   if(lost.length){
     const n=lost.length, note=h(`<div class="note lost" style="margin-bottom:14px"><p>${n} suggestion${n===1?' is':'s are'} for ${n===1?'a part that isn’t':'parts that aren’t'} in this browser’s inventory. If another device has ${n===1?'it':'them'}, sync here first and ${n===1?'it':'they'}’ll show up; otherwise skip ${n===1?'it':'them'}.</p>
       ${lost.map(x=>`<div class="row" data-k="${esc(x.k)}"><span class="grow">${x.name?esc(x.name):`<span class="mono">${esc(x.id)}</span>`}</span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(x.name||x.id)}">Skip</button></div>`).join('')}</div>`);
-    note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ const x=lost.find(y=>y.k===r.dataset.k); settled(b,[r.dataset.k]); skipped(b,[r.dataset.k],x?.name||x?.id||''); render(); });
+    note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ const x=lost.find(y=>y.k===r.dataset.k); skipped(b,[r.dataset.k],x?.name||x?.id||''); render(); });
     sec.append(note);
   }
   return sec;
@@ -1656,7 +1669,7 @@ function updateCard(b,x){
     <div class="diff">${d.map(r=>`<label${r.full?' class="off"':''}><input type="checkbox" data-k="${r.k}"${r.full?' disabled':untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'||r.full?' warn':''}">${to(r)}</span></label>`).join('')}</div>
     <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(p.name)}">Skip</button><button class="btn primary sm" data-a="apply" aria-label="Apply to ${esc(p.name)}">Apply</button></div></div>`);
   el.querySelectorAll('.diff input').forEach(i=>i.onchange=()=>{ const u=untickedOf(b,x); if(i.checked) u.delete(i.dataset.k); else u.add(i.dataset.k); });
-  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); settled(b,[x.k]); skipped(b,[x.k],p.name); render(); toCard(next); };
+  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); skipped(b,[x.k],p.name); render(); toCard(next); };
   el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:ticked(b,x)}], cardAfter(el));
   return el;
 }

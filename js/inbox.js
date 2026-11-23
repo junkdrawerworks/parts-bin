@@ -165,4 +165,20 @@ export function resolve(st, batchId, keys) {
   b.items = keys ? b.items.filter(x => !keys.includes(x.k)) : [];
   if (!b.items.length) { st.batches = st.batches.filter(x => x !== b); st.seen[batchId] = Date.now(); }
 }
+// Undo after a Skip: puts items taken out by resolve() back in their batch, in the batch's own order. A batch that went
+// with its last item comes back where it was in the list, and is forgotten as finished, so its link can open it again.
+// snap: the batch as it was (its items aside), with pos, its place in the list. False when the Inbox has no room for it.
+export function unresolve(st, snap, items) {
+  let b = st.batches.find(x => x.id === snap.id);
+  if (!b) {
+    if (st.batches.length >= MAX_BATCHES) return false;
+    const { pos, items: _, ...rest } = snap;
+    b = { ...rest, items: [] };
+    st.batches.splice(Math.max(0, Math.min(pos ?? 0, st.batches.length)), 0, b);
+    delete st.seen[snap.id];
+  }
+  const have = new Set(b.items.map(x => x.k)), n = x => Number(x.k.slice(1));
+  b.items = [...b.items, ...items.filter(x => !have.has(x.k))].sort((x, y) => n(x) - n(y));
+  return true;
+}
 export const count = st => st.batches.reduce((n, b) => n + b.items.length, 0);

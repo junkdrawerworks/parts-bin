@@ -2728,6 +2728,47 @@ await desk.goto(base);
   await uCtx.close();
 }
 
+// ---- Undo on an Inbox Skip: the card comes back where it was, with a field unticked on it still unticked and the
+// keyboard on it; the last card of a batch, whose Skip finished the batch, brings the batch back (a mis-tapped Skip, beside
+// Apply on a small card, was gone unless Claude was asked for the batch again)
+{
+  const INX = await import(join(root, 'js/inbox.js'));
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {},
+    parts: { 'p-bh': { name: 'BH1750', category: 'Light', qty: 2, unit: 'pcs', tags: [], t: 1 }, 'p-ss': { name: 'SSD1306', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });
+  const kCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await kCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const kp = await kCtx.newPage();
+  kp.problems = []; kp.on('pageerror', e => kp.problems.push(e.message)); kp.on('console', m => { if (m.type() === 'error') kp.problems.push(m.text()); });
+  await kp.goto(base + '#' + await INX.encode({ partsbin: 1, batch: { id: 'ptest-undo', name: 'Bench', source: 'details', items: [
+    { name: 'Rotary encoder', qty: 4 }, { id: 'p-bh', category: 'Sensors', addr: '0x23' }, { id: 'p-ss', iface: ['I2C'] }] } }));
+  await kp.waitForSelector('.card.inb[data-k="i2"]');
+  const cards = () => kp.locator('.card.inb').evaluateAll(cs => cs.map(c => c.dataset.k));
+  const saved = () => kp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin.inbox')));
+  // a suggestion with one field unticked
+  await kp.uncheck('.card.inb[data-k="i1"] .diff input[data-k="addr"]');
+  await kp.click('.card.inb[data-k="i1"] [data-a="skip"]'); await kp.waitForFunction(() => !document.querySelector('.card.inb[data-k="i1"]'));
+  await kp.waitForSelector('#toast:has-text("Skipped BH1750") button:has-text("Undo")');
+  await kp.click('#toast button'); await kp.waitForSelector('.card.inb[data-k="i1"]');
+  assert.deepEqual(await cards(), ['i0', 'i1', 'i2'], 'back in its place');
+  await kp.waitForSelector('#toast:has-text("BH1750 is back in the Inbox")');
+  assert.equal(await kp.isChecked('.card.inb[data-k="i1"] .diff input[data-k="addr"]'), false, 'still unticked');
+  assert.equal(await kp.isChecked('.card.inb[data-k="i1"] .diff input[data-k="category"]'), true);
+  assert.equal(await kp.evaluate(() => document.activeElement.closest('.card.inb')?.dataset.k), 'i1', 'the keyboard is on it');
+  assert.deepEqual((await saved()).batches[0].items.map(x => x.k), ['i0', 'i1', 'i2'], 'saved, so a reload keeps it');
+  assert.equal(await kp.textContent('#tabbar .badge'), '3');
+  // skip all three; the last one's Skip finishes the batch, and its Undo brings it back with that one card
+  for (const k of ['i0', 'i1', 'i2']) { await kp.click(`.card.inb[data-k="${k}"] [data-a="skip"]`); await kp.waitForFunction(k => !document.querySelector(`.card.inb[data-k="${k}"]`), k); }
+  await kp.waitForSelector('#toast:has-text("“Bench” done: 3 skipped") button:has-text("Undo")');
+  assert.equal((await saved()).batches.length, 0); assert.ok('ptest-undo' in (await saved()).seen);
+  await kp.click('#toast button'); await kp.waitForSelector('.card.inb[data-k="i2"]');
+  assert.deepEqual(await cards(), ['i2']); assert.equal((await saved()).batches[0].id, 'ptest-undo'); assert.ok(!('ptest-undo' in (await saved()).seen));
+  assert.equal(await kp.textContent('.batch .section-h .tiny'), 'Suggested details · 1 left');
+  // and the batch, finished again, still counts all three
+  await kp.click('.card.inb[data-k="i2"] [data-a="skip"]'); await kp.waitForSelector('#toast:has-text("“Bench” done: 3 skipped")');
+  assert.deepEqual(kp.problems, []);
+  await kCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

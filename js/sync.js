@@ -324,6 +324,8 @@ function changed() {
 export const drive = {
   ready: !!CLIENT_ID,
   isOn: () => !!CLIENT_ID && st.on,
+  status: () => status, // off, busy, ok, tap (sign in again), error, offline
+  last: () => st.last, // when it last synced, ms (0: never)
   chip, card, changed, now, stop,
   onUpdate(f) { ups.push(f); }, // synced data landed in localStorage
   watch(f) { if (CLIENT_ID) watch(f); }, // Drive turned on or off, or synced; return false to stop watching

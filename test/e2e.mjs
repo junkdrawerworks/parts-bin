@@ -690,14 +690,27 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   assert.match(await card(), /^\s*Saved to Google Drive.*Offline\. Changes are kept on this device and go to Drive when you’re back online\. Last synced (just now|\d+ min ago)\./s);
   assert.equal(await dot(), grey);
   assert.match(await sp.getAttribute('#cloud-m', 'title'), /^Offline\..*Last synced/);
+  // Pack says the next bag number may be one another device has given out, and the line goes once it's back online
+  // and synced
+  await sp.goto(base + '#scan'); await chipIs('offline'); await sp.waitForSelector('.stale:not([hidden])');
+  assert.match(await sp.textContent('.stale'), /^Not synced since [^.]+\. Sync first so this number isn’t one another device has used\.Sync now$/);
   // back online: it syncs by itself
   await sCtx.setOffline(false); await chipIs('ok');
+  await sp.waitForSelector('.stale', { state: 'hidden' });
+  await sp.goto(base + '#settings'); await sp.waitForSelector('#drivecard [data-a="now"]');
   assert.equal(JSON.parse(myFile().body).items.bins['b-w'].name, 'Offline');
   // a connection that drops as the file goes up reads as offline too
   await sp.route('https://www.googleapis.com/upload/**', r => r.abort('internetdisconnected'));
   await touch('Dropped'); await sp.click('#drivecard [data-a="now"]'); await chipIs('offline');
   await sp.unroute('https://www.googleapis.com/upload/**');
   await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  // signed out: Pack's line has Sync now, which signs in from the tap; only the line changes, not what's being typed
+  await expire();
+  await sp.goto(base + '#scan'); await sp.waitForSelector('.stale:not([hidden])');
+  await sp.fill('#desc', 'buzz'); await sp.evaluate(() => { window.__desc = document.getElementById('desc'); });
+  await sp.click('.stale .btn'); await chipIs('ok');
+  await sp.waitForSelector('.stale', { state: 'hidden' });
+  assert.ok(await sp.evaluate(() => window.__desc === document.getElementById('desc') && window.__desc.value === 'buzz'), 'Pack was drawn again');
   assert.deepEqual(sp.problems.filter(p => !p.startsWith('Failed to load resource')), [], 'problems on the Drive states device'); // Drive saying no, as it was asked to
   await sCtx.close();
 }

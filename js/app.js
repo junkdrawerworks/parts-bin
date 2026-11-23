@@ -447,6 +447,22 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
 }
 
 // ---- Pack (scan-in with a sticky destination container)
+// With Drive on but not synced (signed out, offline, or something went wrong), the next bag number comes from what this
+// device last saw, and another device may have given it out since. Only this line follows Drive's state: the screen
+// itself is drawn again when a sync brings something.
+function staleNote(){
+  const el=h('<div class="checknote stale" hidden></div>');
+  drive.watch(()=>{
+    if(!el.isConnected && el.dataset.drawn) return false; // the screen it was on has gone
+    el.dataset.drawn='1';
+    const show=drive.isOn() && ['tap','error','offline'].includes(drive.status()), t=drive.last();
+    el.hidden=!show; if(!show){ el.innerHTML=''; return; }
+    const d=new Date(t), when=!t?'':d.toDateString()===new Date().toDateString()?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    el.innerHTML=`<div><b>${when?`Not synced since ${esc(when)}.`:'Not synced yet.'}</b> Sync first so this number isn’t one another device has used.</div><button class="btn sm" type="button">Sync now</button>`;
+    el.querySelector('button').onclick=()=>drive.now(); // inside the tap: Google's window may need to open
+  });
+  return el;
+}
 function renderScan(m){
   const tb=h(`<div class="topbar"><h2>Pack</h2>${S.canWrite?`<button class="btn" id="toinbox">${ICONS.inbox} Inbox${inboxCount()?` <span class="count">${inboxCount()}</span>`:''}</button>`:''}</div>`);
   m.append(tb); tb.querySelector('#toinbox')?.addEventListener('click',()=>go('inbox'));
@@ -458,7 +474,7 @@ function renderScan(m){
   const head=h(`<div class="packhead">
     <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(contLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
-  m.append(head);
+  m.append(staleNote(), head);
   head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
   head.querySelector('#newbox').onclick=()=>{ localSet('sr.newkind','box'); editBin(null); };
   head.querySelector('#newbin').onclick=()=>{ localSet('sr.newkind','bin'); editBin(null); };

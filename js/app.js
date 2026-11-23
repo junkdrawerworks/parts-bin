@@ -235,7 +235,7 @@ function renderBin(m, binId){
     bar.querySelector('#unpack-to').onchange=e=>{ unpackTo=e.target.value; };
     m.append(bar);
     const l=h('<div class="list"></div>');
-    for(const p of ps){ const row=h('<div class="unpack"></div>'), mv=h(`<button type="button" class="btn sm" aria-label="Move ${esc(bagStr(p.bag)||p.name)} to the chosen bin">⇢</button>`); mv.onclick=async()=>{ const to=bar.querySelector('#unpack-to').value; if(!to){ toast('Choose a bin first'); return; } if(await writePart({...p, binId:to, box:''})) toast(`${bagStr(p.bag)||p.name} → ${S.bins.get(to)?.code}`); }; row.append(partRow(p,false), mv); l.append(row); } // the ⇢ beside the row's button, not inside it
+    for(const p of ps){ const row=h('<div class="unpack"></div>'), mv=h(`<button type="button" class="btn sm" aria-label="Move ${esc(bagStr(p.bag)||p.name)} to the chosen bin">⇢</button>`); mv.onclick=async()=>{ const to=bar.querySelector('#unpack-to').value; if(!to){ toast('Choose a bin first'); return; } if(await writePart({...p, binId:to, box:'', from:''})) toast(`${bagStr(p.bag)||p.name} → ${S.bins.get(to)?.code}`); }; row.append(partRow(p,false), mv); l.append(row); } // the ⇢ beside the row's button, not inside it
     m.append(l); return;
   }
   const l=h('<div class="list"></div>'); for(const p of ps) l.append(partRow(p,false)); m.append(l);
@@ -576,8 +576,10 @@ function editPart(p, opts={}){
   el.querySelector('#del')?.addEventListener('click', async()=>{ if(!confirm('Delete this part?')) return; try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
     const name=el.querySelector('#p-name').value.trim(); if(!name){ toast('Name is required'); return; }
-    const newBin=el.querySelector('#p-bin').value; const oldB=binOf(p), nb=S.bins.get(newBin);
-    const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : (p.from||'');
+    // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in
+    // boxes and forgotten once it's out of them
+    const newBin=el.querySelector('#p-bin').value; const oldB=binOf(S.parts.get(p.id)||{}), nb=S.bins.get(newBin);
+    const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : (p.from||'');
     const bagv=el.querySelector('#p-bag').value; const bag = bagv===''?'':Number(bagv);
     if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ toast('Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
     if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && Number(x.bag)===bag)){ toast(`Bag ${bagStr(bag)} is already used`); return; }

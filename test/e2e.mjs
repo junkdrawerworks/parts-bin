@@ -836,6 +836,14 @@ await desk.goto(base);
   assert.match(await pg.textContent('.packhead .big'), /#003/, 'the next bag number didn’t move on');
   await pg.goto(base + '#bag/001'); await pg.waitForSelector('.binhead h2');
   assert.equal(await pg.textContent('.binhead h2'), 'BME280 (Adafruit)', 'the sticker on bag #001 still opens it');
+  // it remembers the bin it came out of (Pack used to lose it), and the box's printed list shows it
+  assert.equal(bme.from, 'ENV');
+  await pg.goto(base + '#bin/box-1'); await pg.evaluate(() => { window.print = () => {}; }); await pg.click('#print');
+  assert.deepEqual(await pg.locator('#print-root tbody td').allTextContents(), ['#001', 'BME280 (Adafruit)', '3', 'ENV', '']);
+  // unpacking it puts it back in a bin, and it no longer says where it was
+  await pg.selectOption('#unpack-to', 'bin-env'); await pg.click('button[aria-label="Move #001 to the chosen bin"]');
+  await pg.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme'].binId === 'bin-env');
+  assert.equal((await got('p-bme')).from, '');
   // a part with no bag yet gets the next number, and its tag is written
   await pg.goto(base + '#scan'); await pg.fill('#desc', 'SGP30'); await pg.click('.matchlist [data-id="p-sgp"]');
   await pg.waitForSelector('.sheet #p-bag');

@@ -158,7 +158,7 @@ function renderBins(m){
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
   const bins=searchBins('');
-  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div></div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); return; }
+  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div></div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); noBinSection(m); return; }
   // moving boxes first, then bins grouped by location
   const boxes=bins.filter(isBox);
   if(boxes.length){
@@ -181,6 +181,16 @@ function renderBins(m){
     }
     m.append(g);
   }
+  noBinSection(m);
+}
+// Parts in no bin (packed with none picked, or their bin deleted), last on Bins so nothing is out of sight; the row opens
+// them in Parts.
+function noBinSection(m){
+  const ps=[...S.parts.values()].filter(p=>!binOf(p)).sort((a,b)=>a.name.localeCompare(b.name)); if(!ps.length) return;
+  m.append(h(`<div class="section-h"><h3>Not in a bin</h3><span class="tiny">${ps.length} part${ps.length===1?'':'s'}</span></div>`));
+  const r=h(`<div class="list"><button type="button" class="item" id="nobin"><div><div class="t">${ps.slice(0,3).map(p=>esc(p.name)).join(', ')}${ps.length>3?', …':''}</div><div class="s">Show ${ps.length===1?'it':'them'} in Parts</div></div><div class="q">${ps.length}<small>part${ps.length===1?'':'s'}</small></div></button></div>`);
+  r.querySelector('#nobin').onclick=()=>{ localSet('sr.cat','__nobin'); S.q=''; go('parts'); };
+  m.append(r);
 }
 function renderSearchResults(m){
   const bins=searchBins(S.q), parts=searchParts(S.q);
@@ -228,17 +238,18 @@ function renderBin(m, binId){
   const ps=partsInBin(binId);
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back to bins">${ICONS.back}</button><span class="grow"></span>
     <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>
-    ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?`<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this box</button>`:`<button class="btn primary sm" id="add">${ICONS.plus} Part</button>`}`:''}</div>`);
+    ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`);
   m.append(head);
   head.querySelector('#back').onclick=()=>go('bins');
   head.querySelector('#tag')?.addEventListener('click',()=>tagSheet(b));
   head.querySelector('#edit')?.addEventListener('click',()=>editBin(b));
   head.querySelector('#add')?.addEventListener('click',()=>editPart({binId}));
-  head.querySelector('#pack')?.addEventListener('click',()=>{ localSet('sr.packbox',b.id); go('scan'); });
+  const pack=()=>{ localSet('sr.packbox',b.id); go('scan'); };
+  head.querySelector('#pack')?.addEventListener('click',pack);
   head.querySelector('#print').onclick=()=>printList(b,ps);
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
   m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${b.sealed?' · sealed':''}</div></div></div>`));
-  if(!ps.length){ m.append(h(`<div class="empty"><p>${isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p></div>`)); return; }
+  if(!ps.length){ const e=h(`<div class="empty"><p>${isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p>${S.canWrite?`<button class="btn primary" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`); e.querySelector('#packe')?.addEventListener('click',pack); m.append(e); return; }
   if(isBox(b)&&S.canWrite){
     // unpack helper: move bags out of the box into a bin. The bin picked stays picked while the page redraws after each move.
     const bins=[...S.bins.values()].filter(x=>!isBox(x)).sort(binCodeSort);
@@ -262,13 +273,13 @@ function printList(b, ps){
 function renderParts(m){
   const cats=[...new Set([...S.parts.values()].map(p=>p.category).filter(Boolean))].sort();
   const cur=localGet('sr.cat','');
-  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select>${S.canWrite?`<button class="btn primary" id="addp">${ICONS.plus} Part</button>`:''}`);
+  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select>${S.canWrite?`<button class="btn primary" id="addp">${ICONS.plus} Part</button>`:''}`);
   tb.querySelector('#cat').onchange=e=>{ localSet('sr.cat',e.target.value); render(); };
   tb.querySelector('#addp')?.addEventListener('click',()=>editPart({}));
   if(cur==='__clash') gapNote(m); else clashBar(m);
   let parts=searchParts(S.q);
   if(cur==='__clash') parts=bagClashes().size ? [...bagClashes().values()].flat().filter(p=>parts.includes(p)) : [];
-  else if(cur==='__low') parts=parts.filter(isLow); else if(cur==='__unbagged') parts=parts.filter(p=>!p.bag); else if(cur==='__bagged') parts=parts.filter(p=>p.bag); else if(cur==='__check') parts=parts.filter(p=>p.check); else if(cur) parts=parts.filter(p=>p.category===cur);
+  else if(cur==='__low') parts=parts.filter(isLow); else if(cur==='__unbagged') parts=parts.filter(p=>!p.bag); else if(cur==='__bagged') parts=parts.filter(p=>p.bag); else if(cur==='__nobin') parts=parts.filter(p=>!binOf(p)); else if(cur==='__check') parts=parts.filter(p=>p.check); else if(cur) parts=parts.filter(p=>p.category===cur);
   if(cur==='__bagged') parts.sort((a,b)=>Number(a.bag)-Number(b.bag));
   else if(!S.q && cur!=='__clash') parts.sort((a,b)=>a.name.localeCompare(b.name));
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
@@ -382,14 +393,15 @@ function renderScan(m){
   if(!S.canWrite){ m.append(h('<div class="empty"><p>This view is read-only.</p></div>')); return; }
   clashBar(m);
   const conts=[...S.bins.values()].sort((x,y)=>(isBox(y)-isBox(x))||binCodeSort(x,y));
-  let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest='';
+  let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
   const nb=nextBag();
   const head=h(`<div class="packhead">
-    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(c.code)} · ${esc(c.name||'')}</option>`).join('')}</select><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
+    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(c.code)} · ${esc(c.name||'')}</option>`).join('')}</select><button class="btn sm" id="newbin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
   m.append(head);
   head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
   head.querySelector('#newbox').onclick=()=>{ localSet('sr.newkind','box'); editBin(null); };
+  head.querySelector('#newbin').onclick=()=>{ localSet('sr.newkind','bin'); editBin(null); };
   const ui=h(`<div>
     <div class="note" style="margin-bottom:12px">Bag it and ${S.imgOk?'photograph it, or ':''}type what it is. Pick the matching part (or a new one), check the count, save, then hold the bag's sticker to the top of the phone. ${S.imgOk?'':'To skip the typing, send Claude a photo of the bags and open the link it replies with: they land in the Inbox, filled in.'}</div>
     ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px"><label class="btn primary" for="file">Take photo<input id="file" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="file2">Choose photo<input id="file2" type="file" accept="image/*" class="sr"></label></div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
@@ -529,7 +541,7 @@ function editBin(b){
     const dup=[...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
     const doc={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim(), photo:b.photo||'', tagWritten:!!b.tagWritten, updatedAt:new Date().toISOString()};
     const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
-    localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind);
+    localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it
     try{ await S.db.doc('bins/'+b.id).set(doc); close(); toast(isNew?'Bin added':'Saved'); if(isNew) go('bin',b.id); }catch(e){ writeFail(e); }
   };
 }

@@ -230,7 +230,7 @@ await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('
 await page.waitForTimeout(100);
 assert.equal(await page.inputValue('#bom'), '3 WS2812 strip segment');
 // a shortfall in metres reads 0.2, not 0.19999999999999998, on screen and in the shopping list
-await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-heat'] = { name: 'Heat shrink tubing 3mm', qty: 0.1, unit: 'm', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-heat'] = { name: 'Heat shrink tubing 3mm', qty: 0.1, unit: 'm', binId: 'bin-env', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check');
 assert.equal(await page.textContent('.bom-table .chip.warn'), 'short 0.2');
 await page.click('#out #copy');
@@ -911,6 +911,24 @@ await desk.goto(base);
   assert.equal(await pg.textContent('.matchlist [data-id="p-sgp"] .s'), '#003 · in stock 1 · BOX 01');
   await pg.fill('#desc', '');
 
+  // Bins lists what's in no bin at the end, so nothing packed is out of sight; it opens those parts in Parts
+  await pg.goto(base + '#bins'); await pg.waitForSelector('.section-h:has-text("Not in a bin")');
+  assert.equal(await pg.textContent('.section-h:has-text("Not in a bin") .tiny'), '1 part');
+  await pg.click('#nobin'); await pg.waitForFunction(() => location.hash === '#parts');
+  assert.equal(await pg.inputValue('#cat'), '__nobin'); assert.deepEqual(await pg.locator('.item .t').allTextContents(), ['Buzzer']);
+  await pg.selectOption('#cat', '');
+  // a new bin is where the next Pack starts, and its page (empty or not) packs into it
+  await pg.goto(base + '#bins'); await pg.click('#addbin'); await pg.fill('#f-code', 'B09'); await pg.click('.sheet #save');
+  await pg.waitForFunction(() => location.hash.startsWith('#bin/') && !document.querySelector('.sheet'));
+  const b09 = await pg.evaluate(() => location.hash.slice(5));
+  await pg.goto(base + '#scan'); assert.equal(await pg.inputValue('#dest'), b09);
+  await pg.selectOption('#dest', 'bin-env');
+  await pg.goto(base + '#bin/' + b09); await pg.click('#main .empty >> text=Pack into this bin');
+  await pg.waitForFunction(() => location.hash === '#scan'); assert.equal(await pg.inputValue('#dest'), b09);
+  // Pack makes a bin as well as a box
+  await pg.click('.packhead #newbin'); await pg.waitForSelector('.sheet #f-kind');
+  assert.equal(await pg.inputValue('#f-kind'), 'bin'); await pg.click('.sheet #cancel'); await gone();
+
   // a sticker whose number no part has now says what may have happened, and where to go from there (it was a dead end)
   await pg.goto(base + '#bag/042'); await pg.waitForSelector('#main .empty');
   assert.equal(await pg.textContent('#main .empty p'), 'No part has bag #042 now. It may have been renumbered or deleted.');
@@ -929,6 +947,8 @@ await desk.goto(base);
   const np = await nCtx.newPage();
   np.problems = []; np.on('pageerror', e => np.problems.push(e.message)); np.on('console', m => { if (m.type() === 'error') np.problems.push(m.text()); });
   const got = id => np.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  // with only one bin, Pack starts on it (it started on "pick a box or bin", and the parts went in no bin)
+  await np.goto(base + '#scan'); assert.equal(await np.inputValue('#dest'), 'b01');
   // where there's no clipboard at all, a tag's Copy link shows the link to copy by hand (it did nothing)
   await np.goto(base + '#part/p-loose'); await np.evaluate(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined, configurable: true }));
   await np.click('text=Bag tag'); await np.click('.sheet #copy');

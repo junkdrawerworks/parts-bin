@@ -76,6 +76,13 @@ test('a finished batch is remembered, so its link can’t add it twice', () => {
   assert.equal(IN.addBatch(IN.clean(null), IN.cleanBatch({ partsbin: 1, batch: { id: '__proto__', items: [{ name: 'x' }] } })), 'added');
 });
 
+test('an interface named like something every object has stays plain text', () => {
+  assert.deepEqual(IN.ifaces('constructor, toString, iic, __proto__'), ['constructor', 'toString', 'I2C', '__proto__']);
+  const x = IN.cleanItem({ name: 'Odd', iface: ['constructor', 'hasOwnProperty'] });
+  assert.deepEqual(x.iface, ['constructor', 'hasOwnProperty']);
+  assert.equal(IN.show(x.iface), 'constructor, hasOwnProperty');
+});
+
 // The Claude skill builds links with a Python script kept in its SKILL.md. What it writes has to open here.
 test('a link from the skill’s script opens in the app', t => {
   const md = readFileSync(join(root, 'skill/parts-bin-cataloger/SKILL.md'), 'utf8');

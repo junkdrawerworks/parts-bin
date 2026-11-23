@@ -7,7 +7,8 @@
 export const APP = 'parts-bin';
 export const KINDS = ['bins', 'parts', 'projects'];
 
-const idOk = id => typeof id === 'string' && /^[\w.:@+~-]{1,80}$/.test(id);
+// Names an object already has ('__proto__', 'constructor') would be read or written as something else, so no id is one.
+const idOk = id => typeof id === 'string' && /^[\w.:@+~-]{1,80}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
 // A time is ms since 1970, up to the last one a Date can hold; anything else counts as none (0).
 const MAX_T = 8.64e15;
 const tOk = t => (Number.isFinite(+t) && +t >= 0 && +t <= MAX_T ? Math.floor(+t) : 0);
@@ -74,7 +75,7 @@ export function mergeDocs(local, remote, { first = false } = {}) {
   for (const kind of KINDS) {
     const a = local?.items?.[kind] || {}, b = remote?.items?.[kind] || {};
     for (const id of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
-      const x = a[id], y = b[id];
+      const x = Object.hasOwn(a, id) ? a[id] : undefined, y = Object.hasOwn(b, id) ? b[id] : undefined;
       let m = !x ? y : !y ? x : newer(x, y) ? x : y;
       if (first && x && y && gone(m) && (!gone(x) || !gone(y))) m = gone(x) ? y : x;
       out.items[kind][id] = m;
@@ -85,14 +86,15 @@ export function mergeDocs(local, remote, { first = false } = {}) {
 
 export const live = (doc, kind) => Object.entries(doc.items[kind]).filter(([, x]) => !gone(x)).map(([id, x]) => ({ id, ...x }));
 
+const own = (o, id) => (Object.hasOwn(o, id) ? o[id] : undefined);
 export function putItem(doc, kind, id, fields) {
-  const old = doc.items[kind][id];
+  const old = own(doc.items[kind], id);
   const item = cleanItem({ ...fields, t: stamp(old) });
   delete item.del;
   return { ...doc, items: { ...doc.items, [kind]: { ...doc.items[kind], [id]: item } } };
 }
 export function removeItem(doc, kind, id) {
-  const old = doc.items[kind][id];
+  const old = own(doc.items[kind], id);
   if (!old || gone(old)) return doc;
   return { ...doc, items: { ...doc.items, [kind]: { ...doc.items[kind], [id]: { ...old, del: stamp(old) } } } };
 }

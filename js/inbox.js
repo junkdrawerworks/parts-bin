@@ -35,7 +35,7 @@ export function httpsUrl(v) {
 }
 export function ifaces(v) {
   const out = [];
-  for (const x of list(v)) { const s = str(x, 14); if (!s) continue; const k = IFACE[s.toLowerCase()] || s; if (!out.includes(k)) out.push(k); }
+  for (const x of list(v)) { const s = str(x, 14); if (!s) continue; const l = s.toLowerCase(), k = Object.hasOwn(IFACE, l) ? IFACE[l] : s; if (!out.includes(k)) out.push(k); }
   return out.slice(0, 6);
 }
 const tags = v => [...new Set(list(v).map(x => str(x, 30).toLowerCase()).filter(Boolean))].slice(0, 8);

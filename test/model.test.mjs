@@ -70,3 +70,15 @@ test('a copy saved with tags or an interface as text loads them as lists, and od
   const back = M.cleanDoc(JSON.parse(M.canon(d)));
   assert.equal(M.canon(back), M.canon(d));
 });
+test('ids an object already has are refused, so they can’t vanish or turn into something else', () => {
+  const raw = JSON.parse('{"app":"parts-bin","items":{"parts":{"__proto__":{"name":"P","t":1},"constructor":{"name":"C","t":1},"prototype":{"name":"Q","t":1},"ok":{"name":"BME280","t":1}}}}');
+  for (const d of [M.cleanDoc(raw), M.fromImport({ parts: [{ id: '__proto__', name: 'P' }, { id: 'constructor', name: 'C' }, { id: 'ok', name: 'BME280' }] })]) {
+    assert.deepEqual(Object.keys(d.items.parts), ['ok']);
+    assert.equal(Object.getPrototypeOf(d.items.parts), Object.prototype);
+  }
+  // nothing a doc hasn't got is read off Object itself
+  assert.deepEqual(M.removeItem(M.blankDoc(), 'parts', 'constructor').items.parts, {});
+  assert.equal(M.putItem(M.blankDoc(), 'parts', 'toString', { name: 'X' }).items.parts.toString.t > 0, true);
+  const m = M.mergeDocs(M.putItem(M.blankDoc(), 'parts', 'constructor', { name: 'X' }), M.blankDoc());
+  assert.equal(m.items.parts.constructor.name, 'X');
+});

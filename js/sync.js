@@ -38,19 +38,31 @@ const live = () => good(tok) || (good(get(KT)) && !!(tok = get(KT)));
 function setStatus(s, n = '') { status = s; note = n; for (const f of [...watchers]) { try { if (f() === false) watchers.splice(watchers.indexOf(f), 1); } catch { watchers.splice(watchers.indexOf(f), 1); } } }
 
 // A request that never answers (a stalled connection: one bar in the garage, a café's Wi-Fi sign-in page) is given up
-// after 30 seconds and counts as Drive not reached, so the sync ends and the next one can start. (The tests shorten it.)
+// after 30 seconds without a byte and counts as Drive not reached, so the sync ends and the next one can start. A slow
+// connection that's still getting somewhere isn't a stalled one: sending is given time for the file to go up at 8 KB a
+// second as well, and while the file comes down each piece that arrives starts the 30 seconds again, so a long inventory
+// on one bar still syncs. (The tests shorten the wait.)
 const WAIT = () => +window.__driveTimeout || 30000;
 async function api(method, path, body, type) {
   if (!tok) throw { auth: true };
   const headers = { Authorization: 'Bearer ' + tok.token };
   if (type) headers['Content-Type'] = type;
-  const stop = new AbortController(), timer = setTimeout(() => stop.abort(), WAIT());
+  const stop = new AbortController();
+  let timer;
+  const wait = (extra = 0) => { clearTimeout(timer); timer = setTimeout(() => stop.abort(), WAIT() + extra); };
+  wait(body ? Math.ceil(body.length / 8) : 0);
   try {
     const r = await fetch(API + path, { method, headers, body, signal: stop.signal });
+    wait();
     // Google refused the sign-in: forget it here, and for the other projects unless one has a newer one already.
     if (r.status === 401) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; throw { auth: true }; }
     if (!r.ok) throw { http: r.status };
-    return r.status === 204 ? null : await r.json();
+    if (r.status === 204) return null;
+    if (!r.body?.getReader) return await r.json();
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let text = '';
+    for (;;) { const { done, value } = await reader.read(); if (done) break; wait(); text += dec.decode(value, { stream: true }); }
+    return JSON.parse(text + dec.decode());
   } catch (e) {
     throw e?.name === 'AbortError' ? { http: 0 } : e;
   } finally { clearTimeout(timer); }

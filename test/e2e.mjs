@@ -544,7 +544,25 @@ await page.unroute('https://www.googleapis.com/upload/**');
 await page.click('#drivecard [data-a="now"]');
 await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 8000 });
 assert.equal(onDrive(iron.id).qty, ironQty + 1, 'the count that waited reached Drive');
-await page.evaluate(() => { delete window.__driveTimeout; });
+// A slow connection that's still getting somewhere isn't a stalled one: the file coming down in pieces, over longer than
+// the wait, still syncs (a long inventory on one bar would otherwise never sync at all)
+await page.evaluate(() => {
+  window.__fetch0 = window.fetch; window.__media = 0;
+  window.fetch = async (u, o = {}) => {
+    const r = await window.__fetch0(u, o); if (!String(u).includes('alt=media')) return r;
+    window.__media++;
+    const bytes = new Uint8Array(await r.arrayBuffer()), size = Math.ceil(bytes.length / 6) || 1; let i = 0, t;
+    const body = new ReadableStream({
+      start(c) { o.signal?.addEventListener('abort', () => { clearTimeout(t); try { c.error(new DOMException('The operation was aborted.', 'AbortError')); } catch {} }); },
+      pull(c) { return new Promise(res => { t = setTimeout(() => { if (i >= bytes.length) c.close(); else c.enqueue(bytes.slice(i, i += size)); res(); }, 150); }); },
+    });
+    return new Response(body, { status: r.status, headers: r.headers });
+  };
+});
+await page.click('#drivecard [data-a="now"]');
+await page.waitForFunction(() => window.__media > 0 && document.querySelector('#cloud-m').dataset.s !== 'busy', null, { timeout: 8000 });
+assert.equal(await page.evaluate(() => document.querySelector('#cloud-m').dataset.s), 'ok', 'a file coming down slowly but steadily was given up on');
+await page.evaluate(() => { window.fetch = window.__fetch0; delete window.__driveTimeout; });
 
 // ---- with this browser's storage full, a sync that brings a change says it couldn't keep it (it said "Synced just now", and
 // the change wasn't here)

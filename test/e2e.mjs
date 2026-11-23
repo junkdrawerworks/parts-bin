@@ -1306,9 +1306,13 @@ await tabB.close();
 
 // ---- an API key the API refuses (a stand-in for the API, and no real key): it says so, and the part can be typed in
 const aiCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
+// apiSays: what the stand-in answers next (null: the key is refused); apiAsked: what it was sent
+let apiSays = null, apiAsked = null;
 await aiCtx.route('https://api.anthropic.com/**', r => (r.request().method() === 'OPTIONS'
   ? r.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' } })
-  : r.fulfill({ status: 401, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) })));
+  : (apiAsked = r.request().postDataJSON(), apiSays)
+    ? r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: apiAsked.model, ...apiSays }) })
+    : r.fulfill({ status: 401, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) })));
 const ai = await aiCtx.newPage();
 await ai.goto(base + '#settings');
 await ai.fill('#ai-key', 'sk-ant-not-a-real-key'); await ai.click('#ai-save');
@@ -1319,6 +1323,28 @@ assert.equal(await ai.inputValue('#p-name'), 'BME280', 'the part can still be ty
 await ai.click('.sheet #cancel');
 await ai.goto(base + '#bom'); await ai.fill('#bom', '1 SCD41'); await ai.click('#smart');
 await ai.waitForSelector('#toast:has-text("The API key was refused")');
+await ai.waitForSelector('.bom-summary');
+// the API answering: Identify fills in the part. There's room for the model's thinking as well as the answer (it thinks
+// first, and that counts against max_tokens, which was 1,500), and no effort is sent, which some models refuse.
+const identified = { matchId: null, matchConfidence: 0, name: 'Bosch BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 3, unit: 'pcs', tags: ['i2c'], notes: 'Temperature, humidity, pressure' };
+apiSays = { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: JSON.stringify(identified) }] };
+await ai.goto(base + '#scan'); await ai.fill('#desc', 'BME280'); await ai.click('#identify');
+await ai.waitForSelector('#status:has-text("New: Bosch BME280 breakout")');
+assert.equal(apiAsked.max_tokens, 16000); assert.equal(apiAsked.output_config, undefined);
+await ai.click('.matchlist [data-id=""]'); await ai.waitForSelector('.sheet #p-name');
+assert.deepEqual([await ai.inputValue('#p-name'), await ai.inputValue('#p-cat'), await ai.inputValue('#p-mpn'), await ai.inputValue('#p-qty')], ['Bosch BME280 breakout', 'Sensors', 'BME280', '3']);
+await ai.click('.sheet #cancel');
+// an answer cut off at max_tokens says so, rather than "Could not identify", and the part can still be typed in
+apiSays = { stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: '{"matchId": null, "name": "Bosch BME' }] };
+await ai.goto(base + '#scan'); await ai.fill('#desc', 'BME280'); await ai.click('#identify');
+await ai.waitForSelector('.sheet #p-name');
+assert.equal(await ai.textContent('#status'), 'The answer was cut off. Try again, or fill it in by hand.');
+assert.equal(await ai.inputValue('#p-name'), 'BME280');
+await ai.click('.sheet #cancel');
+// and one Claude declines says that, in BOM check's Smarter matching too
+apiSays = { stop_reason: 'refusal', stop_details: { type: 'refusal', category: null, explanation: null }, content: [] };
+await ai.goto(base + '#bom'); await ai.fill('#bom', '1 SCD41'); await ai.click('#smart');
+await ai.waitForSelector('#toast:has-text("Claude declined that one. Used plain matching.")');
 await ai.waitForSelector('.bom-summary');
 // with nothing in the inventory yet: Parts points at Pack (it used to be "Scan in"), and the Inbox doesn't say every part
 // has details

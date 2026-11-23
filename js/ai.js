@@ -45,13 +45,19 @@ export function makeSample() {
       r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': ai.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: ai.model, max_tokens: 1500, messages: [{ role: 'user', content }] }),
+        // Room for the thinking as well as the answer: the default model thinks first (adaptive, effort high, when
+        // `thinking` isn't sent), and that counts against max_tokens. 1,500 could be used up before the answer began.
+        // No effort is sent: the model can be changed in Settings, and some older models refuse it.
+        body: JSON.stringify({ model: ai.model, max_tokens: 16000, messages: [{ role: 'user', content }] }),
       });
     } catch { throw { code: 'network', message: 'Couldn’t reach the Anthropic API.' }; }
     if (r.status === 401) throw { code: 'not_granted', message: 'The API key was refused. Check it in Settings.' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Too many requests. Wait a moment.' };
     if (!r.ok) { let m = ''; try { m = (await r.json()).error?.message || ''; } catch {} throw { code: 'error', message: m || 'The API answered ' + r.status }; }
     const j = await r.json();
+    // An answer cut off, or declined, says so, rather than reading as one that wasn't understood
+    if (j.stop_reason === 'max_tokens') throw { code: 'cut_off', message: 'The answer was cut off. Try again with fewer lines.' };
+    if (j.stop_reason === 'refusal') throw { code: 'refused', message: 'Claude declined that one.' };
     return (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   }
   const sample = async (prompt, opts) => ({ text: await ask(prompt, opts), truncated: false });

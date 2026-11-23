@@ -730,11 +730,11 @@ await page.evaluate(() => { document.getElementById('toast').hidden = true; });
   const t0 = Date.now() - 3600000, seed = { app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: {
     'f-keep': { name: 'Kept part', qty: 1, t: t0 }, 'f-off': { name: 'Deleted with Drive off', qty: 2, t: t0 }, 'f-new': { name: 'Deleted before the first sync', qty: 3, t: t0 } } } };
   await A.page.evaluate(d => localStorage.setItem('parts-bin', JSON.stringify(d)), seed);
-  await A.page.goto(base + '#settings'); await A.page.click('[data-a="on"]');
+  await A.page.goto(base + '#settings'); await A.page.reload(); await A.page.click('[data-a="on"]');
   await until(() => there('f-new') && there('f-off'), 'the first device’s parts to reach Drive');
   // a new device with its own copy of the inventory (a backup loaded before Drive was on there), a part deleted in it
   await B.page.evaluate(d => { d.items.parts['f-new'] = { t: d.items.parts['f-new'].t, del: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); }, seed);
-  await B.page.goto(base + '#settings'); await B.page.click('[data-a="on"]');
+  await B.page.goto(base + '#settings'); await B.page.reload(); await B.page.click('[data-a="on"]');
   await until(() => gone(there('f-new')), 'the new device’s deletion to reach Drive');
   assert.ok(gone(await here(B.page, 'f-new')), 'it stays deleted on the new device');
   await A.page.evaluate(() => document.querySelector('#cloud').click());
@@ -752,6 +752,20 @@ await page.evaluate(() => { document.getElementById('toast').hidden = true; });
   assert.ok(!gone(await here(A.page, 'f-keep')) && !gone(there('f-keep')), 'the part nobody deleted is still there');
   await A.page.goto(base + '#parts'); await A.page.waitForSelector('.item:has-text("Kept part")');
   assert.equal(await A.page.locator('.item:has-text("Deleted")').count(), 0);
+  // a part deleted here and changed on the other device afterwards, before it heard of the deletion (Drive off there),
+  // comes back, as the newer change wins, and the page says why it's back (it just reappeared)
+  await B.page.goto(base + '#settings'); await B.page.waitForSelector('[data-a="off"]');
+  await B.page.click('[data-a="off"]'); await B.page.click('[data-a="off"]'); await B.page.waitForSelector('[data-a="on"]');
+  await A.page.goto(base + '#part/f-keep'); await A.page.click('#edit');
+  A.page.once('dialog', d => d.accept()); await A.page.click('.sheet #del'); await A.page.waitForFunction(() => location.hash === '#parts');
+  await until(() => gone(there('f-keep')), 'the deletion to reach Drive');
+  await B.page.goto(base + '#part/f-keep'); await B.page.click('#inc');
+  await until(async () => (await here(B.page, 'f-keep')).qty === 2, 'the other device’s change');
+  await B.page.goto(base + '#settings'); await B.page.click('[data-a="on"]');
+  await until(() => !gone(there('f-keep')) && there('f-keep').qty === 2, 'the other device’s change to reach Drive');
+  await A.page.evaluate(() => document.querySelector('#cloud').click());
+  await A.page.waitForSelector('#toast:has-text("Kept part came back: it was changed on another device after you deleted it here.")');
+  await A.page.waitForSelector('.item:has-text("Kept part")');
   for (const d of [A, B]) { assert.deepEqual(d.page.problems, [], 'problems on the first-sync devices'); await d.ctx.close(); }
 }
 

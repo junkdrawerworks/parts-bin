@@ -3,7 +3,7 @@
 // into one small file in a "Parts Bin" folder in their own Google Drive, and what their other
 // devices saved there is merged back in, item by item (model.js).
 // Nothing about this shows away from parts-bin.junkdrawer.works.
-import { cleanDoc, canon, mergeDocs, APP } from './model.js';
+import { cleanDoc, canon, mergeDocs, gone, APP } from './model.js';
 import { KEY } from './store.js';
 import { KEY as INBOX } from './inbox.js';
 
@@ -131,6 +131,12 @@ async function run(tries, lost = false, waited = false) {
     // deleted) merges as every other sync does: a part deleted on one side after the other side last changed it stays
     // deleted. Loading a backup file is the way to bring one back (store.importText).
     const merged = remote ? mergeDocs(local, remote) : local, out = canon(merged);
+    // Parts and bins deleted here that come back, because another device changed them after: the page says which.
+    const back = [];
+    for (const kind of ['parts', 'bins']) for (const [id, m] of Object.entries(merged.items[kind])) {
+      const x = Object.hasOwn(local.items[kind], id) && local.items[kind][id];
+      if (gone(x) && !gone(m)) back.push(kind === 'parts' ? m.name || 'A part' : m.code ? 'Bin ' + m.code : 'A bin');
+    }
     if (!file) file = await create(out);
     else if (canon(remote) !== out || files.length > 1) {
       // Another device may have saved since we read it; then start over with its version.
@@ -149,7 +155,7 @@ async function run(tries, lost = false, waited = false) {
     // This browser's storage is full: Drive has the merged copy, so nothing is lost, but this isn't synced, and says so.
     if (changed) { try { localStorage.setItem(KEY, out); } catch { saveSt(); throw FULL; } }
     st.last = Date.now(); saveSt();
-    return changed;
+    return { changed, back };
   } catch (e) {
     if (e === RETRY && tries < 4) return run(tries + 1, lost, waited);
     // the file (or its folder) went between finding it and writing it, deleted on another device: once more finds it
@@ -166,9 +172,9 @@ function sync() {
   if (busy) { again = true; return busy; }
   if (navigator.onLine === false) { setStatus('offline', OFFLINE); return Promise.resolve(false); } // the 'online' event syncs
   setStatus('busy');
-  busy = run(0).then(changed => {
+  busy = run(0).then(({ changed, back }) => {
     setStatus('ok');
-    if (changed) ups.forEach(f => { try { f(); } catch (e) { console.error('Parts Bin: showing synced changes failed', e); } });
+    if (changed) ups.forEach(f => { try { f({ back }); } catch (e) { console.error('Parts Bin: showing synced changes failed', e); } });
     return changed;
   }, e => {
     if (e?.auth) setStatus('tap');
@@ -346,7 +352,7 @@ export const drive = {
   last: () => st.last, // when it last synced, ms (0: never)
   chip, card, changed, now, stop, pull,
   push: () => changed(false),
-  onUpdate(f) { ups.push(f); }, // synced data landed in localStorage
+  onUpdate(f) { ups.push(f); }, // synced data landed in localStorage: f({ back }), the names of what came back that was deleted here
   watch(f) { if (CLIENT_ID) watch(f); }, // Drive turned on or off, or synced; return false to stop watching
 };
 

@@ -1423,7 +1423,12 @@ localDb.collection('projects').onSnapshot(snap=>{ S.projects=new Map(snap.docs.m
 store.onDelivered(()=>{ if(!inventoryChanged) return; inventoryChanged=false; if(parseHash().view==='settings') renderNav(); else render(); });
 render();
 store.onSave(()=>drive.changed()); // a change that couldn't be kept is refused where it was made (writeFail)
-drive.onUpdate(()=>store.reload());
+drive.onUpdate(({back})=>{ store.reload(); if(back.length) toast(cameBack(back),6000); });
+// A sync brought back parts deleted here, because another device changed them after: the merge keeps the newer change.
+function cameBack(names){
+  const n=names.length, who=n===1?names[0]:n===2?`${names[0]} and ${names[1]}`:`${names[0]}, ${names[1]} and ${n-2} more`;
+  return `${who} came back: ${n===1?'it was':'they were'} changed on another device after you deleted ${n===1?'it':'them'} here.`;
+}
 drive.chip(document.getElementById('cloud')); drive.chip(document.getElementById('cloud-m'));
 window.addEventListener('storage',e=>{ if(e.key==='parts-bin') store.reload(); if(e.key===IN.KEY){ INBOX=IN.loadInbox(); render(); } });
 takeLink(); // a link from Claude carries a batch for the inbox

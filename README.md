@@ -59,7 +59,9 @@ GitHub Pages serves it from `main`, `/ (root)`.
 - `skill/parts-bin-cataloger/SKILL.md`: the Claude skill that turns photos, receipts and links into a batch. The script that builds the link is at the end of it, and the tests check that its links open here.
 - `js/sync.js`: optional Google Drive saving, the junkdrawer.works way.
 - `js/ai.js`: optional photo identification with your own API key.
-- `test/e2e.mjs`, `test/fake-google.mjs`: drive the page with a pretend NFC reader and a stand-in Google Drive.
+- `test/e2e.mjs`, `test/fake-google.mjs`: drive the page with a pretend NFC reader, a stand-in Google Drive and a stand-in Anthropic API, and check `carry.js` at the page's real address.
+- `test/fuzz.test.mjs`: many devices editing, deleting and syncing at random, with clocks set wrong, checked against the merge rules; and random batches from Claude, which must never break the Inbox.
+- `tools/`: `make-icons.mjs` makes the PNG icons from `icon.svg`, and the maskable and iPhone ones from `icon-full-bleed.svg` (square, as the phone rounds the corners itself); `screenshots.mjs` makes `og.png` from the README phone shots.
 - `fonts/`: Barlow, Barlow Condensed and JetBrains Mono, served from here so nothing loads from elsewhere (SIL Open Font License).
 - `sw.js`, `manifest.webmanifest`, `icon*.png`, `icon.svg`: works offline and installs to the home screen.
 - `CNAME`, `carry.js`: Parts Bin has its own address, parts-bin.junkdrawer.works, so it installs as its own app. It used to be at junkdrawer.works/parts-bin/, which forwards here (tags and links written there still work). A browser keeps each address's saves apart, so the first time it opens here `carry.js` brings the inventory over from the old address.

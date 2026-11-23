@@ -2314,6 +2314,48 @@ await desk.goto(base);
   await dCtx.close(); dServer.close();
 }
 
+// ---- carry.js: the first time Parts Bin opens at parts-bin.junkdrawer.works it brings the inventory over from its old
+// address, junkdrawer.works/parts-bin/, by asking junkdrawer.works/carry.html in a hidden frame (on localhost it does
+// nothing, so here the page is served at its real address). It mustn't keep the page from opening when carry.html never
+// answers, and it never writes over what this address already has.
+{
+  const APP = 'https://parts-bin.junkdrawer.works/', t0 = 1760000000000;
+  const oldDoc = { app: 'parts-bin', v: 1, items: { bins: { 'b-old': { code: 'OLD', name: 'From the old address', t: t0 } }, parts: { 'p-old': { name: 'Carried part', binId: 'b-old', qty: 2, bag: 7, t: t0 } }, projects: {} } };
+  const ownDoc = { app: 'parts-bin', v: 1, items: { bins: { 'b-own': { code: 'OWN', name: 'Made here', t: t0 } }, parts: { 'p-own': { name: 'Own part', binId: 'b-own', qty: 1, t: t0 } }, projects: {} } };
+  const carry = async ({ answer, preset }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    await ctx.route(APP + '**', async r => { const p = new URL(r.request().url()).pathname;
+      try { await r.fulfill({ body: await readFile(join(root, p === '/' ? 'index.html' : p)), contentType: TYPES[extname(p)] || 'text/html' }); } catch { await r.fulfill({ status: 404, body: '' }); } });
+    // the old address's saves, as carry.html hands them over; or a carry.html that loads and never answers
+    await ctx.route('https://junkdrawer.works/carry.html', r => r.fulfill({ contentType: 'text/html', body: `<script>addEventListener('message', e => { ${answer ? `e.source.postMessage({ carried: { local: { 'parts-bin': ${JSON.stringify(JSON.stringify(oldDoc))}, 'sr.cat': '""' }, idb: [] } }, e.origin);` : ''} });</script>` }));
+    await ctx.route('https://accounts.google.com/**', r => r.abort());
+    const pg = await ctx.newPage(); pg.problems = [];
+    pg.on('pageerror', e => pg.problems.push(e.message));
+    if (preset) { await pg.goto(APP + 'manifest.webmanifest'); await pg.evaluate(d => localStorage.setItem('parts-bin', d), JSON.stringify(preset)); }
+    const at = Date.now();
+    await pg.goto(APP + '#bins');
+    return { ctx, pg, at, saved: () => pg.evaluate(() => ({ cat: localStorage.getItem('sr.cat'), done: localStorage.getItem('junkdrawer.carried'), tries: localStorage.getItem('junkdrawer.carry-tries'), doc: JSON.parse(localStorage.getItem('parts-bin') || 'null') })) };
+  };
+  // a first visit: the old address's inventory comes over, and the page opens with it
+  let c = await carry({ answer: true });
+  await c.pg.waitForSelector('.bin:has-text("From the old address")', { timeout: 10000 });
+  let st = await c.saved(); assert.ok(st.done, 'carried, and noted'); assert.equal(st.doc.items.parts['p-old'].name, 'Carried part');
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+  // carry.html never answering: the page still opens after the short wait (3 s once it has loaded), and tries again next visit
+  c = await carry({ answer: false });
+  await c.pg.waitForSelector('text=No bins yet', { timeout: 10000 });
+  assert.ok(Date.now() - c.at < 8000, `the page took ${Date.now() - c.at} ms to open with carry.html not answering`);
+  st = await c.saved(); assert.equal(st.done, null); assert.equal(st.tries, '1');
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+  // an address that already has its own inventory: nothing in it is written over
+  c = await carry({ answer: true, preset: ownDoc });
+  await c.pg.waitForSelector('.bin:has-text("Made here")', { timeout: 10000 });
+  st = await c.saved(); assert.ok(st.done); assert.deepEqual(st.doc, ownDoc, 'the inventory made here was written over');
+  assert.equal(st.cat, '""', 'what this address didn’t have came over'); // so carry.js did run
+  assert.equal(await c.pg.locator('.bin:has-text("From the old address")').count(), 0);
+  assert.deepEqual(c.pg.problems, []); await c.ctx.close();
+}
+
 // ---- works offline once it has been opened: every screen, the inventory and the fonts, with no network at all. The
 // server goes down as well as the browser: in some Chromium builds the browser's offline switch alone doesn't stop the
 // service worker's own requests, and this passed with no copy at all.
@@ -2339,6 +2381,11 @@ for (const [hash, title] of screens) {
   await off.reload();
   await off.waitForSelector(`#main h2:has-text("${title}")`, { timeout: 5000 }).catch(() => assert.fail(`${hash} didn’t open offline`));
 }
+// a link from Claude opened with no signal (a chat read on the train) opens its batch in the Inbox
+const offLink = base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-offline', name: 'Read on the train', source: 'photo', items: [{ name: 'MAX98357 I2S amp', qty: 2 }] } });
+await off.goto('about:blank'); await off.goto(offLink);
+await off.waitForSelector('.batch:has-text("Read on the train") .card.inb', { timeout: 5000 }).catch(() => assert.fail('a link from Claude didn’t open offline'));
+assert.equal(await off.evaluate(() => location.hash), '#inbox');
 await off.goto(base + '#bins'); await off.reload(); await off.waitForSelector('.bin:has-text("Environmental")');
 await off.evaluate(() => document.fonts.ready);
 assert.ok(await off.evaluate(() => document.fonts.check('600 24px "Barlow Condensed"') && document.fonts.check('16px Barlow')), 'the fonts came from the offline copy');

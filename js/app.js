@@ -102,6 +102,11 @@ const FRAMED = (()=>{ try{ return window.self!==window.top; }catch{ return true;
 function partUrl(p){ return APP_URL+(p.bag?'#bag/'+String(p.bag).padStart(3,'0'):'#part/'+p.id); }
 function binUrl(b){ return APP_URL+'#bin/'+b.id; }
 function isLow(p){ return p.minQty != null && p.minQty !== '' && Number(p.qty||0) <= Number(p.minQty); }
+// None left, and no reorder level, so not low: a part used up that may or may not be wanted again.
+function isOut(p){ return (p.minQty == null || p.minQty === '') && !(Number(p.qty||0) > 0); }
+// A line of the reorder list Parts › Low stock copies: "SHT31 humidity breakout: 1 left, reorder at 2 · SHT31-DIS · link".
+function reorderLine(p){ const u=p.unit && p.unit!=='pcs' ? ' '+p.unit : '';
+  return [`${p.name}: ${fmtQty(p)} left, reorder at ${p.minQty}${u}`, p.mpn, /^https?:\/\//i.test(p.link||'') ? p.link : ''].filter(Boolean).join(' · '); }
 function localGet(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch{ return d; } }
 function localSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
 
@@ -245,15 +250,15 @@ function renderBins(m){
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
   const bins=searchBins('');
-  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div>${OLD_HOME?'<p class="tiny" style="margin-top:14px">Used Parts Bin at junkdrawer.works/parts-bin before? <a href="#settings">Bring that inventory over in Settings</a>.</p>':''}</div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); noBinSection(m); return; }
+  if(!bins.length){ m.append(h(`<div class="empty"><h3>No bins yet</h3><p>A bin is any container with a label: a Gridfinity bin, a drawer, a shelf box. Add one, then put parts in it. Coming from the Stockroom artifact? Load its export file, or turn on Google Drive in Settings if another device already has your inventory.</p><div class="row" style="justify-content:center"><button class="btn primary" id="first">Add the first bin</button><button class="btn" id="imp">Load an export file</button></div>${OLD_HOME?'<p class="tiny" style="margin-top:14px">Used Parts Bin at junkdrawer.works/parts-bin before? <a href="#settings">Bring that inventory over in Settings</a>.</p>':''}</div>`)); m.querySelector('#first').addEventListener('click',()=>editBin(null)); m.querySelector('#imp').addEventListener('click',importJson); noBinSection(m); lowSection(m); return; }
   // moving boxes first, then bins grouped by location
   const boxes=bins.filter(isBox);
   if(boxes.length){
     const packed=[...S.parts.values()].filter(p=>isBox(binOf(p))).length;
     m.append(h(`<div class="section-h"><h3>Moving boxes</h3><span class="tiny">${boxes.length} box${boxes.length===1?'':'es'} · ${packed} bag${packed===1?'':'s'} packed</span></div>`));
     const g=h('<div class="bins"></div>');
-    for(const b of boxes){ const ps=partsInBin(b.id);
-      const c=h(`<button type="button" class="bin"><div class="photo">${ICONS.box}</div><div class="body"><div><span class="label box">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} bag${ps.length===1?'':'s'}</span>${b.sealed?'<span>sealed</span>':''}</div></div></button>`);
+    for(const b of boxes){ const ps=partsInBin(b.id), low=ps.filter(isLow).length; // a low part packed for a move is low too
+      const c=h(`<button type="button" class="bin"><div class="photo">${ICONS.box}</div><div class="body"><div><span class="label box">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} bag${ps.length===1?'':'s'}</span>${b.sealed?'<span>sealed</span>':''}${low?`<span style="color:var(--warn)">${low} low</span>`:''}</div></div></button>`);
       c.onclick=()=>go('bin',b.id); g.append(c); }
     m.append(g);
   }
@@ -268,7 +273,7 @@ function renderBins(m){
     }
     m.append(g);
   }
-  noBinSection(m);
+  noBinSection(m); lowSection(m);
 }
 // Parts in no bin (packed with none picked, or their bin deleted), last on Bins so nothing is out of sight; the row opens
 // them in Parts.
@@ -277,6 +282,15 @@ function noBinSection(m){
   m.append(h(`<div class="section-h"><h3>Not in a bin</h3><span class="tiny">${ps.length} part${ps.length===1?'':'s'}</span></div>`));
   const r=h(`<div class="list"><button type="button" class="item" id="nobin"><div><div class="t">${ps.slice(0,3).map(p=>esc(p.name)).join(', ')}${ps.length>3?', …':''}</div><div class="s">Show ${ps.length===1?'it':'them'} in Parts</div></div><div class="q">${ps.length}<small>part${ps.length===1?'':'s'}</small></div></button></div>`);
   r.querySelector('#nobin').onclick=()=>{ localSet('sr.cat','__nobin'); S.q=''; go('parts'); };
+  m.append(r);
+}
+// Parts at or below their reorder level, under Not in a bin: on a phone, with no sidebar, nothing else said how many. The
+// row opens Parts › Low stock, which copies a reorder list.
+function lowSection(m){
+  const ps=[...S.parts.values()].filter(isLow).sort((a,b)=>byName(a.name,b.name)); if(!ps.length) return;
+  m.append(h(`<div class="section-h"><h3>Low stock</h3><span class="tiny">${ps.length} part${ps.length===1?'':'s'}</span></div>`));
+  const r=h(`<div class="list"><button type="button" class="item low" id="lowrow"><div><div class="t">${ps.slice(0,3).map(p=>esc(p.name)).join(', ')}${ps.length>3?', …':''}</div><div class="s">Show ${ps.length===1?'it':'them'} in Parts</div></div><div class="q">${ps.length}<small>low</small></div></button></div>`);
+  r.querySelector('#lowrow').onclick=()=>{ localSet('sr.cat','__low'); S.q=''; go('parts'); };
   m.append(r);
 }
 // What a search found, said once it's drawn: "3 parts, 1 bin".
@@ -553,6 +567,7 @@ function printList(b, ps){
 // on it. sort: their own order (by bag number), where a list isn't by name. Bag numbers to sort out is worked out apart.
 const PART_LISTS=[
   ['__low','Low stock',isLow],
+  ['__out','Out of stock',isOut],
   ['__check','To check',p=>!!p.check],
   ['__untagged','Bag tag not written',p=>!!BG.bagOf(p) && !p.tagWritten,'bag'],
   ['__unbagged','Not yet bagged',p=>!BG.bagOf(p)],
@@ -580,6 +595,8 @@ function renderParts(m){
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
   if(!parts.length && S.parts.size){ noMatch(m, list ? list[1] : cur, !!list); return; }
   if(!parts.length){ m.append(h('<div class="empty"><p>No parts here yet. Add one, or use Pack to bag and tag them as you go.</p></div>')); return; }
+  if(cur==='__low'){ const r=h(`<div class="row" style="margin-bottom:10px"><button class="btn sm" id="reorder">Copy reorder list</button></div>`);
+    r.querySelector('#reorder').onclick=()=>copyText(parts.map(reorderLine).join('\n'), `Reorder list copied: ${many(parts.length,'part')}`, 'Copy the reorder list'); m.append(r); }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
 }
 // A part's page or the Inbox drawn from a copy more than 30 s old brings in what other devices have saved since, so Add one,

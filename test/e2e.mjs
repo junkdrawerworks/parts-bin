@@ -2530,7 +2530,7 @@ await desk.goto(base);
   assert.equal(await sp.getAttribute('#cat', 'aria-label'), 'Show');
   const menu = () => sp.locator('#cat').evaluate(s => [...s.children].map(c => c.tagName === 'OPTGROUP' ? [c.label, [...c.children].map(o => o.textContent)] : c.textContent));
   assert.deepEqual(await menu(), ['All parts (4)',
-    ['Lists', ['Low stock (1)', 'To check (1)', 'Bag tag not written (2)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
+    ['Lists', ['Low stock (1)', 'Out of stock (0)', 'To check (1)', 'Bag tag not written (2)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
     ['Categories', ['Passives (1)', 'Power (1)', 'Sensors (2)']]]);
   await sp.selectOption('#cat', '__untagged');
   assert.deepEqual(await sp.locator('.item .t').allTextContents(), ['Buck converter', 'SHT31'], 'in bag order');
@@ -2557,6 +2557,55 @@ await desk.goto(base);
   assert.equal(await sp.textContent('#main .empty #allcats'), 'Show all parts');
   assert.deepEqual(sp.problems, []);
   await sCtx.close();
+}
+
+// ---- low stock on a phone: a Low stock row on Bins naming the first three, opening Parts › Low stock; a box's tile counts
+// its low parts as a bin's does (a low part packed for a move showed up nowhere on Bins); Low stock copies a reorder list,
+// and parts used up with no reorder level have a list of their own, Out of stock
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-a': { name: 'SHT31 humidity breakout', binId: 'b-env', qty: 1, minQty: 2, unit: 'pcs', mpn: 'SHT31-DIS', link: 'https://shop.test/sht31', tags: [], t: 1 },
+      'p-b': { name: 'BME280', binId: 'box-1', qty: 0, minQty: 1, unit: 'pcs', tags: [], t: 1 },
+      'p-c': { name: 'Solder wire', binId: 'b-env', qty: 0.5, minQty: 1, unit: 'm', tags: [], t: 1 },
+      'p-d': { name: 'Zener diodes', binId: 'b-env', qty: 20, minQty: 5, unit: 'pcs', tags: [], t: 1 },
+      'p-e': { name: 'Buzzer', binId: 'b-env', qty: 0, unit: 'pcs', tags: [], t: 1 },
+      'p-f': { name: 'Header pins', qty: 2, minQty: 4, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const lCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await lCtx.addInitScript(fakeNfc);
+  await lCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const lp = await lCtx.newPage();
+  lp.problems = []; lp.on('pageerror', e => lp.problems.push(e.message)); lp.on('console', m => { if (m.type() === 'error') lp.problems.push(m.text()); });
+  await lp.goto(base + '#bins'); await lp.waitForSelector('#lowrow');
+  assert.equal(await lp.textContent('.bin:has-text("BOX 01") .meta'), '1 bag1 low');
+  assert.equal(await lp.textContent('.bin:has-text("ENV") .meta'), '4 parts2 low');
+  const heads = await lp.locator('#main .section-h h3').allTextContents();
+  assert.deepEqual(heads.slice(-2), ['Not in a bin', 'Low stock'], 'under Not in a bin');
+  assert.equal(await lp.textContent('#lowrow .t'), 'BME280, Header pins, SHT31 humidity breakout, …');
+  assert.equal((await lp.textContent('#lowrow .q')).replace(/\s+/g, ' '), '4low');
+  await lp.click('#lowrow'); await lp.waitForSelector('#reorder');
+  assert.equal(await lp.inputValue('#cat'), '__low');
+  assert.deepEqual(await lp.locator('.item .t').allTextContents(), ['BME280', 'Header pins', 'SHT31 humidity breakout', 'Solder wire']);
+  await lp.click('#reorder'); await lp.waitForSelector('#toast:has-text("Reorder list copied: 4 parts")');
+  assert.equal(await lp.evaluate(() => window.__shared), ['BME280: 0 left, reorder at 1', 'Header pins: 2 left, reorder at 4',
+    'SHT31 humidity breakout: 1 left, reorder at 2 · SHT31-DIS · https://shop.test/sht31', 'Solder wire: 0.5 m left, reorder at 1 m'].join('\n'));
+  // a search narrows what's copied to what's shown
+  await lp.fill('#q', 'sht31'); await lp.waitForFunction(() => document.querySelectorAll('.item').length === 1);
+  await lp.click('#reorder'); await lp.waitForSelector('#toast:has-text("Reorder list copied: 1 part")');
+  assert.equal(await lp.evaluate(() => window.__shared), 'SHT31 humidity breakout: 1 left, reorder at 2 · SHT31-DIS · https://shop.test/sht31');
+  await lp.fill('#q', ''); await lp.waitForFunction(() => document.querySelectorAll('.item').length === 4);
+  // used up with no reorder level: out of stock, not low
+  assert.equal(await lp.locator('#cat option[value="__out"]').textContent(), 'Out of stock (1)');
+  await lp.selectOption('#cat', '__out'); await lp.waitForFunction(() => !document.getElementById('reorder'));
+  assert.deepEqual(await lp.locator('.item .t').allTextContents(), ['Buzzer']);
+  // nothing low: no row on Bins
+  await lp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); for (const x of Object.values(d.items.parts)) delete x.minQty; localStorage.setItem('parts-bin', JSON.stringify(d)); });
+  await lp.goto(base + '#bins'); await lp.reload(); await lp.waitForSelector('.bin');
+  assert.equal(await lp.locator('#lowrow').count(), 0); assert.equal(await lp.textContent('.bin:has-text("BOX 01") .meta'), '1 bag');
+  assert.deepEqual(lp.problems, []);
+  await lCtx.close();
 }
 
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over

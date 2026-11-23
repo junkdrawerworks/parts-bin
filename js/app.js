@@ -890,10 +890,10 @@ function sheet(html, onClose){
   }
   const title=bg.querySelector('.sheet h3'); if(title){ title.id='sheet-title'; bg.firstElementChild.setAttribute('aria-labelledby','sheet-title'); }
   root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true);
-  // The keyboard goes to the first field, or in a sheet with none (a tag's, a photo's) to its main button, but not on a
+  // The keyboard goes to the first field, or in a sheet with none (a tag's, a photo's; a tick beside the buttons isn't one) to its main button, but not on a
   // touch screen, where a field's keyboard would pop up over half the sheet before anything needs typing: there the
   // sheet itself has it, so a screen reader starts at its heading.
-  const box=bg.firstElementChild, f=bg.querySelector('input:not([type=file]),textarea,select') || ['#write','#go','#done'].map(s=>bg.querySelector(s)).find(Boolean); box.tabIndex=-1;
+  const box=bg.firstElementChild, f=bg.querySelector('input:not([type=file]):not(.tickline input),textarea,select') || ['#write','#go','#done'].map(s=>bg.querySelector(s)).find(Boolean); box.tabIndex=-1;
   if(f && !matchMedia('(pointer:coarse)').matches) f.focus(); else box.focus({preventScroll:true});
   openSheet=me; keepStep();
   return {el:bg.querySelector('.sheet'), close};
@@ -1087,7 +1087,7 @@ function tagSheet(b, kind='bin', opts={}){
   tagWait={read:null}; const wait=tagWait; // a tag read while this sheet is open (onTag): whose sticker is being held
   const {el,close}=sheet(`<h3>${title}</h3>
     ${kind==='part'&&newBag?`<p class="muted">This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.</p>`
-      : opts.overwrite?'<p class="muted">Keep it at the top of the phone: this sticker gets the new link.</p>' // an old tag being rewritten: the bag has its number already
+      : opts.overwrite?`<p class="muted">Keep it at the top of the phone: this sticker gets the new link.${opts.always?' Old tags are rewritten as you hold them (Settings can ask first again).':''}</p>` // an old tag being rewritten: the bag has its number already
       : kind==='part'&&b.bag?`<p class="muted">Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.</p>`:''}
     <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status" role="status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
@@ -1198,18 +1198,22 @@ function onTag(ev){
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg, {tag:true});
-    if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>offerRewrite(hit),150); }
+    if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>rewriteOld()?tagSheet(hit.item,hit.kind,{auto:true,overwrite:true,always:true}):offerRewrite(hit),150); }
     return;
   }
   if(!open && !tagWait) toast('That tag isn’t one of yours');
 }
+// Ticked once on "Update this tag?" (with Rewrite tag), each old tag held is rewritten straight away, without asking: a
+// workroom of old stickers is dozens of taps otherwise. This browser's own choice; Settings turns it off.
+const rewriteOld=()=>localGet('pb.rewriteold',false)===true;
 function offerRewrite({kind,item}){
   const label=kind==='part'?(bagStr(item.bag)||item.name):item.code;
   const {el,close}=sheet(`<h3>Update this tag?</h3>
     <p class="muted">${esc(label)}’s tag still points at the old Stockroom artifact on claude.ai, so with Parts Bin closed your phone offers the Claude app. Rewrite it to open Parts Bin instead.${kind==='part'&&!BG.bagOf(item)?` It’ll become bag ${esc(bagStr(nextBag()))}.`:''} Keep it at the top of the phone.</p>
+    <label class="tickline" for="always"><input type="checkbox" id="always"><span>Don’t ask again: rewrite old tags as I hold them</span></label>
     <div class="actions"><button class="btn" id="later">Not now</button><button class="btn primary" id="go">${ICONS.nfc} Rewrite tag</button></div>`);
   el.querySelector('#later').onclick=close;
-  el.querySelector('#go').onclick=()=>{ close(); tagSheet(item,kind,{auto:true,overwrite:true}); };
+  el.querySelector('#go').onclick=()=>{ const always=el.querySelector('#always').checked; if(always) localSet('pb.rewriteold',true); close(); tagSheet(item,kind,{auto:true,overwrite:true,always}); };
 }
 async function listen(gesture=false){
   if(!NFC_OK||FRAMED||reading) return !!reading;
@@ -1521,6 +1525,8 @@ function renderSettings(m){
       finally{ ob.disabled=false; } };
   }
   m.append(h(`<p class="tiny" style="margin-top:18px">Tags written here open <span class="mono">${esc(APP_URL)}#bag/…</span>. ${NFC_OK&&!FRAMED?'This browser can read and write NFC tags.':'This browser can’t use NFC; Chrome on Android can.'}</p>`));
+  if(rewriteOld()){ const r=h('<p class="tiny" id="oldtags">Old Stockroom tags are rewritten as you hold them, without asking. <button type="button" class="linkbtn tiny" id="askold">Ask each time</button></p>');
+    r.querySelector('#askold').onclick=()=>{ localSet('pb.rewriteold',false); toast('Holding an old tag asks before rewriting it'); r.remove(); }; m.append(r); }
 }
 
 // What the old address has saved under 'parts-bin', as junkdrawer.works/carry.html hands it over in a hidden frame (the

@@ -2043,6 +2043,67 @@ await desk.goto(base);
   await tCtx.close();
 }
 
+// ---- old Stockroom tags rewritten without asking: ticked once on "Update this tag?", each old tag held goes straight to
+// writing the new link over it; Settings asks each time again
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 } },
+    parts: {
+      'p-a': { name: 'BME280', binId: 'b-env', qty: 2, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 },
+      'p-b': { name: 'INA219', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 2, tagWritten: true, t: 1 },
+      'p-c': { name: 'SCD41', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const oCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await oCtx.addInitScript(fakeNfc);
+  await oCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const op = await oCtx.newPage();
+  op.problems = []; op.on('pageerror', e => op.problems.push(e.message)); op.on('console', m => { if (m.type() === 'error') op.problems.push(m.text()); });
+  const OLD = 'https://claude.ai/artifact/3tWd7DUCw34ExEy7Jo4CpG';
+  const closed = () => op.waitForFunction(() => !document.querySelector('.sheet'));
+  await op.goto(base + '#bins'); await op.waitForFunction(() => !!window.__reader?.onreading);
+  // asked the first time, with the tick unticked; Rewrite tag with it ticked remembers it
+  await op.evaluate(u => window.__read(u + '#bag/001'), OLD);
+  await op.waitForSelector('.sheet:has-text("Update this tag?")');
+  assert.equal(await op.isChecked('.sheet #always'), false);
+  assert.equal(await op.textContent('.sheet label[for="always"]'), 'Don’t ask again: rewrite old tags as I hold them');
+  await op.check('.sheet #always'); await op.click('.sheet #go');
+  await op.waitForSelector('#tz.wait');
+  await op.evaluate(() => window.__tap()); await closed();
+  assert.equal((await op.evaluate(() => window.__written)).at(-1), base + '#bag/001');
+  await op.waitForTimeout(3100); // past the "just written" pause
+  // the next old tag goes straight to the write, already listening, and says why
+  await op.goto(base + '#bins'); await op.waitForSelector('.bin');
+  await op.evaluate(u => window.__read(u + '#bag/002'), OLD);
+  await op.waitForSelector('#tz.wait');
+  assert.equal(await op.locator('.sheet:has-text("Update this tag?")').count(), 0);
+  assert.match(await op.textContent('.sheet p.muted'), /Old tags are rewritten as you hold them/);
+  assert.equal(await op.evaluate(() => location.hash), '#bag/002');
+  await op.evaluate(() => window.__tap()); await closed();
+  assert.equal((await op.evaluate(() => window.__written)).at(-1), base + '#bag/002');
+  await op.waitForTimeout(3100);
+  // a part with no bag yet gets the next number as its tag is rewritten
+  await op.evaluate(u => window.__read(u + '#part/p-c'), OLD);
+  await op.waitForSelector('#tz.wait');
+  await op.evaluate(() => window.__tap()); await closed();
+  assert.equal((await op.evaluate(() => window.__written)).at(-1), base + '#bag/003');
+  assert.equal(await op.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-c'].bag), 3);
+  await op.waitForTimeout(3100);
+  // Settings says so, and Ask each time brings the question back
+  await op.goto(base + '#settings'); await op.waitForSelector('#askold');
+  assert.match(await op.textContent('#oldtags'), /^Old Stockroom tags are rewritten as you hold them, without asking\./);
+  await op.click('#askold'); await op.waitForSelector('#askold', { state: 'detached' });
+  await op.goto(base + '#bins'); await op.waitForSelector('.bin');
+  await op.evaluate(u => window.__read(u + '#bag/001'), OLD);
+  await op.waitForSelector('.sheet:has-text("Update this tag?")');
+  // Not now with the tick ticked doesn't stop it asking
+  await op.check('.sheet #always'); await op.click('.sheet #later'); await closed();
+  assert.equal(await op.evaluate(() => localStorage.getItem('pb.rewriteold')), 'false');
+  await op.goto(base + '#settings'); await op.waitForSelector('#drivecard');
+  assert.equal(await op.locator('#askold').count(), 0);
+  assert.deepEqual(op.problems, []);
+  await oCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

@@ -1546,6 +1546,32 @@ await desk.goto(base);
   await eCtx.close();
 }
 
+// ---- a sheet with no field puts the keyboard on its main button, inside the dialog (it was left on the page behind), and
+// the tag sheet's messages are read out as they change
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', t: 1 } }, parts: { 'p-12': { name: 'Thing 1', binId: 'b01', qty: 1, unit: 'pcs', tags: [], bag: 12, t: 1 } } } });
+  const fCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await fCtx.addInitScript(fakeNfc);
+  await fCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const fp = await fCtx.newPage();
+  fp.problems = []; fp.on('pageerror', e => fp.problems.push(e.message)); fp.on('console', m => { if (m.type() === 'error') fp.problems.push(m.text()); });
+  await fp.goto(base + '#part/p-12'); await fp.waitForSelector('text=Bag tag');
+  await fp.focus('text=Bag tag'); await fp.keyboard.press('Enter'); await fp.waitForSelector('.sheet #write');
+  assert.equal(await fp.evaluate(() => document.activeElement.id), 'write');
+  assert.ok(await fp.evaluate(() => !!document.activeElement.closest('[role=dialog]')), 'the keyboard isn’t in the tag sheet');
+  assert.equal(await fp.getAttribute('#t-status', 'role'), 'status');
+  await fp.keyboard.press('Enter'); await fp.waitForSelector('#tz.wait');
+  await fp.evaluate(() => window.__fail('NotAllowedError', 'The NFC tag already has data.'));
+  await fp.waitForSelector('#tz.bad');
+  assert.match(await fp.textContent('[role=dialog] [role=status]'), /^That sticker already holds a link\./);
+  await fp.keyboard.press('Escape'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  // a bin's tag sheet, and the reference photo's, the same
+  await fp.goto(base + '#bin/b01'); await fp.focus('#tag'); await fp.keyboard.press('Enter'); await fp.waitForSelector('.sheet #write');
+  assert.equal(await fp.evaluate(() => document.activeElement.id), 'write');
+  assert.deepEqual(fp.problems, []);
+  await fCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

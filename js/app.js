@@ -643,9 +643,10 @@ function sheet(html, onClose){
   }
   const title=bg.querySelector('.sheet h3'); if(title){ title.id='sheet-title'; bg.firstElementChild.setAttribute('aria-labelledby','sheet-title'); }
   root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true); wirePhoto(bg);
-  // The keyboard goes to the first field, but not on a touch screen, where it would pop up over half the sheet before
-  // anything needs typing: there the sheet itself has it, so a screen reader starts at its heading.
-  const box=bg.firstElementChild, f=bg.querySelector('input:not([type=file]),textarea,select'); box.tabIndex=-1;
+  // The keyboard goes to the first field, or in a sheet with none (a tag's, a photo's) to its main button, but not on a
+  // touch screen, where a field's keyboard would pop up over half the sheet before anything needs typing: there the
+  // sheet itself has it, so a screen reader starts at its heading.
+  const box=bg.firstElementChild, f=bg.querySelector('input:not([type=file]),textarea,select') || ['#write','#go','#done'].map(s=>bg.querySelector(s)).find(Boolean); box.tabIndex=-1;
   if(f && !matchMedia('(pointer:coarse)').matches) f.focus(); else box.focus({preventScroll:true});
   openSheet=me; keepStep();
   return {el:bg.querySelector('.sheet'), close};
@@ -831,7 +832,7 @@ function tagSheet(b, kind='bin', opts={}){
   tagWait={read:null}; const wait=tagWait; // a tag read while this sheet is open (onTag): whose sticker is being held
   const {el,close}=sheet(`<h3>${title}</h3>
     ${kind==='part'&&b.bag?`<p class="muted">${newBag?`This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.`:`Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.`}</p>`:''}
-    <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
+    <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status" role="status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
     <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(tagWait===wait) tagWait=null; if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
   el.querySelector('#done').onclick=close;

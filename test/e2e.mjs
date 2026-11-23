@@ -618,6 +618,8 @@ await moveButtons().first().click();
 await page.waitForFunction(() => document.querySelectorAll('button[aria-label$="to the chosen bin"]').length === 15);
 assert.equal(await page.inputValue('#unpack-to'), 'bin-env', 'the bin picked is still picked');
 assert.equal(await page.evaluate(() => scrollY), 200, 'the page kept its place');
+// the Drive button scrolls away with the top of the page, rather than sitting over the quantities and ⇢ buttons below it
+assert.ok(await page.evaluate(() => { const r = document.getElementById('cloud-m').getBoundingClientRect(); return r.height > 0 && r.bottom <= 0; }), 'the Drive button stayed on the screen over the list');
 await moveButtons().first().click();
 await page.waitForFunction(() => document.querySelectorAll('button[aria-label$="to the chosen bin"]').length === 14);
 assert.deepEqual(await page.evaluate(() => ['p-move1', 'p-move2'].map(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].binId)), ['bin-env', 'bin-env']);

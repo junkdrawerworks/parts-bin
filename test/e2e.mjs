@@ -1282,9 +1282,12 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
 }
 await page.emulateMedia({ reducedMotion: 'no-preference' });
 // Pack with the keyboard up (a 470 px high screen stands in for it): tapping the field takes it to the top, so at least
-// three matches show under it and above the keyboard (it sat 270 px down, with one or two showing)
+// three matches show under it and above the keyboard (it sat 270 px down, with one or two showing). What was typed in it
+// before is still there (a trip to a bag and back keeps it), so it's emptied first, without the keyboard.
 await page.setViewportSize({ width: 390, height: 470 });
-await page.goto(base + '#scan'); await page.waitForSelector('#desc'); await page.tap('#desc'); await page.keyboard.type('s'); await page.waitForSelector('.matchlist');
+await page.goto(base + '#scan'); await page.waitForSelector('#desc');
+await page.$eval('#desc', e => { e.value = ''; e.dispatchEvent(new Event('input')); });
+await page.tap('#desc'); await page.keyboard.type('s'); await page.waitForSelector('.matchlist');
 await page.waitForTimeout(450);
 assert.ok(await page.$eval('#desc', e => e.getBoundingClientRect().top) < 60, 'Pack’s field stays low with the keyboard up');
 assert.ok(await page.$$eval('.matchlist button', rs => rs.filter(r => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; }).length) >= 3, 'fewer than three matches show above the keyboard');
@@ -2216,6 +2219,58 @@ await desk.goto(base);
   await aCtx.close();
 }
 
+// ---- Pack shows the last five bags saved into the box picked on this visit (number, name, count; each opens its part,
+// with Tag on one whose tag isn't written), the picker says how full each box is, and what's typed survives a trip to a
+// bag and back
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: { 'p-old': { name: 'Old thing', binId: 'box-1', qty: 1, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 } } } });
+  const kCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await kCtx.addInitScript(fakeNfc);
+  await kCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('sr.packbox', '"box-1"'); } }, seed);
+  const kp = await kCtx.newPage();
+  kp.problems = []; kp.on('pageerror', e => kp.problems.push(e.message)); kp.on('console', m => { if (m.type() === 'error') kp.problems.push(m.text()); });
+  const closed = () => kp.waitForFunction(() => !document.querySelector('.sheet'));
+  await kp.goto(base + '#scan'); await kp.waitForSelector('#desc');
+  assert.equal(await kp.locator('.packed').count(), 0, 'nothing packed on this visit yet');
+  assert.deepEqual(await kp.locator('#dest option').allTextContents(), ['— pick a box or bin —', 'BOX 01 · Bench · 1 bag', 'ENV · Environmental · 0 parts']);
+  // seven bags, the last skipping its tag
+  for (let i = 1; i <= 7; i++) {
+    await kp.fill('#desc', `Widget ${i}`); await kp.press('#desc', 'Enter'); await kp.waitForSelector('.sheet #p-qty');
+    await kp.fill('#p-qty', String(i * 10)); await kp.click('.sheet #save'); await kp.waitForSelector('#tz.wait');
+    if (i < 7) { await kp.evaluate(() => window.__tap()); await kp.waitForTimeout(1700); } else await kp.click('.sheet #done');
+    await closed();
+  }
+  await kp.waitForFunction(() => document.querySelectorAll('.packed .unpack').length === 5);
+  assert.equal(await kp.textContent('.packed h3'), 'Packed into BOX 01 just now');
+  assert.deepEqual(await kp.locator('.packed .item .t').allTextContents(), ['Widget 7', 'Widget 6', 'Widget 5', 'Widget 4', 'Widget 3']);
+  assert.deepEqual(await kp.locator('.packed .item .bagno').allTextContents(), ['#008', '#007', '#006', '#005', '#004']);
+  assert.deepEqual((await kp.locator('.packed .item .q').allTextContents()).map(s => s.trim()), ['70', '60', '50', '40', '30']);
+  // only the bag whose tag wasn't written has Tag, and it writes it
+  assert.deepEqual(await kp.locator('.packed .unpack > .btn').evaluateAll(b => b.map(x => x.getAttribute('aria-label'))), ['Tag #008']);
+  assert.equal(await kp.$eval('#dest', s => s.selectedOptions[0].textContent), 'BOX 01 · Bench · 8 bags');
+  await kp.click('.packed .unpack > .btn'); await kp.click('.sheet #write'); await kp.evaluate(() => window.__tap()); await closed();
+  await kp.waitForFunction(() => document.querySelectorAll('.packed .unpack > .btn').length === 0);
+  // a half-typed description survives opening a bag from the list and coming Back
+  await kp.fill('#desc', 'Wid'); await kp.waitForSelector('.matchlist');
+  await kp.click('.packed .item:has-text("Widget 5")'); await kp.waitForSelector('.binhead h2:text("Widget 5")');
+  await kp.evaluate(() => history.back()); await kp.waitForSelector('#desc');
+  assert.equal(await kp.inputValue('#desc'), 'Wid');
+  await kp.waitForSelector('.matchlist [data-id]');
+  // another box picked: its own list (none yet); back to BOX 01, the list is there again
+  await kp.selectOption('#dest', 'b-env'); await kp.waitForFunction(() => !document.querySelector('.packed'));
+  assert.equal(await kp.inputValue('#desc'), 'Wid', 'picking a box lost what was typed');
+  await kp.selectOption('#dest', 'box-1'); await kp.waitForSelector('.packed');
+  // a save empties the field for the next bag
+  await kp.fill('#desc', 'Gadget'); await kp.press('#desc', 'Enter'); await kp.waitForSelector('.sheet #p-qty');
+  await kp.click('.sheet #save'); await kp.click('.sheet #done'); await closed();
+  assert.equal(await kp.inputValue('#desc'), '');
+  assert.equal(await kp.textContent('.packed .item .t'), 'Gadget');
+  assert.deepEqual(kp.problems, []);
+  await kCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)
@@ -2693,9 +2748,10 @@ await desk.goto(base);
   assert.equal(await tp.locator('.codenote').count(), 1);
   assert.match(await tp.textContent('.codenote'), /BOX 01 is on two boxes\. Rename one, and rewrite its label\./);
   assert.match(await tp.textContent('#sidefoot'), /^3 bins · 1 part\b/, 'one part is "1 part"');
-  // Pack's list: no trailing " · " on a box with no name, and the two told apart
+  // Pack's list: no trailing " · " on a box with no name, and the two told apart by how full each is, which every box and
+  // bin there says
   await tp.goto(base + '#scan'); await tp.waitForSelector('#dest');
-  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01 · 0 bags', 'BOX 01 · 1 bag', 'C1 · Cables']);
+  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01 · 0 bags', 'BOX 01 · 1 bag', 'C1 · Cables · 0 parts']);
   // the box without a tag written is changed and saved, with its code as it was
   await tp.goto(base + '#bin/box-a'); await tp.waitForSelector('.codenote');
   await tp.click('#edit'); await tp.waitForSelector('.sheet #f-name');
@@ -2716,7 +2772,7 @@ await desk.goto(base);
   await tp.waitForFunction(() => !document.querySelector('.codenote'));
   await tp.goto(base + '#bins'); await tp.waitForSelector('.bin'); assert.equal(await tp.locator('.codenote').count(), 0);
   await tp.goto(base + '#scan'); await tp.waitForSelector('#dest');
-  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01', 'BOX 02 · Kitchen stuff', 'C1 · Cables']);
+  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01 · 1 bag', 'BOX 02 · Kitchen stuff · 0 bags', 'C1 · Cables · 0 parts']);
   assert.deepEqual(tp.problems, [], 'problems with two boxes on one code');
   await tCtx.close();
 }

@@ -745,6 +745,29 @@ function staleNote(){
   });
   return el;
 }
+// The bags saved in Pack on this visit, newest last, and what's typed in its field: a trip to a bag and back (Back) finds
+// it as it was left.
+const PACKED=[]; let packDraft='';
+// How a box or bin reads in Pack's picker: how full it is, too (BOX 01 · Bench · 23 bags).
+function packLabel(c){
+  const n=partsInBin(c.id).length, twins=codeTwins(c), where=twins.length && c.location && twins.some(x=>(x.location||'')!==c.location) ? c.location : '';
+  return [c.code, c.name, where, `${n} ${isBox(c)?'bag':'part'}${n===1?'':'s'}`].filter(Boolean).join(' · ');
+}
+// The last five bags saved here into the box or bin picked: number, name, count, each opening its part, with Tag on any
+// whose tag isn't written yet (where tags can be written). After thirty bags, "did I do the 10k bag?" without leaving Pack.
+function packedList(dest){
+  const c=S.bins.get(dest), seen=new Set(), list=[];
+  for(let i=PACKED.length-1; i>=0 && list.length<5; i--){ const p=S.parts.get(PACKED[i]); if(!p || seen.has(p.id) || (p.binId||'')!==(dest||'')) continue; seen.add(p.id); list.push(p); }
+  if(!list.length) return null;
+  const el=h(`<div class="packed"><div class="section-h"><h3>${c?`Packed into ${esc(c.code)} just now`:'Packed just now'}</h3></div><div class="list"></div></div>`), l=el.querySelector('.list');
+  for(const p of list){
+    const r=h(`<div class="unpack"><button type="button" class="item"><div><div class="t">${esc(p.name)}</div><div class="s">${p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:''}${p.tagWritten?'<span>tagged</span>':''}</div></div><div class="q">${esc(fmtQty(p))}</div></button></div>`);
+    r.querySelector('.item').onclick=()=>go('part',p.id);
+    if(!p.tagWritten && NFC_OK && !FRAMED){ const t=h(`<button type="button" class="btn sm" aria-label="Tag ${esc(bagStr(p.bag)||p.name)}">${ICONS.nfc} Tag</button>`); t.onclick=()=>tagSheet(p,'part'); r.append(t); }
+    l.append(r);
+  }
+  return el;
+}
 function renderScan(m){
   const tb=h(`<div class="topbar"><h2>Pack</h2><button class="btn" id="toinbox">${ICONS.inbox} Inbox${inboxCount()?` <span class="count">${inboxCount()}</span>`:''}</button></div>`);
   m.append(tb); tb.querySelector('#toinbox')?.addEventListener('click',()=>go('inbox'));
@@ -753,10 +776,10 @@ function renderScan(m){
   let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
   const nb=nextBag();
   const head=h(`<div class="packhead">
-    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(contLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin" aria-label="New bin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox" aria-label="New box">${ICONS.plus} Box</button></div></div>
+    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(packLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin" aria-label="New bin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox" aria-label="New box">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
   m.append(staleNote(), head);
-  head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
+  head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); render(); }; // what's been packed into it
   head.querySelector('#newbox').onclick=()=>{ localSet('sr.newkind','box'); editBin(null); };
   head.querySelector('#newbin').onclick=()=>{ localSet('sr.newkind','bin'); editBin(null); };
   // How Pack works, in full until this browser has packed a bag, then folded away to one line, so the field to type in
@@ -769,6 +792,8 @@ function renderScan(m){
     <div class="row">${S.sample?'<button class="btn" id="identify">Identify</button>':''}<span id="status" class="tiny"></span></div>
     <div id="result" style="margin-top:14px"></div></div>`);
   m.append(ui);
+  // in the matches' place under the field, so on a phone it shows above the keyboard; the matches go over it as you type
+  const done=packedList(dest); if(done) ui.querySelector('#result').append(done);
   let file=null; const st=ui.querySelector('#status'), res=ui.querySelector('#result');
   const drop=ui.querySelector('#drop'); const fi=ui.querySelector('#file');
   if(drop){
@@ -777,23 +802,24 @@ function renderScan(m){
     drop.ondragover=e=>{e.preventDefault();drop.classList.add('over');}; drop.ondragleave=()=>drop.classList.remove('over');
     drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over'); file=e.dataTransfer.files[0]||null; showPreview();};
   }
-  function showPreview(){ res.innerHTML=''; if(!file) return; const img=new Image(); img.className='preview'; img.src=URL.createObjectURL(file); res.append(img); }
+  function showPreview(){ res.innerHTML=''; if(file){ const img=new Image(); img.className='preview'; img.src=URL.createObjectURL(file); res.append(img); } if(done) res.append(done); }
   // After a save. Saving has drawn the screen again already, keeping the description (render), so it's emptied there too.
-  function reset(){ file=null; if(fi) fi.value=''; for(const d of [ui.querySelector('#desc'), document.getElementById('desc')]) if(d) d.value=''; res.innerHTML=''; st.textContent=''; }
+  function reset(){ file=null; packDraft=''; if(fi) fi.value=''; for(const d of [ui.querySelector('#desc'), document.getElementById('desc')]) if(d) d.value=''; res.innerHTML=''; st.textContent=''; }
+  const packed=p=>{ PACKED.push(p.id); if(PACKED.length>50) PACKED.shift(); localSet('pb.packed',true); reset(); render(); };
   function openEditor(seed, matched, again=null){
     const destId=head.querySelector('#dest').value;
     // Another bag of a part already in one: a second entry with its name and details, and the next bag number, so each
     // bag has its own sticker and count.
     if(again){ const base={qty:Number(seed.qty)||1, bag:'', binId:destId||again.binId||''};
       for(const k of AGAIN) if(again[k]!=null) base[k]=Array.isArray(again[k])?[...again[k]]:again[k];
-      editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }}); return; }
+      editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:packed}); return; }
     const base = matched ? {...matched} : {name:seed.name||'', category:seed.category||'', mpn:seed.mpn||'', unit:seed.unit||'pcs', tags:Array.isArray(seed.tags)?seed.tags.map(String):[], notes:seed.notes||''};
     if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · '); }
     else base.qty=Number(seed.qty)||1;
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
-    editPart(base, {stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }});
+    editPart(base, {stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:packed});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -814,7 +840,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
         ${matched?againRow(matched):''}${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
         <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
         <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
-      res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box); listedFor=desc||null;
+      res.querySelector('.matchlist')?.parentElement?.remove(); res.insertBefore(box, res.querySelector('.packed')); listedFor=desc||null;
       box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
       wireAgain(box, j);
     }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
@@ -831,7 +857,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
     const top=()=>{ if(document.activeElement===desc) desc.closest('.field').scrollIntoView({block:'start'}); };
     top(); setTimeout(top,350); // and again once the keyboard is up, which can scroll the page itself
   });
-  desc.oninput=()=>{ clearTimeout(tt); tt=setTimeout(()=>localList(desc.value.trim()),120); };
+  desc.oninput=()=>{ packDraft=desc.value; clearTimeout(tt); tt=setTimeout(()=>localList(desc.value.trim()),120); };
   // Enter picks the first part listed that's named by every word typed, and otherwise a new part: a part listed for its bag
   // number or its notes isn't what's in the bag, and opening it would save the count over its own. (On a phone the list is
   // under the keyboard, so Go is pressed without seeing it.) The list stays for a tap. Straight after typing (a pasted
@@ -852,10 +878,11 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
     const all=searchParts(q), hits=[...all.filter(p=>namesIt(q,p)), ...all.filter(p=>!namesIt(q,p))].slice(0,6);
     const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>${namesIt(q,p)?againRow(p):''}`).join('')}
       <button type="button" data-id=""><span><b>${esc(q)}</b><div class="s">Not in the inventory yet</div></span><span class="chip warn">new part</span></button></div></div>`);
-    res.append(box);
+    res.prepend(box); // over the bags packed just now
     box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor({name:q}, btn.dataset.id?S.parts.get(btn.dataset.id):null));
     wireAgain(box, {name:q});
   }
+  if(packDraft){ desc.value=packDraft; localList(packDraft.trim()); } // back from a bag: what was typed, and its matches
 }
 
 // ------------------------------------------------------------------ sheets

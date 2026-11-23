@@ -371,6 +371,13 @@ function fromBin(p){ const k=String(p.from||'').toLowerCase(); return k ? [...S.
 // that back, and so does putting the bag back in the box (a mis-tap noticed later), rather than the bin it went to.
 const UNPACKED=new Map(); // part id → {box, to, from}
 const byBag=(a,c)=>(a.bag||1e9)-(c.bag||1e9) || byName(a.name,c.name);
+// Where a part came from once it's moved to container nb (Pack, Unpack, Edit, Move): the bin it was in when it went into a
+// box, kept while it's in boxes and forgotten once it's out of them. A bag taken out of its box on this visit and put back
+// in it, from the bin it went to, came from where it did before: that bin was a mis-tap (backIn).
+function cameFrom(cur, nb){
+  const oldB=binOf(cur), kept=cur.from||'', un=UNPACKED.get(cur.id), backIn=!!un && isBox(nb) && nb.id===un.box && cur.binId===un.to;
+  return {backIn, from: backIn ? un.from : oldB && !isBox(oldB) && isBox(nb) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : kept};
+}
 async function unpack(list){
   const done=[];
   for(const [p,to] of list){ if(await writePart({...p, binId:to, from:''})){ done.push(p); UNPACKED.set(p.id,{box:p.binId, to, from:p.from||''}); } else break; }
@@ -382,6 +389,23 @@ async function unpackUndo(done){
   for(const p of done){ const u=UNPACKED.get(p.id), cur=S.parts.get(p.id); if(!u || !cur || cur.binId!==u.to) continue;
     try{ await S.db.doc('parts/'+p.id).update({binId:u.box, from:u.from}); UNPACKED.delete(p.id); n++; }catch(e){ writeFail(e); return; } }
   const box=S.bins.get(done[0]?.binId); if(n) toast(n===1?`${bagStr(done[0].bag)||done[0].name} is back in ${box?.code||'the box'}`:`${n} bags are back in ${box?.code||'the box'}`);
+}
+// What a box's unpacking says, with Undo: "#010 → PWR", or "3 bags put back".
+function unpacked(done){ if(!done.length) return; const to=S.bins.get(UNPACKED.get(done[0].id)?.to);
+  toast(done.length===1?`${bagStr(done[0].bag)||done[0].name} → ${to?.code||''}`:`${done.length} bags put back`, 1800, {label:'Undo', run:()=>unpackUndo(done)}); }
+// On a box's page, holding the sticker of a bag in the box takes it out to where Unpack into says (the bin it came from,
+// or the bin picked) instead of opening it, as its → button does. A bag taken out of this box on this visit, held again
+// (a sticker read twice), says where it went rather than leave the box's page. Any other tag opens as usual.
+function unpackByTag(t){
+  const box=S.route.view==='bin' && S.bins.get(S.route.arg); if(!isBox(box)) return false;
+  const hit=findTarget(t), p=hit?.kind==='part' && hit.item; if(!p) return false;
+  const name=bagStr(p.bag)||p.name, un=UNPACKED.get(p.id);
+  if(p.binId!==box.id){ if(un?.box!==box.id || p.binId!==un.to) return false; toast(`${name} is in ${S.bins.get(p.binId)?.code||'its bin'} now`); return true; }
+  try{ navigator.vibrate?.(40); }catch{}
+  const to=unpackTo && S.bins.get(unpackTo) || fromBin(p);
+  if(!to){ toast(`${name} has no bin to go back to: choose one under Unpack into`,3500); return true; }
+  unpack([[p,to.id]]).then(unpacked);
+  return true;
 }
 function deleteBin(b, then){
   const n=partsInBin(b.id).length, box=isBox(b), word=box?'box':'bin';
@@ -422,14 +446,14 @@ function renderBin(m, binId){
     const back=ps.filter(fromBin);
     const bar=h(`<div class="row" style="margin-bottom:10px"><label class="muted" for="unpack-to">Unpack into</label><select id="unpack-to" style="width:auto"><option value="">Where each came from</option>${bins.map(x=>`<option value="${x.id}" ${x.id===unpackTo?'selected':''}>${esc(contLabel(x))}</option>`).join('')}</select>${back.length&&!unpackTo?`<button class="btn sm" id="putback">Put them all back (${back.length})</button>`:''}</div>`);
     bar.querySelector('#unpack-to').onchange=e=>{ unpackTo=e.target.value; render(); };
-    const moved=(done)=>{ if(!done.length) return; const to=S.bins.get(UNPACKED.get(done[0].id)?.to);
-      toast(done.length===1?`${bagStr(done[0].bag)||done[0].name} → ${to?.code||''}`:`${done.length} bags put back`, 1800, {label:'Undo', run:()=>unpackUndo(done)}); };
+    const moved=unpacked;
     bar.querySelector('#putback')?.addEventListener('click',async()=>{
       const n=back.length, k=ps.length-n;
       if(!confirm(`Put ${n} bag${n===1?'':'s'} back in the bin${n===1?' it':'s they'} came from?${k?` ${k} ${k===1?'has':'have'} no bin to go back to and ${k===1?'stays':'stay'}.`:''}`)) return;
       moved(await unpack(back.map(p=>[p, fromBin(p).id])));
     });
     m.append(bar);
+    if(NFC_OK && !FRAMED) m.append(h('<p class="tiny" style="margin:-4px 0 10px">Holding a bag’s tag here takes it out the same way.</p>'));
     const l=h('<div class="list"></div>');
     for(const p of ps){
       const fb=fromBin(p), to=unpackTo?S.bins.get(unpackTo):fb, name=bagStr(p.bag)||p.name;
@@ -1099,12 +1123,9 @@ function editPart(p, opts={}){
       if(bag===BG.bagOf(cur)) delete changes.bag;
     }
     if('img' in changes && raw('img').trim() && !changes.img){ refuse(el,'#p-img','The photo link needs to start with https://',3000); return; }
-    // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in
-    // boxes and forgotten once it's out of them. A bag taken out of its box on this visit and put back in it, from the bin
-    // it went to, came from where it did before: that bin was a mis-tap.
-    const oldB=binOf(cur||{}), nb=S.bins.get(changes.binId ?? cur?.binId ?? ''), keptFrom=(cur?cur.from:p.from)||'';
-    const un=cur && UNPACKED.get(p.id), backIn=!!un && isBox(nb) && nb.id===un.box && cur.binId===un.to;
-    const from = backIn ? un.from : (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : keptFrom;
+    // where it came from: the bin it was in before this sheet (Pack has already put the box in it); see cameFrom()
+    const nb=S.bins.get(changes.binId ?? cur?.binId ?? ''), keptFrom=(cur?cur.from:p.from)||'';
+    const {from, backIn}=cur ? cameFrom(cur, nb) : {from:keptFrom, backIn:false};
     if(!cur || from!==keptFrom) changes.from=from;
     const {id:_, updatedAt, ...rest}=cur||p, doc={...rest, ...changes};
     if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(cur)) doc.tagWritten=changes.tagWritten=false; // no tag carries the new number until one is written
@@ -1248,6 +1269,7 @@ function onTag(ev){
     // (Not for what's open behind it already: the old tag that opened "Update this tag?", read again as it's held.)
     if(open){ const hit=findTarget(t), here=['bag','bin','part'].includes(S.route.view) && findTarget(S.route);
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
+    if(unpackByTag(t)) return;
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg, {tag:true});
     if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>rewriteOld()?tagSheet(hit.item,hit.kind,{auto:true,overwrite:true,always:true}):offerRewrite(hit),150); }

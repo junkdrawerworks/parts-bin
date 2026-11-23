@@ -2271,6 +2271,61 @@ await desk.goto(base);
   await kCtx.close();
 }
 
+// ---- unpacking a box by its bags' tags: on the box's page, holding a bag's sticker takes it out to where Unpack into says
+// (where it came from, or the bin picked), with Undo, instead of opening it; read twice, it says where it went; a bag
+// with nowhere to go asks for a bin; any other tag opens as usual
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 }, 'box-u': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-ina': { name: 'INA219', binId: 'box-u', qty: 2, unit: 'pcs', tags: [], bag: 10, from: 'PWR', tagWritten: true, t: 1 },
+      'p-vl5': { name: 'VL53L1X', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 7, from: 'ENV', tagWritten: true, t: 1 },
+      'p-zet': { name: 'Zeta', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 12, tagWritten: true, t: 1 },
+      'p-out': { name: 'Elsewhere', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 20, tagWritten: true, t: 1 },
+    } } });
+  const uCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await uCtx.addInitScript(fakeNfc);
+  await uCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const up = await uCtx.newPage();
+  up.problems = []; up.on('pageerror', e => up.problems.push(e.message)); up.on('console', m => { if (m.type() === 'error') up.problems.push(m.text()); });
+  const got = id => up.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const until = (id, bin) => up.waitForFunction(([id, bin]) => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].binId === bin, [id, bin]);
+  const hold = n => up.evaluate(n => window.__read(location.origin + '/#bag/' + n), n);
+  await up.goto(base + '#bin/box-u'); await up.waitForSelector('.unpack'); await up.waitForFunction(() => !!window.__reader?.onreading);
+  assert.match(await up.textContent('#main'), /Holding a bag’s tag here takes it out the same way\./);
+  // where it came from, with Undo, and the box's page stays
+  await hold('010'); await until('p-ina', 'b-pwr');
+  assert.equal(await up.evaluate(() => location.hash), '#bin/box-u');
+  await up.waitForSelector('#toast:has-text("#010 → PWR") button:has-text("Undo")');
+  assert.equal((await got('p-ina')).from, '');
+  // held again (a sticker read twice): it says where it went, and the box's page stays
+  await hold('010'); await up.waitForSelector('#toast:has-text("#010 is in PWR now")');
+  assert.equal(await up.evaluate(() => location.hash), '#bin/box-u');
+  await hold('010'); await up.waitForSelector('#toast:has-text("#010 is in PWR now")');
+  // Undo after a tag puts it back in the box, still from PWR (a new Undo is offered after each move)
+  await hold('007'); await until('p-vl5', 'b-env');
+  await up.click('#toast button:has-text("Undo")'); await until('p-vl5', 'box-u');
+  assert.equal((await got('p-vl5')).from, 'ENV');
+  // with a bin picked under Unpack into, a bag's tag sends it there
+  await up.selectOption('#unpack-to', 'b-pwr');
+  await hold('007'); await until('p-vl5', 'b-pwr');
+  await up.waitForSelector('#toast:has-text("#007 → PWR")');
+  // a bag with nowhere to go back to, and nothing picked, asks for a bin and stays
+  await up.selectOption('#unpack-to', '');
+  await hold('012'); await up.waitForSelector('#toast:has-text("#012 has no bin to go back to: choose one under Unpack into")');
+  assert.equal((await got('p-zet')).binId, 'box-u'); assert.equal(await up.evaluate(() => location.hash), '#bin/box-u');
+  // a bag that isn't in this box opens, as a tag does anywhere else
+  await hold('020'); await up.waitForFunction(() => location.hash === '#bag/020');
+  await up.waitForSelector('.binhead h2:text("Elsewhere")');
+  assert.equal((await got('p-out')).binId, 'b-env');
+  // and on a bin's page (not a box), a bag's tag opens it
+  await up.goto(base + '#bin/b-pwr'); await up.waitForSelector('.binhead');
+  await hold('010'); await up.waitForFunction(() => location.hash === '#bag/010');
+  assert.equal((await got('p-ina')).binId, 'b-pwr');
+  assert.deepEqual(up.problems, []);
+  await uCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

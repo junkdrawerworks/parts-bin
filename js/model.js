@@ -26,6 +26,9 @@ export function newId() {
 // it, tags lower-cased as the form does, and anything else that isn't a list is dropped, so one part can't break every screen.
 const LISTS = { tags: s => s.toLowerCase(), iface: s => s };
 const strings = v => v.filter(s => typeof s === 'string').slice(0, 40).map(s => s.slice(0, 80));
+// How long a text can be. A saved BOM is a whole pasted parts list (a KiCad export with footprints and datasheet links
+// runs past 4,000 characters for one board), and a part's notes can be long too; every other field is short.
+const LONG = { text: 200000, notes: 20000 };
 
 // Keeps what a page or a file handed us to plain JSON fields, and drops anything malformed. Every load runs it, so a
 // copy saved before a rule here was added is brought into line as it's read.
@@ -39,7 +42,7 @@ export function cleanItem(x) {
       if (Array.isArray(v)) out[k] = strings(v);
       else if (typeof v === 'string') out[k] = strings(v.split(/[,;/]/).map(s => LISTS[k](s.trim())).filter(Boolean));
     } else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = v; } // NaN and Infinity would be saved as null
-    else if (typeof v === 'string' || typeof v === 'boolean') out[k] = typeof v === 'string' ? v.slice(0, 4000) : v;
+    else if (typeof v === 'string' || typeof v === 'boolean') out[k] = typeof v === 'string' ? v.slice(0, Object.hasOwn(LONG, k) ? LONG[k] : 4000) : v;
     else if (Array.isArray(v)) out[k] = strings(v);
   }
   out.t = tOk(x.t);

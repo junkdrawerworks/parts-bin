@@ -112,3 +112,26 @@ test('a part deleted here and loaded back from a backup stays, even after a sync
   assert.ok(!M.gone(M.mergeDocs(tombstone, store.doc).items.parts['p-scd41']));
   assert.deepEqual(store.importText(backup), { changed: 0, back: 0 }, 'loading it again changes nothing');
 });
+test('a long saved BOM and long notes keep every character, through saving, loading and merging', () => {
+  const text = Array.from({ length: 150 }, (_, i) => `"R${i}","10k","Resistor_SMD:R_0603_1608Metric","https://example.com/ds/${i}"`).join("\n").slice(0, 6000);
+  assert.equal(text.length, 6000);
+  let d = M.putItem(M.blankDoc(), 'projects', 'pr', { name: 'Badge + ESPKey', text });
+  d = M.putItem(d, 'parts', 'p', { name: 'Pinecil', notes: 'n'.repeat(6000) });
+  assert.equal(d.items.projects.pr.text, text);
+  const loaded = M.cleanDoc(JSON.parse(M.canon(d)));
+  assert.equal(loaded.items.projects.pr.text, text);
+  assert.equal(loaded.items.parts.p.notes.length, 6000);
+  const m = M.mergeDocs(M.blankDoc(), loaded);
+  assert.equal(m.items.projects.pr.text, text);
+  assert.equal(M.cleanDoc(JSON.parse(M.canon(M.mergeDocs(loaded, m)))).items.projects.pr.text, text);
+  // every other field keeps its limit, and the long ones have theirs
+  const c = M.cleanItem({ name: 'n'.repeat(5000), text: 't'.repeat(300000), notes: 'o'.repeat(30000), t: 1 });
+  assert.deepEqual([c.name.length, c.text.length, c.notes.length], [4000, 200000, 20000]);
+});
+test('an old document with short fields loads exactly as it was saved', () => {
+  const old = { app: M.APP, v: 1, items: {
+    bins: { b: { code: 'ENV', name: 'Environmental', location: 'Workroom', t: 5 } },
+    parts: { p: { name: 'SCD41', qty: 3, unit: 'pcs', binId: 'b', tags: ['generic'], notes: 'on the shelf', bag: 2, tagWritten: true, t: 7 }, q: { name: 'Gone', t: 3, del: 9 } },
+    projects: { pr: { name: 'Test BOM', text: '2 BME280\n1 SCD41', t: 8 } } } };
+  assert.equal(M.canon(M.cleanDoc(JSON.parse(JSON.stringify(old)))), M.canon(old));
+});

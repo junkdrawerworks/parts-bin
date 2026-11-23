@@ -270,6 +270,20 @@ await page.click('#save');
 await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).some(p => p.name === 'Lamp'));
 await page.waitForTimeout(100);
 assert.equal(await page.inputValue('#bom'), '3 WS2812 strip segment');
+// a long parts list (a KiCad export with footprints and datasheet links) is saved whole: it was cut to 4,000 characters
+// on every load, mid-line, while the page said Saved
+const longBom = Array.from({ length: 80 }, (_, i) => `1 R${i} 10k Resistor_SMD:R_0603_1608Metric https://example.com/datasheets/r${i}.pdf`).join('\n').slice(0, 5000);
+assert.equal(longBom.length, 5000);
+await page.fill('#bom', longBom);
+page.once('dialog', d => d.accept('Long board'));
+await page.click('#save');
+await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).some(p => p.name === 'Long board'));
+await page.fill('#bom', '3 WS2812 strip segment');
+await page.reload(); await page.waitForSelector('#proj');
+const longId = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.projects).find(([, p]) => p.name === 'Long board')[0]);
+await page.selectOption('#proj', longId);
+assert.equal(await page.inputValue('#bom'), longBom, 'the saved BOM came back cut short');
+await page.fill('#bom', '3 WS2812 strip segment');
 // a shortfall in metres reads 0.2, not 0.19999999999999998, on screen and in the shopping list
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-heat'] = { name: 'Heat shrink tubing 3mm', qty: 0.1, unit: 'm', binId: 'bin-env', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check');

@@ -343,3 +343,15 @@ test('a heading in a pasted list is read as one, not as a part', () => {
     { qty: 2, name: 'Hardware Supplies' }, { qty: 1, name: 'M3 hardware kit' }, { qty: 1, name: 'Parts bin labels' }, { qty: 2, name: 'Tools' },
   ]);
 });
+
+test('a wire gauge, a wattage or a current before the name is part of it, not a count', () => {
+  assert.deepEqual(parseBom('22 AWG wire\n22 awg wire\n0.25 W resistor\n5 mW laser\n1 kW heater\n2 A fuse\n4 x 22 AWG wire'), [
+    { qty: 1, name: '22 AWG wire' }, { qty: 1, name: '22 awg wire' }, { qty: 1, name: '0.25 W resistor' }, { qty: 1, name: '5 mW laser' },
+    { qty: 1, name: '1 kW heater' }, { qty: 1, name: '2 A fuse' }, { qty: 4, name: '22 AWG wire' },
+  ]);
+  // a word that only starts like one is still a count's name
+  assert.deepEqual(parseBom('1 A4988 driver\n2 caps\n3 LEDs\n2 ESP32\n2 Arduino Nano\n3 WS2812B'), [
+    { qty: 1, name: 'A4988 driver' }, { qty: 2, name: 'caps' }, { qty: 3, name: 'LEDs' }, { qty: 2, name: 'ESP32' },
+    { qty: 2, name: 'Arduino Nano' }, { qty: 3, name: 'WS2812B' },
+  ]);
+});

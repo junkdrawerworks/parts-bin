@@ -13,11 +13,13 @@ export const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace
 // number at the start: "18650 cells×2" is two 18650 cells. A size isn't a count: a pin header's 1x40 and a screw's M3x8
 // are part of the name, spaced or not (Screws M3 x 10 is one size of screw). Nor is a long number before a single word,
 // with no other count: "555 timer" is one 555. Nor is a number before its unit or a pin count: "220 ohm resistors", "100
-// nF capacitor" and "4 pin JST" are one value of resistor, capacitor and connector.
+// nF capacitor", "22 AWG wire" and "4 pin JST" are one value of resistor, capacitor, wire and connector.
 const N = '(\\d+(?:\\.\\d+)?)';
 const SIZE = /(^|\s)M?\d+(\.\d+)?\s*$/i; // what comes before the x of a size: a bare number (1x40) or an M size (M2.5x6)
 const MSIZE = /(^|\s)M\d+(\.\d+)?\s*$/i; // the same with a space before the x: only an M size, as "18650 x 2" is two
-const VALUE = /^(?:ohms?|Ω|[kK]Ω?|MΩ|[uUµμnNpP][fF]|mAh|mA|[vV]|mm|[kKmM]?Hz|pins?|ways?|positions?)(?![a-zA-Z0-9])/;
+// (a wire's gauge, a wattage and a current too: "22 AWG wire", "0.25 W resistor", "2 A fuse"; A4988 is a name, as the
+// unit has to be a word of its own)
+const VALUE = /^(?:ohms?|Ω|[kK]Ω?|MΩ|[uUµμnNpP][fF]|mAh|mA|A|[vV]|[mk]?W|AWG|awg|mm|[kKmM]?Hz|pins?|ways?|positions?)(?![a-zA-Z0-9])/;
 const COUNTS = [ // [pattern, the count's group, the name's group, unless(match) it's not a count after all]
   [new RegExp(`^${N}\\s*[x×*]\\s+(.+)$`, 'i'), 1, 2], // 2x name, 2 x name
   [new RegExp(`^(.+?)\\s+[x×*]\\s*${N}$`, 'i'), 2, 1, m => MSIZE.test(m[1])], // name x8, name × 2; not M3 x 10

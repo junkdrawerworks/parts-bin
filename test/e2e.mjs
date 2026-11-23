@@ -1766,6 +1766,31 @@ await desk.goto(base);
   await nCtx.close();
 }
 
+// ---- search finds a name however it's half-remembered, and a bag number lists that bag's part first, then the rest
+{
+  const P = (name, bag) => ({ name, bag, binId: 'bin-s', category: 'Misc', qty: 1, unit: 'pcs', tags: [], t: 1 });
+  const seed = { app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-s': { code: 'S1', name: 'Shelf', t: 1 } }, parts: {
+    'p-xiao': P('Seeed XIAO ESP32-S3', 12), 'p-scd': P('SCD41 CO₂ sensor', 5), 'p-mhz': P('MH-Z19B CO2 sensor', 6), 'p-10k': P('10kΩ resistor', 220),
+    'p-220': P('220Ω resistors', 3), 'p-220u': P('220uF capacitor', 40), 'p-pot': P('10 kΩ potentiometer', 41), 'p-other': P('BME280', 22) } } };
+  const sCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await sCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, JSON.stringify(seed));
+  const sp = await sCtx.newPage();
+  sp.problems = []; sp.on('pageerror', e => sp.problems.push(e.message));
+  await sp.goto(base + '#parts'); await sp.waitForSelector('.list .item');
+  const found = async q => { await sp.fill('#q', q); await sp.waitForTimeout(400); return sp.locator('#main .list .item .t').allTextContents(); }; // after search's pause
+  // typed without the dash (ESP32-S3 is "esp32 s3" to search), and CO₂ with a plain 2 (the ₂ was a space)
+  assert.deepEqual(await found('esp32s3'), ['Seeed XIAO ESP32-S3']);
+  assert.deepEqual((await found('co2')).sort(), ['MH-Z19B CO2 sensor', 'SCD41 CO₂ sensor']);
+  assert.deepEqual((await found('10k')).sort(), ['10 kΩ potentiometer', '10kΩ resistor']);
+  // bag 220's part comes first, and the parts with 220 in their names after it (only bag 220's showed)
+  assert.deepEqual(await found('220'), ['10kΩ resistor', '220uF capacitor', '220Ω resistors']);
+  assert.deepEqual(await found('#220'), ['10kΩ resistor', '220uF capacitor', '220Ω resistors']);
+  // and another bag's number in it isn't a match: bag 22 is the BME280, which has no 22 in its name
+  assert.deepEqual(await found('22'), ['BME280', '220uF capacitor', '220Ω resistors']);
+  assert.deepEqual(sp.problems, [], 'problems while searching');
+  await sCtx.close();
+}
+
 // ---- a long inventory on a phone
 {
   const seed = { app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-a': { code: 'A1', name: 'Resistor drawer', location: 'Workroom', t: 1 } }, parts: {} } };

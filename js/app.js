@@ -94,14 +94,20 @@ function localGet(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:J
 function localSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
 
 // ------------------------------------------------------------------ search
+// Each word typed has to be in the part's details, as written or with their spaces taken out (esp32s3 finds ESP32-S3,
+// which reads as "esp32 s3"). A bare number (220, #220) lists that bag's part first, then the parts with the number in
+// their details: bag numbers run into the hundreds, so 220 is a bag and a resistor too.
 function searchParts(q){
-  const bm=String(q||'').trim().match(/^#?0*(\d{1,4})$/); if(bm){ const hit=[...S.parts.values()].filter(p=>Number(p.bag)===Number(bm[1])); if(hit.length) return hit; }
-  const t=norm(q).split(' ').filter(Boolean); if(!t.length) return [...S.parts.values()];
-  return [...S.parts.values()].map(p=>{
-    const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name, p.bag?('bag '+p.bag+' '+String(p.bag).padStart(3,'0')):''].join(' '));
-    let score=0; for(const w of t){ if(!hay.includes(w)) return null; score += norm(p.name).includes(w)?2:1; if(norm(p.name).startsWith(w)) score+=2; }
+  const all=[...S.parts.values()], bm=String(q||'').trim().match(/^#?0*(\d{1,4})$/);
+  const bag=bm?all.filter(p=>Number(p.bag)===Number(bm[1])):[];
+  const t=norm(q).split(' ').filter(Boolean); if(!t.length) return all;
+  const found=all.filter(p=>!bag.includes(p)).map(p=>{
+    const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name, p.bag&&!bm?('bag '+p.bag+' '+String(p.bag).padStart(3,'0')):''].join(' ')); // another bag's number isn't a match for a bare one
+    const flat=hay.replace(/ /g,''), name=norm(p.name), nameFlat=name.replace(/ /g,'');
+    let score=0; for(const w of t){ if(!hay.includes(w) && !flat.includes(w)) return null; score += name.includes(w)||nameFlat.includes(w)?2:1; if(name.startsWith(w)) score+=2; }
     return {p,score};
   }).filter(Boolean).sort((a,b)=>b.score-a.score||a.p.name.localeCompare(b.p.name)).map(x=>x.p);
+  return [...bag, ...found];
 }
 function searchBins(q){
   const t=norm(q); if(!t) return [...S.bins.values()].sort(binCodeSort);

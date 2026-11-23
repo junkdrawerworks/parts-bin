@@ -112,10 +112,16 @@ function searchBins(q){
 // The screen last drawn: drawing the same one again (after a save, a sync or a change in another tab) keeps the place
 // on the page, what's being typed and where the keyboard is, and a new screen starts at the top.
 // Back or Forward to another screen (back) goes to the place kept in that step, if go() kept one when it left.
+// A new screen says where you are: the page's title names it, and when the keyboard was on the screen before (a row, a
+// button, or nowhere), it goes to the new one's heading, so a screen reader reads it and Tab carries on from there. From
+// the search box, the tab bar or the sidebar it stays where it was.
 let shown='';
 function render(back=false){
   S.route = parseHash();
+  const was0=document.activeElement, inMain=!was0 || was0===document.body || (document.getElementById('main').contains(was0) && was0.id!=='q');
+  const nav=was0?.dataset?.go && was0.closest('#nav,#tabbar') ? [was0.closest('#nav,#tabbar').id, was0.dataset.go] : null;
   renderNav();
+  if(nav) document.querySelector(`#${nav[0]} [data-go="${nav[1]}"]`)?.focus({preventScroll:true}); // drawn again: the same button
   const key=S.route.view+'/'+S.route.arg, same=key===shown, kept=history.state?.y;
   const y=same?window.scrollY:back && typeof kept==='number' && !isStepping() ? kept : 0;
   const m=document.getElementById('main'), was=same?typing(m):null; m.innerHTML='';
@@ -136,6 +142,12 @@ function render(back=false){
   else renderBins(m);
   window.scrollTo(0,y);
   if(was) retype(m,was);
+  const hd=m.querySelector('h2')||m.querySelector('h3'), code=m.querySelector('.binhead .label')?.textContent.trim();
+  if(hd && !hd.textContent.trim() && code) hd.setAttribute('aria-label',code); // a bin or box with no name
+  const where=hd?.textContent.trim()||code||'';
+  document.title=where?`${where} · Parts Bin`:'Parts Bin';
+  const onHead=same && was0?.tabIndex===-1 && /^H[23]$/.test(was0.tagName); // drawn again (a sync) with the keyboard on the heading
+  if(hd && (onHead || !same && inMain)){ hd.tabIndex=-1; hd.focus({preventScroll:true}); }
   if(wantSearch){ wantSearch=false; document.getElementById('q')?.focus(); }
 }
 // A sticker whose number no part has now (renumbered, or its part deleted): where to look instead.

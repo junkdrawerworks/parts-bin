@@ -1616,6 +1616,40 @@ await desk.goto(base);
   await kCtx.close();
 }
 
+// ---- a new screen says where you are: the keyboard goes to its heading and the page's title names it (it stayed "Parts
+// Bin", and the keyboard dropped to the top of the page)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', t: 1 }, 'box-n': { code: 'BOX 03', kind: 'box', name: '', t: 1 } }, parts: { 'p-bme': { name: 'BME280 (Adafruit)', binId: 'b01', qty: 2, unit: 'pcs', tags: [], t: 1 } } } });
+  const hCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await hCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const hp = await hCtx.newPage();
+  hp.problems = []; hp.on('pageerror', e => hp.problems.push(e.message)); hp.on('console', m => { if (m.type() === 'error') hp.problems.push(m.text()); });
+  await hp.goto(base + '#parts'); await hp.waitForSelector('.item');
+  assert.equal(await hp.title(), 'Parts · Parts Bin');
+  await hp.focus('.list .item'); await hp.keyboard.press('Enter'); await hp.waitForSelector('.binhead h2');
+  assert.equal(await hp.evaluate(() => document.activeElement.tagName + ' ' + document.activeElement.textContent), 'H2 BME280 (Adafruit)');
+  assert.equal(await hp.title(), 'BME280 (Adafruit) · Parts Bin');
+  assert.equal(await hp.$eval('h2', e => getComputedStyle(e).outlineStyle), 'none', 'a ring round the heading');
+  // Tab carries on from the heading, into the page (Edit, Bag tag, the count…), not the sidebar
+  await hp.keyboard.press('Tab'); assert.ok(await hp.evaluate(() => document.getElementById('main').contains(document.activeElement)));
+  // deleting the part ends on Parts, at its heading
+  await hp.click('#edit'); hp.once('dialog', d => d.accept()); await hp.click('.sheet #del');
+  await hp.waitForFunction(() => location.hash === '#parts'); await hp.waitForSelector('.topbar h2:has-text("Parts")');
+  assert.equal(await hp.evaluate(() => document.activeElement.tagName + ' ' + document.activeElement.textContent), 'H2 Parts');
+  // drawn again (a change in another tab) with the keyboard on the heading: it stays there
+  await hp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.bins.b01.notes = 'top shelf'; d.items.bins.b01.t = Date.now(); localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await hp.waitForTimeout(300);
+  assert.equal(await hp.evaluate(() => document.activeElement.tagName + ' ' + document.activeElement.textContent), 'H2 Parts');
+  // a box with no name is named by its code
+  await hp.goto(base + '#bins'); await hp.focus('.bin:has-text("BOX 03")'); await hp.keyboard.press('Enter'); await hp.waitForSelector('.binhead');
+  assert.equal(await hp.title(), 'BOX 03 · Parts Bin');
+  // the sidebar keeps the keyboard on the screen picked
+  await hp.focus('#nav [data-go="bom"]'); await hp.keyboard.press('Enter'); await hp.waitForSelector('#bom');
+  assert.equal(await hp.evaluate(() => document.activeElement.dataset.go), 'bom'); assert.equal(await hp.title(), 'BOM check · Parts Bin');
+  assert.deepEqual(hp.problems, []);
+  await hCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

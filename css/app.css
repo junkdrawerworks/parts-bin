@@ -149,6 +149,7 @@ a{color:var(--accent-ink)}
 @media(min-width:761px){.sheet{border-radius:10px}}
 .sheet h3{font-size:22px;margin-bottom:12px}
 .sheet:focus{outline:none}
+h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's heading, focused so it's read out */
 /* Save and Cancel stay at the bottom of a long sheet, over what scrolls under them */
 .sheet .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;position:sticky;bottom:calc(-18px - env(safe-area-inset-bottom,0px));z-index:1;background:var(--panel);border-top:1px solid var(--line);margin-inline:-18px;padding:10px 18px calc(10px + env(safe-area-inset-bottom,0px))}
 .sheet .actions .left{margin-right:auto}

@@ -237,6 +237,18 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 }
 @keyframes tz-in{from{transform:scale(.96)}to{transform:none}}
 @keyframes tz-tick{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+/* a sheet rises into place over a shade that fades in (on a wide screen it grows a touch), and the tag zone's sign pulses
+   while it listens for the sticker: only where motion is welcome. Closing stays instant. */
+@media (prefers-reduced-motion: no-preference){
+  .sheet-bg{animation:sheet-bg-in .15s ease-out}
+  .sheet{animation:sheet-up .18s ease-out}
+  .tagzone.wait .tz-icon{animation:tz-pulse 1.6s ease-in-out infinite}
+}
+@media (prefers-reduced-motion: no-preference) and (min-width:761px){ .sheet{animation-name:sheet-grow} }
+@keyframes sheet-bg-in{from{opacity:0}}
+@keyframes sheet-up{from{transform:translateY(16px);opacity:0}}
+@keyframes sheet-grow{from{transform:scale(.98);opacity:0}}
+@keyframes tz-pulse{50%{transform:scale(.86);opacity:.55}}
 .cloud{position:relative;background:none;border:1px solid var(--line);border-radius:var(--r);padding:6px 8px;color:var(--ink2);display:inline-flex}
 .cloud svg{width:20px;height:20px}
 .cloud .dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 1.5px var(--bg)}

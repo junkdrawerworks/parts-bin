@@ -971,6 +971,16 @@ await page.fill('#q', ''); await putSort(false); await page.waitForTimeout(300);
 await page.goto(base + '#parts'); await page.click('#addp'); await page.waitForSelector('#p-name');
 assert.deepEqual([await page.getAttribute('#p-name', 'placeholder'), await page.getAttribute('#p-cat', 'placeholder')], ['e.g. Seeed XIAO ESP32-S3', 'e.g. Sensors']);
 await page.click('.sheet #cancel');
+// a sheet rises into place over a shade that fades in, and the tag zone's sign pulses while it listens; closing is instant.
+// With less motion asked for (prefers-reduced-motion), nothing moves
+const moving = () => page.evaluate(() => ['.sheet', '.sheet-bg', '#tz.wait .tz-icon'].map(q => document.querySelector(q)).map(e => e ? getComputedStyle(e).animationName : ''));
+for (const reducedMotion of ['no-preference', 'reduce']) {
+  await page.emulateMedia({ reducedMotion });
+  await page.goto(base + '#part/p-scd41'); await page.click('#bagtag'); await page.click('.sheet #write'); await page.waitForSelector('#tz.wait');
+  assert.deepEqual(await moving(), reducedMotion === 'reduce' ? ['none', 'none', 'none'] : ['sheet-up', 'sheet-bg-in', 'tz-pulse'], reducedMotion);
+  await page.click('.sheet #done'); assert.equal(await page.locator('.sheet').count(), 0, 'a sheet lingers as it closes');
+}
+await page.emulateMedia({ reducedMotion: 'no-preference' });
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));
@@ -2060,6 +2070,7 @@ await desk.goto(base);
   // on a phone, a sheet opens without the keyboard (it popped up over half the sheet) and Save is in reach at the bottom
   // of the screen without scrolling the long part sheet
   await lp.click('#edit'); await lp.waitForSelector('.sheet #p-name');
+  await lp.waitForFunction(() => !document.querySelector('.sheet').getAnimations().length); // risen into place
   assert.ok(await lp.evaluate(() => document.activeElement.classList.contains('sheet')), 'a field took the keyboard as the sheet opened');
   const inView = sel => lp.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }, sel);
   assert.ok(await lp.evaluate(() => { const s = document.querySelector('.sheet'); return s.scrollHeight > s.clientHeight + 200; }), 'the part sheet is long enough to scroll');

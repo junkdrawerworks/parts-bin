@@ -96,9 +96,10 @@ function render(){
   const m=document.getElementById('main'), was=same?typing(m):null; m.innerHTML='';
   if(!S.loaded){ m.append(h('<div class="empty"><p>Loading inventory…</p></div>')); return; }
   const v=S.route.view;
-  if(linkCode()){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
+  const held=!!heldCode && linkCode()===heldCode;
+  if(linkCode() && !held){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
   shown=key;
-  if(v==='inbox') renderInbox(m);
+  if(v==='inbox' || held) renderInbox(m);
   else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else noBag(m, n); }
   else if(v==='settings') renderSettings(m);
   else if(v==='bin') renderBin(m, S.route.arg);
@@ -135,7 +136,7 @@ function retype(m,{fields,focus,caret}){
   if(f && document.activeElement!==f){ f.focus({preventScroll:true}); if(caret) try{ f.setSelectionRange(...caret); }catch{} }
 }
 function renderNav(){
-  const cur = {bin:'bins',part:'parts',inbox:'scan'}[S.route.view] || S.route.view;
+  const cur = heldCode && linkCode()===heldCode ? 'scan' : {bin:'bins',part:'parts',inbox:'scan'}[S.route.view] || S.route.view;
   const waiting = inboxCount();
   const mk = (cls)=>NAV.map(([k,l])=>`<button type="button" data-go="${k}" ${cur===k?'aria-current="page"':''}>${ICONS[k]}<span>${l}</span>${k==='scan'&&waiting?`<span class="badge" aria-label="${waiting} waiting in the inbox">${waiting}</span>`:''}</button>`).join('');
   document.getElementById('nav').innerHTML = mk(); document.getElementById('tabbar').innerHTML = mk();
@@ -808,7 +809,8 @@ function lacksDetails(p){ return !(p.iface||[]).length && !p.volts && !p.img && 
 // each one is saved (and its bag tagged) from its card. Suggested details for parts already listed arrive the same way.
 let INBOX = IN.loadInbox(), usedAgain = null;
 function inboxCount(){ return IN.count(INBOX); }
-function keepInbox(){ if(!IN.saveInbox(INBOX)) toast('This browser’s storage is full',4000); }
+// After a card is saved, skipped or applied. Where the Inbox can't be written, the card may come back after a reload.
+function keepInbox(){ if(!IN.saveInbox(INBOX)) toast('This browser’s storage is full, so the Inbox couldn’t note that, and it may show again after a reload. Dismiss a batch to make room.',5000); }
 // The fields unticked on each suggestion's card, by batch and item, so drawing the Inbox again (after a save, a sync, a
 // change in another tab) leaves them unticked, and Apply all leaves them out. Forgotten once the suggestion is dealt with.
 const UNTICKED=new Map();
@@ -816,15 +818,20 @@ const untickedOf=(b,x)=>{ const k=b.id+' '+x.k; if(!UNTICKED.has(k)) UNTICKED.se
 const ticked=(b,x)=>new Set(IN.FIELDS.filter(k=>!untickedOf(b,x).has(k)));
 function settled(b,keys){ for(const x of b.items) if(!keys||keys.includes(x.k)) UNTICKED.delete(b.id+' '+x.k); }
 function linkCode(){ const m=new RegExp('^#('+IN.PREFIX+'.{8,})$').exec(location.hash); return m && m[1]; }
+// A link that couldn't be taken (this browser's storage is full, say) stays in the address, so a reload can try it again;
+// the Inbox shows meanwhile.
+let heldCode='';
 async function takeLink(){
   const c=linkCode(); if(!c) return false;
-  history.replaceState(null,'',location.pathname+location.search+'#inbox'); // the code is long, and reloading shouldn't read it twice
-  await takeBatch(c); render(); return true;
+  if(await takeBatch(c)){ heldCode=''; history.replaceState(null,'',location.pathname+location.search+'#inbox'); } // the code is long, and reloading shouldn't read it twice
+  else heldCode=c;
+  render(); return true;
 }
 async function takeBatch(text, {again=false}={}){
   let b=null; try{ b=IN.cleanBatch(await IN.read(text)); }catch{}
   if(!b){ toast('That isn’t a batch Parts Bin can read. Ask Claude for the link again, or load the file.',4500); return false; }
-  const r=IN.addBatch(INBOX,b,{again}); keepInbox(); usedAgain=null;
+  const r=IN.addBatch(INBOX,b,{again}); usedAgain=null;
+  if(r==='added' && !IN.saveInbox(INBOX)){ INBOX=IN.loadInbox(); toast('This browser’s storage is full, so that batch wasn’t kept. Dismiss a batch or free some room, then open the link again.',5000); return false; }
   if(r==='used'){ usedAgain={text, name:b.name||'that batch'}; toast('You’ve been through that batch already',3000); }
   else if(r==='open') toast('That batch is already waiting here');
   else if(r==='full'){ toast('The inbox is full. Finish or dismiss a batch, then open the link again.',4500); return false; }

@@ -625,6 +625,24 @@ assert.equal(await page.locator('.card.inb').count(), 1, 'the suggestion is stil
 assert.equal(await stored(), kept, 'nothing was written');
 await storageFull(false);
 page.once('dialog', d => d.accept()); await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');
+// a batch the Inbox can't store isn't shown as taken (it showed, said "2 from Claude to check", and was gone after a
+// reload with its link already wiped from the address): it says so, and the link stays to try again
+const fullLink = base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-inbox-full', source: 'photo', items: [{ name: 'Rotary encoder', qty: 4 }, { name: 'Piezo buzzer', qty: 2 }] } });
+await fullFor(page, 'parts-bin.inbox', true);
+await noToast(); await page.goto(fullLink);
+await page.waitForSelector('#toast:has-text("This browser’s storage is full, so that batch wasn’t kept.")');
+await page.waitForSelector('#main h2:has-text("Inbox")');
+assert.equal(await page.locator('.card.inb').count(), 0); assert.equal(await page.locator('#tabbar .badge').count(), 0);
+assert.ok((await page.evaluate(() => location.hash)).startsWith('#' + IN.PREFIX), 'the link is still in the address');
+await fullFor(page, 'parts-bin.inbox', false);
+await page.reload(); await page.waitForSelector('.card.inb');
+assert.equal(await page.locator('.card.inb').count(), 2); assert.equal(await page.evaluate(() => location.hash), '#inbox');
+// a card skipped while the Inbox can't be written says it may come back
+await fullFor(page, 'parts-bin.inbox', true);
+await noToast(); await page.click('.card.inb[data-k="i0"] [data-a="skip"]');
+await page.waitForSelector('#toast:has-text("may show again after a reload")');
+await fullFor(page, 'parts-bin.inbox', false);
+page.once('dialog', d => d.accept()); await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');
 await page.goto(base + '#part/p-scd41'); await page.reload(); await page.waitForSelector('h2:has-text("SCD41")');
 assert.equal((await part('p-scd41')).notes, scdNotes);
 assert.equal((await part('p-scd41')).qty, scdQty);

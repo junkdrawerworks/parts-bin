@@ -1512,6 +1512,40 @@ await desk.goto(base);
   await rCtx.close();
 }
 
+// ---- Enter in a sheet's field saves, as in a form (it did nothing, and the sheet stayed open); a save refused puts the
+// keyboard on the field concerned and marks it, until it's typed in
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', t: 1 } }, parts: { 'p-q': { name: 'Counted part', binId: 'b01', qty: 3, unit: 'pcs', tags: [], t: 1 } } } });
+  const eCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await eCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const ep = await eCtx.newPage();
+  ep.problems = []; ep.on('pageerror', e => ep.problems.push(e.message)); ep.on('console', m => { if (m.type() === 'error') ep.problems.push(m.text()); });
+  const gone = () => ep.waitForFunction(() => !document.querySelector('.sheet'), null, { timeout: 3000 });
+  await ep.goto(base + '#part/p-q'); await ep.click('#edit'); await ep.waitForSelector('.sheet #p-qty');
+  await ep.fill('#p-qty', '7'); await ep.press('#p-qty', 'Enter'); await gone();
+  assert.equal(await ep.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-q'].qty), 7);
+  // Enter in a textarea is a new line, not a save
+  await ep.click('#edit'); await ep.waitForSelector('.sheet #p-notes');
+  await ep.fill('#p-notes', 'one'); await ep.press('#p-notes', 'Enter');
+  assert.equal(await ep.locator('.sheet').count(), 1, 'Enter in Notes saved');
+  // an empty name: the keyboard goes to it, marked, until it's typed in
+  await ep.fill('#p-name', ''); await ep.click('.sheet #save');
+  await ep.waitForSelector('#toast:has-text("Name is required")');
+  assert.equal(await ep.evaluate(() => document.activeElement.id), 'p-name');
+  assert.equal(await ep.getAttribute('#p-name', 'aria-invalid'), 'true');
+  await ep.type('#p-name', 'C'); assert.equal(await ep.getAttribute('#p-name', 'aria-invalid'), null);
+  await ep.press('.sheet #p-name', 'Escape'); await gone();
+  // a new bin: Enter in Label code saves it
+  await ep.goto(base + '#bins'); await ep.click('#addbin'); await ep.waitForSelector('.sheet #f-code');
+  await ep.fill('#f-code', 'B01'); await ep.press('#f-code', 'Enter');
+  await ep.waitForSelector('#toast:has-text("Code B01 already used")');
+  assert.equal(await ep.evaluate(() => document.activeElement.id), 'f-code'); assert.equal(await ep.getAttribute('#f-code', 'aria-invalid'), 'true');
+  await ep.fill('#f-code', 'B02'); await ep.press('#f-code', 'Enter'); await gone();
+  assert.ok(await ep.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.bins).some(b => b.code === 'B02')));
+  assert.deepEqual(ep.problems, []);
+  await eCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

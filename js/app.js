@@ -650,6 +650,18 @@ function sheet(html, onClose){
   openSheet=me; keepStep();
   return {el:bg.querySelector('.sheet'), close};
 }
+// Enter in a one-line field of a sheet saves it, as in a form (a textarea takes a new line, a menu or a tick box its own).
+function enterSaves(el){
+  el.addEventListener('keydown',e=>{ const t=e.target;
+    if(e.key!=='Enter' || e.isComposing || t.tagName!=='INPUT' || ['checkbox','radio','file','button','submit'].includes(t.type)) return;
+    e.preventDefault(); el.querySelector('#save')?.click(); });
+}
+// A save refused for what's in one field: it says why, and the keyboard goes to that field, marked until it's typed in.
+function refuse(el, sel, msg, ms){
+  toast(msg, ms); const f=el.querySelector(sel); if(!f) return;
+  f.closest('details')?.setAttribute('open',''); f.setAttribute('aria-invalid','true'); f.focus();
+  f.addEventListener('input',()=>f.removeAttribute('aria-invalid'),{once:true});
+}
 function editBin(b, {code:toCode=false}={}){
   const isNew=!b; const wantBox = b===null && localGet('sr.newkind','bin')==='box';
   b=b||{id:id(), kind:wantBox?'box':'bin', code:wantBox?nextBoxCode():nextBinCode(), name:'', location:wantBox?'Moving boxes':localGet('sr.lastloc',''), notes:''};
@@ -664,14 +676,14 @@ function editBin(b, {code:toCode=false}={}){
     <div class="field"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(b.notes||'')}"></div>
     ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
-  el.querySelector('#cancel').onclick=close;
+  el.querySelector('#cancel').onclick=close; enterSaves(el);
   if(toCode){ const f=el.querySelector('#f-code'); f.focus(); f.select(); } // Rename: straight to the code
   el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
   el.querySelector('#del')?.addEventListener('click',()=>deleteBin(b,close));
   el.querySelector('#save').onclick=async()=>{
-    const code=el.querySelector('#f-code').value.trim(); if(!code){ toast('Label code is required'); return; }
+    const code=el.querySelector('#f-code').value.trim(); if(!code){ refuse(el,'#f-code','Label code is required'); return; }
     // a code another bin has is refused only when it's typed here: one that already clashes (two devices made it) still saves
-    const dup=(isNew||code.toLowerCase()!==String(b.code||'').toLowerCase()) && [...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
+    const dup=(isNew||code.toLowerCase()!==String(b.code||'').toLowerCase()) && [...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ refuse(el,'#f-code',`Code ${code} already used`); return; }
     const doc={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim(), photo:b.photo||'', tagWritten:!!b.tagWritten, updatedAt:new Date().toISOString()};
     const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it
@@ -730,7 +742,7 @@ function editPart(p, opts={}){
     ${S.assets&&!opts.photoFile?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="p-cam">${ICONS.camera} Take photo<input id="p-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="p-pick">Choose photo<input id="p-pick" type="file" accept="image/*" class="sr"></label><img id="p-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     ${opts.photoFile?'<div class="tiny" style="margin-bottom:10px">The scanned photo will be attached.</div>':''}
     <div class="actions">${!isNew?'<button class="btn danger left" id="del">Delete</button>':''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
-  el.querySelector('#cancel').onclick=close;
+  el.querySelector('#cancel').onclick=close; enterSaves(el);
   const dotag=el.querySelector('#p-dotag'), bagIn=el.querySelector('#p-bag'), saveBtn=el.querySelector('#save'), show=el.querySelector('#p-bagshow');
   // Ticking the box fills in the next bag number; unticking it takes back a number it filled in, so the part is saved
   // without a bag. A number typed in, or the part's own bag, stays. filled: the number Parts Bin handed out here (opts.autoBag:
@@ -761,24 +773,24 @@ function editPart(p, opts={}){
     try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
     const raw=k=>el.querySelector(PART_FORM[k][0]).value, val=k=>PART_FORM[k][2](raw(k));
-    const name=val('name'); if(!name){ toast('Name is required'); return; }
-    if(opts.uncounted && raw('qty').trim()===''){ toast('Count them first'); el.querySelector('#p-qty').focus(); return; }
+    const name=val('name'); if(!name){ refuse(el,'#p-name','Name is required'); return; }
+    if(opts.uncounted && raw('qty').trim()===''){ refuse(el,'#p-qty','Count them first'); return; }
     const cur=S.parts.get(p.id), base={...PART_BLANK, ...(was||{})}, same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     const shown=(x,k)=>{ const v=PART_FORM[k][1](x); return PART_FORM[k][2](v==null?'':String(v)); };
     const touched=k=>!was || raw(k)!==asDrawn[k] || !same(shown(p,k),shown(base,k));
     const changes={}; for(const k of Object.keys(PART_FORM)) if(touched(k)) changes[k]=val(k);
     const bag=changes.bag ?? '';
     if('bag' in changes){
-      if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ toast('Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
+      if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ refuse(el,'#p-bag','Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
       if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && BG.bagOf(x)===bag)){
         // Taken since the sheet opened (another tab, another device's sync). A number Parts Bin handed out moves on to the next
         // one, and this tap saves nothing: the old number may already be written on the bag.
         if(filled && bagIn.value===filled && bag!==BG.bagOf(cur)){ const n=nextBag(); bagIn.value=filled=String(n); syncTag(); toast(`Bag ${bagStr(bag)} was just used, so this is bag ${bagStr(n)}. Tap ${saveBtn.textContent} again.`,4500); return; }
-        toast(`Bag ${bagStr(bag)} is already used`); return;
+        refuse(el,'#p-bag',`Bag ${bagStr(bag)} is already used`); return;
       }
       if(bag===BG.bagOf(cur)) delete changes.bag;
     }
-    if('img' in changes && raw('img').trim() && !changes.img){ toast('The photo link needs to start with https://',3000); return; }
+    if('img' in changes && raw('img').trim() && !changes.img){ refuse(el,'#p-img','The photo link needs to start with https://',3000); return; }
     // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in
     // boxes and forgotten once it's out of them. A bag taken out of its box on this visit and put back in it, from the bin
     // it went to, came from where it did before: that bin was a mis-tap.

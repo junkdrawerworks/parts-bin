@@ -2530,7 +2530,7 @@ await desk.goto(base);
   assert.equal(await sp.getAttribute('#cat', 'aria-label'), 'Show');
   const menu = () => sp.locator('#cat').evaluate(s => [...s.children].map(c => c.tagName === 'OPTGROUP' ? [c.label, [...c.children].map(o => o.textContent)] : c.textContent));
   assert.deepEqual(await menu(), ['All parts (4)',
-    ['Lists', ['Low stock (1)', 'Out of stock (0)', 'To check (1)', 'Bag tag not written (2)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
+    ['Lists', ['Low stock (1)', 'Out of stock (0)', 'To check (1)', 'Bag tag not written (2)', 'Recently changed (0)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
     ['Categories', ['Passives (1)', 'Power (1)', 'Sensors (2)']]]);
   await sp.selectOption('#cat', '__untagged');
   assert.deepEqual(await sp.locator('.item .t').allTextContents(), ['Buck converter', 'SHT31'], 'in bag order');
@@ -2606,6 +2606,45 @@ await desk.goto(base);
   assert.equal(await lp.locator('#lowrow').count(), 0); assert.equal(await lp.textContent('.bin:has-text("BOX 01") .meta'), '1 bag');
   assert.deepEqual(lp.problems, []);
   await lCtx.close();
+}
+
+// ---- a part's page says when it was last changed, and Parts › Recently changed lists the parts changed in the last 7
+// days, newest first (what a Pack session or an Inbox batch touched)
+{
+  const now = Date.now(), day = 864e5;
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 } },
+    parts: {
+      'p-a': { name: 'SHT31', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], t: now - 3 * day },
+      'p-b': { name: 'BME280', binId: 'b-env', qty: 4, unit: 'pcs', tags: [], t: now - 1 * day },
+      'p-c': { name: 'Buck converter', binId: 'b-env', qty: 2, unit: 'pcs', tags: [], t: now - 10 * day },
+      'p-d': { name: 'Zener diodes', qty: 20, unit: 'pcs', tags: [], t: 1 },
+      'p-e': { name: 'Old one', qty: 1, unit: 'pcs', tags: [], t: Date.UTC(2024, 4, 7, 12) },
+    } } });
+  const rCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await rCtx.addInitScript(fakeNfc);
+  await rCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const rp = await rCtx.newPage();
+  rp.problems = []; rp.on('pageerror', e => rp.problems.push(e.message)); rp.on('console', m => { if (m.type() === 'error') rp.problems.push(m.text()); });
+  await rp.goto(base + '#parts'); await rp.waitForSelector('#cat');
+  assert.equal(await rp.locator('#cat option[value="__recent"]').textContent(), 'Recently changed (2)');
+  await rp.selectOption('#cat', '__recent');
+  assert.deepEqual(await rp.locator('.item .t').allTextContents(), ['BME280', 'SHT31'], 'newest first; ten days ago is out');
+  // a change moves it to the top, and puts a part changed long ago on the list
+  await rp.click('.item:has-text("SHT31")'); await rp.waitForSelector('#changed');
+  assert.equal(await rp.textContent('#changed'), 'Last changed ' + await rp.evaluate(t => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), now - 3 * day));
+  await rp.click('#inc'); await rp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-a'].qty === 2);
+  await rp.waitForFunction(t => document.getElementById('changed').textContent === 'Last changed ' + t, await rp.evaluate(() => new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })));
+  await rp.goto(base + '#part/p-c'); await rp.click('#inc'); await rp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-c'].qty === 3);
+  await rp.goto(base + '#parts'); await rp.waitForSelector('#cat');
+  assert.deepEqual(await rp.locator('.item .t').allTextContents(), ['Buck converter', 'SHT31', 'BME280']);
+  // another year says the year; a part with no time saved says nothing
+  await rp.goto(base + '#part/p-e'); await rp.waitForSelector('#changed');
+  assert.equal(await rp.textContent('#changed'), 'Last changed ' + await rp.evaluate(() => new Date(Date.UTC(2024, 4, 7, 12)).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })));
+  assert.match(await rp.textContent('#changed'), /2024/);
+  await rp.goto(base + '#part/p-d'); await rp.waitForSelector('.binhead h2'); assert.equal(await rp.locator('#changed').count(), 0);
+  assert.deepEqual(rp.problems, []);
+  await rCtx.close();
 }
 
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over

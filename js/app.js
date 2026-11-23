@@ -102,6 +102,11 @@ const FRAMED = (()=>{ try{ return window.self!==window.top; }catch{ return true;
 function partUrl(p){ return APP_URL+(p.bag?'#bag/'+String(p.bag).padStart(3,'0'):'#part/'+p.id); }
 function binUrl(b){ return APP_URL+'#bin/'+b.id; }
 function isLow(p){ return p.minQty != null && p.minQty !== '' && Number(p.qty||0) <= Number(p.minQty); }
+// When a part was last changed, by any edit on any device (ms; 0 for a part saved before Parts Bin kept the time, or
+// loaded with none). A count, a move, a tag written, details applied from the Inbox: each one moves it. It isn't a
+// history of counts, which would need a saved item of its own and a rule for merging it.
+function changedAt(p){ const t=Date.parse(p?.updatedAt||''); return t>=Date.UTC(2000,0,1) ? t : 0; }
+function dayOf(t){ const d=new Date(t); return d.toLocaleDateString(undefined, d.getFullYear()===new Date().getFullYear() ? {day:'numeric',month:'short'} : {day:'numeric',month:'short',year:'numeric'}); }
 // None left, and no reorder level, so not low: a part used up that may or may not be wanted again.
 function isOut(p){ return (p.minQty == null || p.minQty === '') && !(Number(p.qty||0) > 0); }
 // A line of the reorder list Parts › Low stock copies: "SHT31 humidity breakout: 1 left, reorder at 2 · SHT31-DIS · link".
@@ -570,6 +575,7 @@ const PART_LISTS=[
   ['__out','Out of stock',isOut],
   ['__check','To check',p=>!!p.check],
   ['__untagged','Bag tag not written',p=>!!BG.bagOf(p) && !p.tagWritten,'bag'],
+  ['__recent','Recently changed',p=>changedAt(p)>Date.now()-7*864e5,'new'],
   ['__unbagged','Not yet bagged',p=>!BG.bagOf(p)],
   ['__nobin','Not in a bin',p=>!binOf(p)],
   ['__bagged','Bagged',p=>!!BG.bagOf(p),'bag'],
@@ -590,6 +596,7 @@ function renderParts(m){
   if(cur==='__clash') parts=bagClashes().size ? [...bagClashes().values()].flat().filter(p=>parts.includes(p)) : [];
   else if(list) parts=parts.filter(list[2]); else if(cur) parts=parts.filter(p=>p.category===cur);
   if(list?.[3]==='bag') parts.sort((a,b)=>BG.bagOf(a)-BG.bagOf(b));
+  else if(list?.[3]==='new') parts.sort((a,b)=>changedAt(b)-changedAt(a));
   else if(!S.q && cur!=='__clash') parts.sort((a,b)=>byName(a.name,b.name));
   found=many(parts.length,'part');
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
@@ -657,6 +664,7 @@ function renderPartPage(m, pid){
   }
   if(p.notes) m.append(h(`<div class="note">${esc(p.notes)}</div>`));
   if(lacksDetails(p)){ const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask">Ask Claude for details</button><span class="tiny">Interface, voltages, a part number, a reference photo</span></div>`); ask.querySelector('#ask').onclick=()=>sendToClaude([p]); m.append(ask); }
+  if(changedAt(p)) m.append(h(`<p class="tiny" id="changed" style="margin-top:16px">Last changed ${esc(dayOf(changedAt(p)))}</p>`)); // any edit, on any device
   const rp=m.querySelector('.refphoto'); if(rp){ rp.onclick=()=>zoomRef(p); rp.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoomRef(p); } }; }
   wireRefs(m);
 }

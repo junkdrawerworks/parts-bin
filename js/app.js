@@ -168,8 +168,19 @@ function topbar(m, title, extra=''){
   const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
   m.append(el);
   el.querySelector('#readtag')?.addEventListener('click', readTag);
-  const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; render(); const nq=document.getElementById('q'); if(nq){ nq.focus(); nq.setSelectionRange(nq.value.length,nq.value.length);} },160); };
+  const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(q.isConnected) redrawResults(m, el); },160); };
   return el;
+}
+// Typing in search draws again only what's under the top bar. The search box stays as it is, with the keyboard and the
+// caret where they were: a new box would put the caret at the end, and on an iPhone it can't bring the keyboard back
+// without another tap.
+function redrawResults(m, tb){
+  const draw={bins:renderBins, parts:renderParts}[S.route.view];
+  if(!draw || tb.parentNode!==m || m.firstElementChild!==tb){ render(); return; }
+  const fresh=document.createElement('div'); draw(fresh);
+  fresh.firstElementChild.remove(); // its own top bar: the one on the screen stays
+  while(tb.nextSibling) tb.nextSibling.remove();
+  m.append(...fresh.childNodes);
 }
 
 // ---- Bins

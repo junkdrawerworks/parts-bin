@@ -1235,6 +1235,17 @@ await desk.goto(base);
   assert.ok(await inView('.sheet #save'), 'Save scrolled away with the sheet');
   await lp.click('.sheet #cancel');
   await lp.waitForFunction(() => !document.querySelector('.sheet'));
+  // typing in search keeps the search box, with the keyboard and the caret where they were (the box was drawn again
+  // after each pause, with the caret moved to the end)
+  await lp.goto(base + '#parts'); await lp.waitForSelector('.list .item');
+  await lp.evaluate(() => { window.__q0 = document.getElementById('q'); });
+  await lp.click('#q'); await lp.keyboard.type('resistor 02', { delay: 30 });
+  await lp.waitForFunction(() => document.querySelectorAll('.list .item').length < 50); await lp.waitForTimeout(300);
+  assert.ok(await lp.evaluate(() => window.__q0 === document.getElementById('q') && document.activeElement === window.__q0), 'the search box was made again');
+  await lp.evaluate(() => window.__q0.setSelectionRange(8, 8)); // after "resistor", to put a word in the middle
+  await lp.keyboard.type(' 1', { delay: 30 }); await lp.waitForTimeout(400);
+  assert.equal(await lp.inputValue('#q'), 'resistor 1 02');
+  assert.deepEqual(await lp.evaluate(() => [window.__q0 === document.getElementById('q'), window.__q0.selectionStart]), [true, 10], 'the caret moved while typing in the middle');
   assert.deepEqual(lp.problems, [], 'problems with a long inventory');
   await lCtx.close();
 }

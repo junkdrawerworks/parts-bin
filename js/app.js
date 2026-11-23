@@ -994,7 +994,11 @@ function importJson(){
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;
     const text=await f.text();
     if(/^\s*\{\s*"partsbin"/.test(text)){ if(await takeBatch(text)){ if(S.route.view==='inbox') render(); else go('inbox'); } return; }
-    try{ const n=store.importText(text); toast(n?`Loaded: ${n} item${n===1?'':'s'} added or updated`:'Nothing new in that file',3000); go('bins'); }
+    try{ const {changed:n, back}=store.importText(text);
+      // what came back that was deleted here is said apart from the rest: an old backup loaded to rescue one part brings
+      // back every part deleted since it was saved
+      const said=[n?`${n} item${n===1?'':'s'} added or updated`:'', back?`${back} brought back that ${back===1?'was':'were'} deleted here`:''].filter(Boolean).join(', ');
+      toast(said?`Loaded: ${said}`:'Nothing new in that file',back?5000:3000); go('bins'); }
     catch(e){ toast(e.message||'Couldn’t read that file',4000); } };
   inp.click();
 }

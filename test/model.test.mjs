@@ -92,3 +92,23 @@ test('two changes stamped the same time come out the same on every device', () =
   // a later edit still wins over both
   assert.equal(M.mergeDocs(doc({ x: { name: 'SCD41', qty: 9, t: 71 } }), M.mergeDocs(del, edit)).items.parts.x.qty, 9);
 });
+test('a part deleted here and loaded back from a backup stays, even after a sync with the old deletion', async () => {
+  const mem = {};
+  globalThis.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+  const { store, db } = await import('../js/store.js');
+  await db.doc('parts/p-scd41').set({ name: 'SCD41', qty: 3 });
+  await db.doc('parts/p-bme280').set({ name: 'BME280', qty: 5 });
+  const backup = store.backup();
+  await new Promise(r => setTimeout(r, 2));
+  await db.doc('parts/p-scd41').delete();
+  const tombstone = store.doc; // what Drive and the other devices now hold
+  await db.doc('parts/p-bme280').update({ qty: 6 });
+  assert.deepEqual(store.importText(backup), { changed: 0, back: 1 }, 'the BME280 here is newer than the file’s, so only the SCD41 changes');
+  const back = store.doc.items.parts['p-scd41'];
+  assert.ok(!M.gone(back) && !('del' in back) && back.t > tombstone.items.parts['p-scd41'].del);
+  assert.equal(store.doc.items.parts['p-bme280'].qty, 6);
+  // the next ordinary sync, with Drive still holding the deletion, keeps it, either way round
+  assert.ok(!M.gone(M.mergeDocs(store.doc, tombstone).items.parts['p-scd41']));
+  assert.ok(!M.gone(M.mergeDocs(tombstone, store.doc).items.parts['p-scd41']));
+  assert.deepEqual(store.importText(backup), { changed: 0, back: 0 }, 'loading it again changes nothing');
+});

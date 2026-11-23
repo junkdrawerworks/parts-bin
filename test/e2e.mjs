@@ -411,6 +411,30 @@ await other.page.waitForFunction(() => /isn’t readable|Couldn’t reach/.test(
 assert.match(await other.page.textContent('#drivecard'), /The file in your Drive isn’t readable/);
 assert.equal(g.drive.files.fb2.body, BROKEN, 'the file was left as it was');
 
+// ---- with Drive on, a part deleted by mistake and loaded back from a backup stays (the next sync used to delete it again,
+// as the deletion on Drive was newer than the backup's copy)
+const until = async (f, what, ms = 10000) => { for (const end = Date.now() + ms; !(await f());) { if (Date.now() > end) throw new Error('timed out waiting for ' + what); await new Promise(r => setTimeout(r, 100)); } };
+const onDrive = id => JSON.parse(file().body).items.parts[id];
+const gone = x => !!(x && x.del && x.del >= (x.t || 0));
+await page.goto(base + '#settings'); await page.waitForSelector('#exp');
+const [bk] = await Promise.all([page.waitForEvent('download'), page.click('#exp')]);
+const bkFile = join(tmp, 'backup.json'); await bk.saveAs(bkFile);
+await page.goto(base + '#part/p-scd41'); await page.click('#edit');
+page.once('dialog', d => d.accept()); await page.click('.sheet #del'); await page.waitForFunction(() => location.hash === '#parts');
+await until(() => gone(onDrive('p-scd41')), 'the deletion to reach Drive');
+await page.goto(base + '#settings');
+const [restore] = await Promise.all([page.waitForEvent('filechooser'), page.click('#imp')]);
+await restore.setFiles(bkFile);
+await page.waitForSelector('#toast:has-text("Loaded: 1 brought back that was deleted here")');
+await until(async () => !gone(onDrive('p-scd41')) || gone(await part('p-scd41')), 'a sync after loading the file');
+await page.waitForFunction(() => document.querySelector('#cloud')?.dataset.s === 'ok', null, { timeout: 8000 });
+assert.ok(!gone(onDrive('p-scd41')), 'Drive has it back');
+assert.ok(!gone(await part('p-scd41')), 'it stays on the phone after the sync');
+await page.goto(base + '#part/p-scd41'); await page.waitForSelector('h2:has-text("SCD41")');
+await laptop.page.evaluate(() => document.querySelector('#cloud').click());
+await laptop.page.waitForFunction(() => { const x = JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-scd41']; return x && !(x.del >= x.t); }, null, { timeout: 8000 });
+await page.evaluate(() => { document.getElementById('toast').hidden = true; });
+
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');

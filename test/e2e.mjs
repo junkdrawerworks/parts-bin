@@ -926,6 +926,18 @@ assert.ok(await clear('#edit'), 'the Drive button covers Edit on a part page');
 await page.goto(base + '#bin/bin-env');
 await page.waitForSelector('#add');
 assert.ok(await clear('#add'), 'the Drive button covers a button on a bin page');
+// and on a phone every button is big enough for a fingertip: 44 px, 40 px for the small ones in a row, 44 by 44 for Back,
+// the NFC button and the Drive button (WCAG 2.2 SC 2.5.5), and the bin and Product links reach 32 px
+const box = sel => page.$$eval(sel, es => es.filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect(); return [e.id || e.textContent.trim(), Math.round(r.width), Math.round(r.height)]; }));
+const under = (list, w, h) => list.filter(([, x, y]) => x < w || y < h);
+assert.deepEqual(under(await box('#back, #cloud-m'), 44, 44), [], 'a bin page’s Back or the Drive button is under 44 px');
+assert.deepEqual(under(await box('.pagehead .btn.sm'), 0, 40), [], 'a bin page’s small buttons are under 40 px');
+await page.goto(base + '#part/p-bme280'); await page.waitForSelector('#edit');
+assert.deepEqual(under(await box('#back, .pagehead .btn.sm'), 0, 40), [], 'a part page’s buttons are under 40 px');
+assert.deepEqual(under(await box('.binhead a'), 0, 32), [], 'the bin link on a part page is under 32 px');
+await page.goto(base + '#bins'); await page.waitForSelector('#addbin');
+assert.deepEqual(under(await box('#readtag'), 44, 44), [], 'the NFC button is under 44 px');
+assert.deepEqual(under(await box('#addbin'), 0, 44), [], '+ Bin is under 44 px');
 // long names wrap rather than push the page sideways: a bin named in full (listed in a box's Unpack into), a saved BOM, a
 // part name with no spaces
 await page.evaluate(() => {

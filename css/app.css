@@ -264,7 +264,17 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .jd-foot a:hover,.jd-foot a:focus-visible{text-decoration:underline}
 /* on a phone the footer ends above the tab bar, so it can be seen and tapped */
 @media(max-width:760px){.jd-foot{padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}}
-@media(max-width:760px){ body:has(#cloud-m:not([hidden])) :is(.topbar,.pagehead){padding-right:46px} }
+@media(max-width:760px){ body:has(#cloud-m:not([hidden])) :is(.topbar,.pagehead){padding-right:52px} }
+/* on a phone, buttons a fingertip can hit: 44 px (40 px for the small ones in a row of several), and the bin and Product
+   links on a part's page reach above and below their line (WCAG 2.2 SC 2.5.5 asks 44 by 44 CSS px) */
+@media(max-width:760px){
+  .btn{min-height:44px}
+  .btn.sm{min-height:40px}
+  .unpack>.btn{min-height:44px} /* a box's → buttons, tapped bag after bag, stay as they were */
+  .btn.icon{min-width:44px;min-height:44px;justify-content:center}
+  #cloud-m{min-width:44px;min-height:44px;align-items:center;justify-content:center}
+  .binhead a{padding-block:8px}
+}
 
 .bagtag{display:grid;grid-template-columns:auto auto 1fr;gap:4px 12px;align-items:center;border:2px dashed var(--line);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;cursor:pointer}
 .bagtag.on{border-style:solid;border-color:var(--accent);background:var(--accent-soft)}

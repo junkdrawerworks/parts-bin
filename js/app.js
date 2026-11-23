@@ -307,8 +307,8 @@ function renderPartPage(m, pid){
       : 'Give one of them a new number, and write it on its bag.';
     const c=h(`<div class="checknote clash"><div><b>Bag ${esc(bagStr(BG.bagOf(p)))} is on ${cl.length} parts.</b> Also on ${others.map(x=>`<a href="#part/${esc(x.id)}">${esc(x.name)}</a>${binOf(x)?` (${esc(binOf(x).code)})`:''}`).join(', ')}. ${advice}</div>${!S.canWrite?'':mine&&!theirs?others.map(x=>`<button class="btn sm" data-renumber="${esc(x.id)}">Renumber ${esc(x.name)}: ${esc(bagStr(nb))}</button>`).join(''):`<button class="btn sm" id="renumber">New number: ${esc(bagStr(nb))}</button>`}</div>`);
     // this part's sticker carries the number, so it's the other part that takes a new one
-    c.querySelectorAll('[data-renumber]').forEach(btn=>btn.onclick=()=>{ const x=S.parts.get(btn.dataset.renumber); if(x) editPart({...x, bag:nb},{tag:true}); });
-    c.querySelector('#renumber')?.addEventListener('click',()=>editPart({...p, bag:nb},{tag:true}));
+    c.querySelectorAll('[data-renumber]').forEach(btn=>btn.onclick=()=>{ const x=S.parts.get(btn.dataset.renumber); if(x) editPart({...x, bag:nb},{tag:true, autoBag:true}); });
+    c.querySelector('#renumber')?.addEventListener('click',()=>editPart({...p, bag:nb},{tag:true, autoBag:true}));
     m.append(c);
   }
   if(p.check){
@@ -575,8 +575,9 @@ function editPart(p, opts={}){
   el.querySelector('#cancel').onclick=close;
   const dotag=el.querySelector('#p-dotag'), bagIn=el.querySelector('#p-bag'), saveBtn=el.querySelector('#save'), show=el.querySelector('#p-bagshow');
   // Ticking the box fills in the next bag number; unticking it takes back a number it filled in, so the part is saved
-  // without a bag. A number typed in, or the part's own bag, stays.
-  let filled='';
+  // without a bag. A number typed in, or the part's own bag, stays. filled: the number Parts Bin handed out here (opts.autoBag:
+  // the one it was opened with), as opposed to one typed in.
+  let filled=opts.autoBag && p.bag ? String(p.bag) : '';
   // What the box says follows the number in it: the part's own bag (whose tag can be written again), or a new one, and
   // what a new number means for the bag it was in.
   const native=NFC_OK&&!FRAMED, was=S.parts.get(p.id), wasBag=BG.bagOf(was);
@@ -598,7 +599,12 @@ function editPart(p, opts={}){
     const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : (p.from||'');
     const bagv=el.querySelector('#p-bag').value; const bag = bagv===''?'':Number(bagv);
     if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ toast('Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
-    if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && Number(x.bag)===bag)){ toast(`Bag ${bagStr(bag)} is already used`); return; }
+    if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && BG.bagOf(x)===bag)){
+      // Taken since the sheet opened (another tab, another device's sync). A number Parts Bin handed out moves on to the next
+      // one, and this tap saves nothing: the old number may already be written on the bag.
+      if(filled && bagIn.value===filled && bag!==BG.bagOf(S.parts.get(p.id))){ const n=nextBag(); bagIn.value=filled=String(n); syncTag(); toast(`Bag ${bagStr(bag)} was just used, so this is bag ${bagStr(n)}. Tap ${saveBtn.textContent} again.`,4500); return; }
+      toast(`Bag ${bagStr(bag)} is already used`); return;
+    }
     const imgv=el.querySelector('#p-img').value.trim(), img=IN.httpsUrl(imgv);
     if(imgv && !img){ toast('The photo link needs to start with https://',3000); return; }
     const doc={...p, name, bag, from, binId:newBin, category:el.querySelector('#p-cat').value.trim(), qty:Math.max(0,Number(el.querySelector('#p-qty').value)||0), unit:el.querySelector('#p-unit').value.trim()||'pcs',

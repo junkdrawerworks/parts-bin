@@ -883,6 +883,27 @@ await desk.goto(base);
   assert.equal(await pg.inputValue('#p-name'), 'Hot glue sticks'); assert.equal(await pg.textContent('.sheet h3'), 'New part');
   await pg.click('.sheet #cancel'); await gone();
 
+  // two tabs packing at once: the number tab A's sheet shows is taken in tab B before A saves. A gets the next number and
+  // is told, rather than "already used" and a number to work out
+  await pg.goto(base + '#scan'); await pg.fill('#desc', 'Race part A'); await pg.press('#desc', 'Enter'); await pg.waitForSelector('.sheet #p-bag');
+  assert.equal(await pg.inputValue('#p-bag'), '10');
+  const tb = await bagCtx.newPage();
+  await tb.goto(base + '#scan'); await tb.fill('#desc', 'Race part B'); await tb.press('#desc', 'Enter'); await tb.waitForSelector('.sheet #p-bag');
+  assert.equal(await tb.inputValue('#p-bag'), '10');
+  await tb.click('.sheet #save'); await tb.waitForSelector('#tz.wait'); await tb.evaluate(() => window.__tap()); await tb.waitForFunction(() => !document.querySelector('.sheet'));
+  await tb.close();
+  await pg.waitForFunction(() => document.querySelector('#p-bag').placeholder === '11' || document.querySelector('.packhead .big').textContent === '#011');
+  await pg.click('.sheet #save');
+  await pg.waitForSelector('#toast:has-text("Bag #010 was just used, so this is bag #011. Tap Save & tag again.")');
+  assert.equal(await pg.inputValue('#p-bag'), '11'); assert.equal(await pg.textContent('#p-bagshow'), '#011');
+  assert.equal(await pg.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).some(x => x.name === 'Race part A')), false, 'saved on the tap that found the number taken');
+  await pg.click('.sheet #save'); await pg.waitForSelector('#tz.wait'); await pg.evaluate(() => window.__tap()); await gone();
+  assert.equal(await pg.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(x => x.name === 'Race part A').bag), 11);
+  // a number typed in that's in use still just says so
+  await pg.goto(base + '#part/p-sgp'); await pg.click('#edit'); await pg.fill('#p-bag', '11'); await pg.click('.sheet #save');
+  await pg.waitForSelector('#toast:has-text("Bag #011 is already used")'); assert.equal(await pg.inputValue('#p-bag'), '11');
+  await pg.click('.sheet #cancel'); await gone();
+
   // a sticker whose number no part has now says what may have happened, and where to go from there (it was a dead end)
   await pg.goto(base + '#bag/042'); await pg.waitForSelector('#main .empty');
   assert.equal(await pg.textContent('#main .empty p'), 'No part has bag #042 now. It may have been renumbered or deleted.');

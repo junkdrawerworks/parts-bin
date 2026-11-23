@@ -1567,7 +1567,14 @@ await desk.goto(base);
   // it remembers the bin it came out of (Pack used to lose it), and the box's printed list shows it
   assert.equal(bme.from, 'ENV');
   await pg.goto(base + '#bin/box-1'); await pg.evaluate(() => { window.print = () => {}; }); await pg.click('#print');
-  assert.deepEqual(await pg.locator('#print-root tbody td').allTextContents(), ['#001', 'BME280 (Adafruit)', '3', 'ENV', '']);
+  assert.deepEqual(await pg.locator('#print-root tbody td').allTextContents(), ['', '#001', 'BME280 (Adafruit)', '3', 'ENV', '']);
+  // a box to tick on each line, and the number headings over their numbers (they sat 80 px to the left of them)
+  assert.deepEqual(await pg.locator('#print-root thead th').allTextContents(), ['Done', 'Bag', 'Item', 'Qty', 'From', 'Notes']);
+  assert.equal(await pg.locator('#print-root td.tick span').count(), 1);
+  await pg.emulateMedia({ media: 'print' });
+  assert.deepEqual(await pg.$$eval('#print-root th.n', ts => ts.map(t => getComputedStyle(t).textAlign)), ['right', 'right']);
+  assert.equal(await pg.$eval('#print-root h1 .code', e => [getComputedStyle(e).borderTopStyle, getComputedStyle(e).backgroundColor].join()), 'solid,rgb(255, 255, 255)');
+  await pg.emulateMedia({ media: 'screen' });
   assert.match(await pg.textContent('#print-root .sub'), / · 1 bag · /);
   // unpacking it puts it back in a bin, and it no longer says where it was
   await pg.selectOption('#unpack-to', 'bin-env'); await pg.click('button[aria-label="Move #001 to ENV"]');
@@ -2054,8 +2061,12 @@ await desk.goto(base);
   await np.click('#edit'); await np.selectOption('#f-kind', 'box'); assert.equal(await np.inputValue('#f-sealed'), '1');
   await np.selectOption('#f-sealed', ''); await np.click('.sheet #save'); await np.waitForFunction(() => !document.querySelector('.sheet')); // a box again, as below needs
   // a bin's printed list counts parts, and deleting it says what happens to them, in words (it said "part(s)")
+  await np.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); const p = Object.values(d.items.parts).find(x => x.binId === 'b01' && !(x.del >= x.t)); p.notes = 'Two have a cracked corner · keep for testing'; p.t = Date.now(); localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
   await np.goto(base + '#bin/b01'); await np.evaluate(() => { window.print = () => {}; }); await np.click('#print');
   assert.match(await np.textContent('#print-root .sub'), / · 1 part · /);
+  // a bin's list has no From (always empty there), and the notes print whole (they stopped at the first " · ")
+  assert.deepEqual(await np.locator('#print-root thead th').allTextContents(), ['Done', 'Bag', 'Item', 'Qty', 'Notes']);
+  assert.equal(await np.textContent('#print-root tbody td:last-child'), 'Two have a cracked corner · keep for testing');
   await np.click('#edit'); assert.equal(await np.textContent('.sheet h3'), 'Edit bin');
   const asked = new Promise(r => np.once('dialog', d => { r(d.message()); d.dismiss(); }));
   await np.click('.sheet #del'); assert.equal(await asked, 'Delete bin B01? Its part stays, without a bin.');

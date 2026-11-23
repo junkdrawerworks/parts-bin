@@ -435,10 +435,13 @@ function renderBin(m, binId){
   }
   const l=h('<div class="list"></div>'); for(const p of ps) l.append(partRow(p,false)); m.append(l);
 }
+// A packing list to tick off as the box is packed or unpacked: a box to tick on each line, the numbers lined up under
+// their headings, the notes in full, and where each bag came from only for a box with something to say there.
 function printList(b, ps){
-  const root=document.getElementById('print-root');
-  root.innerHTML=`<h1>${esc(b.code)} — ${esc(b.name||'')}</h1><div class="sub">${esc(b.location||'')} · ${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'} · Parts Bin, ${new Date().toLocaleDateString()}</div>
-    <table><thead><tr><th>Bag</th><th>Item</th><th>Qty</th><th>From</th><th>Notes</th></tr></thead><tbody>${ps.slice().sort((a,c)=>(a.bag||9999)-(c.bag||9999)||byName(a.name,c.name)).map(p=>`<tr><td class="n">${esc(bagStr(p.bag))}</td><td>${esc(p.name)}${p.mpn?` <small>${esc(p.mpn)}</small>`:''}</td><td class="n">${esc(fmtQty(p))}</td><td>${esc(p.from||'')}</td><td>${esc((p.notes||'').split(' · ')[0])}</td></tr>`).join('')}</tbody></table>`;
+  const root=document.getElementById('print-root'), from=isBox(b) && ps.some(p=>p.from);
+  const sub=[b.location, `${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}`, isBox(b)&&b.sealed?'sealed':'', `Parts Bin, ${new Date().toLocaleDateString()}`].filter(Boolean).map(esc).join(' · ');
+  root.innerHTML=`<h1><span class="code">${esc(b.code)}</span> ${esc(b.name||'')}</h1><div class="sub">${sub}</div>
+    <table><thead><tr><th class="tick"><span class="sr">Done</span></th><th class="n">Bag</th><th>Item</th><th class="n">Qty</th>${from?'<th>From</th>':''}<th>Notes</th></tr></thead><tbody>${ps.slice().sort((a,c)=>(a.bag||9999)-(c.bag||9999)||byName(a.name,c.name)).map(p=>`<tr><td class="tick"><span></span></td><td class="n">${esc(bagStr(p.bag))}</td><td>${esc(p.name)}${p.mpn?` <small>${esc(p.mpn)}</small>`:''}</td><td class="n">${esc(fmtQty(p))}</td>${from?`<td>${esc(p.from||'')}</td>`:''}<td>${esc(p.notes||'')}</td></tr>`).join('')}</tbody></table>`;
   window.print();
 }
 
@@ -570,7 +573,7 @@ function renderBom(m){
       sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<span class="chip ${c}">${k} ${w}</span>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button></div>`;
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
-    out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
+    out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
     const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280

@@ -344,7 +344,7 @@ export function needs(items, withNear = false) {
 // number and unit, for each bag of it (BME280 with 3 in bag #001 and 5 in #007). BOM check counts them as one stock, so
 // "4 BME280" is had (matched to one entry, it said short 1 with 8 in stock). A line found any of them is given all of
 // them: p, the first (by bag number, an entry with no bag last); all, each in that order; have, their count between them.
-// A name that's blank stays its own.
+// A name that's blank stays its own, and so does an entry without a value the line names (below).
 const unitKey = u => { const s = String(u || '').trim().toLowerCase(); return s === 'pcs' ? '' : s; };
 export const stockKey = p => (norm(p.name) ? [norm(p.name), norm(p.mpn), unitKey(p.unit)].join('|') : 'id:' + p.id);
 const bagNo = p => bagOf(p) || Number.MAX_SAFE_INTEGER;
@@ -354,7 +354,11 @@ export function together(items, parts) {
   for (const ps of by.values()) ps.sort((a, b) => bagNo(a) - bagNo(b));
   return items.map(r => {
     if (!r.m) return r;
-    const ps = by.get(stockKey(r.m.p)) || [], all = ps.some(p => p.id === r.m.p.id) ? ps : [r.m.p];
+    // a value the line names that the part found has (10k, 0805): an entry with the same name that lacks it is another
+    // part ("Resistor" tagged 10k and "Resistor" tagged 1k), so "10k resistor" isn't counted, picked or built from the 1k
+    const want = [r.name, ...(r.alt || [])].flatMap(words).filter(w => isValue(w) && index(r.m.p).forms.has(w));
+    const ps = (by.get(stockKey(r.m.p)) || []).filter(p => p.id === r.m.p.id || want.every(w => index(p).forms.has(w)));
+    const all = ps.some(p => p.id === r.m.p.id) ? ps : [r.m.p];
     return { ...r, m: { ...r.m, p: all[0], all, have: Math.round(all.reduce((n, p) => n + (Number(p.qty) || 0), 0) * 1000) / 1000 } };
   });
 }

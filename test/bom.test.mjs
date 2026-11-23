@@ -529,3 +529,17 @@ test('a part kept in two entries is one stock', () => {
   assert.deepEqual(takeFrom([{ id: 'e', qty: 0 }, ...r.m.all], 20).map(([p, n]) => [p.id, n]), [['a', 3], ['b', 5], ['l', 1]], 'an empty entry and more than there is');
   assert.deepEqual(takeFrom([{ id: 'h', qty: 0.3 }, { id: 'i', qty: 0.3 }], 0.4).map(([, n]) => n), [0.3, 0.1]);
 });
+
+test('an entry without a value the line names is another part', () => {
+  // "Resistor" tagged 10k in bag #001 and "Resistor" tagged 1k in #002 share a name but aren't one stock: "10k resistor"
+  // found the 10k and mustn't count, pick or build from the 1k
+  const k1 = { id: 'k1', name: 'Resistor', tags: ['1k'], qty: 50, bag: 1 }, k10 = { id: 'k10', name: 'Resistor', tags: ['10k'], qty: 3, bag: 2 };
+  const k10b = { id: 'k10b', name: 'Resistor', tags: ['10k', 'metal film'], qty: 4, bag: 3 }, parts = [k1, k10, k10b];
+  const line = { qty: 5, name: '10k resistor' }, m = matchLine(line, parts);
+  assert.equal(m.p.id, 'k10');
+  const [r] = together([{ ...line, m }], parts);
+  assert.deepEqual(r.m.all.map(p => p.id), ['k10', 'k10b']); assert.equal(r.m.have, 7);
+  // a line naming no value still has every entry of the name
+  const [plain] = together([{ qty: 1, name: 'resistor', m: { p: k10, conf: 1 } }], parts);
+  assert.deepEqual(plain.m.all.map(p => p.id), ['k1', 'k10', 'k10b']);
+});

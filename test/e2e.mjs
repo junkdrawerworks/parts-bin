@@ -899,6 +899,18 @@ const smallFields = () => page.evaluate(() => [...document.querySelectorAll('inp
 for (const hash of ['#bins', '#scan', '#inbox', '#bom', '#part/p-scd41']) { await page.goto(base + hash); await page.waitForTimeout(150); assert.deepEqual(await smallFields(), [], hash + ': a field under 16 px'); }
 await page.click('#edit'); await page.waitForSelector('#p-name'); await page.$eval('.sheet details.more', d => { d.open = true; }); assert.deepEqual(await smallFields(), [], 'the part sheet: a field under 16 px'); await page.click('.sheet #cancel');
 await page.goto(base + '#bin/bin-env'); await page.click('#edit'); await page.waitForSelector('#f-code'); assert.deepEqual(await smallFields(), [], 'the bin sheet: a field under 16 px'); await page.click('.sheet #cancel');
+// a phone's keyboard leaves part names and numbers as typed (no autocorrect, no capital put first: xiao, ssd1306, 0x76),
+// part numbers come up in capitals, bag numbers on the number pad, and counts on the one with a decimal point
+const attrs = (sel, names) => page.$eval(sel, (e, n) => Object.fromEntries(n.map(k => [k, e.getAttribute(k)])), names);
+const plain = { autocorrect: 'off', spellcheck: 'false' };
+await page.goto(base + '#bins'); assert.deepEqual(await attrs('#q', ['autocorrect', 'autocapitalize', 'spellcheck', 'enterkeyhint']), { ...plain, autocapitalize: 'none', enterkeyhint: 'search' });
+await page.goto(base + '#scan'); assert.deepEqual(await attrs('#desc', ['autocorrect', 'autocapitalize', 'spellcheck', 'enterkeyhint']), { ...plain, autocapitalize: 'none', enterkeyhint: 'go' });
+await page.goto(base + '#part/p-scd41'); assert.equal(await page.getAttribute('#qv', 'inputmode'), 'decimal');
+await page.click('#edit'); await page.waitForSelector('#p-name');
+assert.deepEqual(await attrs('#p-mpn', ['autocorrect', 'autocapitalize', 'spellcheck']), { ...plain, autocapitalize: 'characters' });
+assert.deepEqual(await attrs('#p-addr', ['autocorrect', 'autocapitalize', 'spellcheck']), { ...plain, autocapitalize: 'none' });
+assert.deepEqual([await page.getAttribute('#p-bag', 'inputmode'), await page.getAttribute('#p-qty', 'inputmode'), await page.getAttribute('#p-min', 'inputmode')], ['numeric', 'decimal', 'decimal']);
+await page.click('.sheet #cancel');
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));

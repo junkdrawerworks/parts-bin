@@ -206,7 +206,7 @@ function renderNav(){
   document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
 }
 function topbar(m, title, extra=''){
-  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
+  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
   m.append(el);
   el.querySelector('#readtag')?.addEventListener('click', readTag);
   const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(!q.isConnected) return; found=null; redrawResults(m, el); if(S.q.trim() && found) said(found); },160); };
@@ -458,7 +458,7 @@ function renderPartPage(m, pid){
     ${/^https?:\/\//i.test(p.link||'')?`<div class="tiny" style="margin-top:4px"><a href="${esc(p.link)}" target="_blank" rel="noopener">Product link</a></div>`:''}
   </div></div>`));
   if(S.canWrite){
-    const q=h(`<div class="row" style="margin:6px 0 14px"><label class="muted" for="qv">Quantity</label><div class="qty"><button class="btn icon" id="dec" aria-label="Use one">−</button><input id="qv" type="number" min="0" step="any" value="${esc(p.qty??0)}"><button class="btn icon" id="inc" aria-label="Add one">+</button></div><span class="tiny">${esc(p.unit||'pcs')}${p.minQty!=null&&p.minQty!==''?` · reorder at ${esc(p.minQty)}`:''}</span></div>`);
+    const q=h(`<div class="row" style="margin:6px 0 14px"><label class="muted" for="qv">Quantity</label><div class="qty"><button class="btn icon" id="dec" aria-label="Use one">−</button><input id="qv" type="number" inputmode="decimal" min="0" step="any" value="${esc(p.qty??0)}"><button class="btn icon" id="inc" aria-label="Add one">+</button></div><span class="tiny">${esc(p.unit||'pcs')}${p.minQty!=null&&p.minQty!==''?` · reorder at ${esc(p.minQty)}`:''}</span></div>`);
     m.append(q);
     // a count stops at zero; a refused one goes back; a saved one is said, as the keyboard stays on the button
     const inp=q.querySelector('#qv'); const save=async(v)=>{ v=Math.max(0,Number(v)); if(!isFinite(v)) return; inp.value=v; if(v===Number(p.qty||0)) return; if(await writePart({...p, qty:v})) said(`${v} ${p.unit||'pcs'}`); else inp.value=p.qty??0; };
@@ -583,7 +583,7 @@ function renderScan(m){
   const ui=h(`<div>
     <div class="note" style="margin-bottom:12px">Bag it and ${S.imgOk?'photograph it, or ':''}type what it is. Pick the matching part (or a new one), check the count, save, then hold the bag's sticker to the top of the phone. ${S.imgOk?'':'To skip the typing, send Claude a photo of the bags and open the link it replies with: they land in the Inbox, filled in.'}</div>
     ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px"><label class="btn primary" for="file">Take photo<input id="file" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="file2">Choose photo<input id="file2" type="file" accept="image/*" class="sr"></label></div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
-    <div class="field" style="margin-top:12px"><label for="desc">${S.imgOk?'Or type it':'What is it?'}</label><input id="desc" placeholder="e.g. BME280, or 'soldering iron'" autocomplete="off"></div>
+    <div class="field" style="margin-top:12px"><label for="desc">${S.imgOk?'Or type it':'What is it?'}</label><input id="desc" placeholder="e.g. BME280, or 'soldering iron'" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"></div>
     <div class="row">${S.sample?'<button class="btn" id="identify">Identify</button>':''}<span id="status" class="tiny"></span></div>
     <div id="result" style="margin-top:14px"></div></div>`);
   m.append(ui);
@@ -789,10 +789,10 @@ function editPart(p, opts={}){
     <div class="grid2">
       <div class="field"><label for="p-bin">Bin</label><select id="p-bin"><option value="">— no bin —</option>${bins.map(b=>`<option value="${b.id}" ${b.id===p.binId?'selected':''}>${esc(b.code)} · ${esc(b.name||'')}</option>`).join('')}</select></div>
       <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="MCU boards"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
-      <div class="field"><label for="p-qty">Quantity</label><div class="qty"><input id="p-qty" type="number" min="0" step="any" value="${esc(p.qty)}"${opts.uncounted?' aria-describedby="p-qtyhint"':''}><input id="p-unit" value="${esc(p.unit||'pcs')}" style="width:70px" aria-label="Unit"></div>${opts.uncounted?'<div class="tiny" id="p-qtyhint" style="color:var(--warn);margin-top:4px">Claude couldn’t count these. Count them before saving.</div>':''}</div>
-      <div class="field"><label for="p-min">Reorder at (optional)</label><input id="p-min" type="number" step="any" value="${esc(p.minQty??'')}"></div>
-      <div class="field"><label for="p-mpn">Part number</label><input id="p-mpn" class="mono" value="${esc(p.mpn)}"></div>
-      <div class="field"><label for="p-bag">Bag number</label><input id="p-bag" type="number" min="1" step="1" class="mono" value="${esc(p.bag??'')}" placeholder="${nextBag()}"></div>
+      <div class="field"><label for="p-qty">Quantity</label><div class="qty"><input id="p-qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(p.qty)}"${opts.uncounted?' aria-describedby="p-qtyhint"':''}><input id="p-unit" value="${esc(p.unit||'pcs')}" style="width:70px" aria-label="Unit"></div>${opts.uncounted?'<div class="tiny" id="p-qtyhint" style="color:var(--warn);margin-top:4px">Claude couldn’t count these. Count them before saving.</div>':''}</div>
+      <div class="field"><label for="p-min">Reorder at (optional)</label><input id="p-min" type="number" inputmode="decimal" step="any" value="${esc(p.minQty??'')}"></div>
+      <div class="field"><label for="p-mpn">Part number</label><input id="p-mpn" class="mono" value="${esc(p.mpn)}" autocapitalize="characters" autocorrect="off" spellcheck="false"></div>
+      <div class="field"><label for="p-bag">Bag number</label><input id="p-bag" type="number" inputmode="numeric" min="1" step="1" class="mono" value="${esc(p.bag??'')}" placeholder="${nextBag()}"></div>
       <div class="field"><label for="p-tags">Tags (comma separated)</label><input id="p-tags" value="${esc((p.tags||[]).join(', '))}"></div>
     </div>
     <div class="field"><label for="p-link">Link</label><input id="p-link" type="url" value="${esc(p.link||'')}" placeholder="https://"></div>
@@ -800,7 +800,7 @@ function editPart(p, opts={}){
     <details class="more" ${(p.iface||[]).length||p.addr||p.volts||p.logic||p.img||p.check?'open':''}><summary>Specs and reference photo</summary>
       <div class="grid2">
         <div class="field"><label for="p-iface">Interface</label><input id="p-iface" value="${esc((p.iface||[]).join(', '))}" placeholder="I2C, SPI, UART, analog…"></div>
-        <div class="field"><label for="p-addr">I2C address</label><input id="p-addr" class="mono" value="${esc(p.addr||'')}" placeholder="0x76"></div>
+        <div class="field"><label for="p-addr">I2C address</label><input id="p-addr" class="mono" value="${esc(p.addr||'')}" placeholder="0x76" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
         <div class="field"><label for="p-volts">Supply voltage</label><input id="p-volts" value="${esc(p.volts||'')}" placeholder="3.3–5 V"></div>
         <div class="field"><label for="p-logic">Logic level</label><input id="p-logic" value="${esc(p.logic||'')}" placeholder="3.3 V"></div>
       </div>

@@ -53,7 +53,7 @@ function binCodeSort(a,b){ return a.code.localeCompare(b.code, undefined, {numer
 function assetUrl(idv){ return idv && S.assets ? '/_blob/'+idv : ''; }
 function photoImg(idv){ const u=assetUrl(idv); return u ? `<img src="${u}" alt="">` : ''; }
 function isBox(b){ return !!b && b.kind==='box'; }
-function nextBag(){ let m=0; for(const p of S.parts.values()) if(Number(p.bag)>m) m=Number(p.bag); return m+1; }
+function nextBag(){ let m=0; for(const p of S.parts.values()) m=Math.max(m,BG.bagOf(p)); return m+1; }
 function bagStr(n){ return n ? '#'+String(n).padStart(3,'0') : ''; }
 // Bag numbers on more than one part (bags.js), worked out once for each copy of the inventory.
 let clashMemo=null;
@@ -296,7 +296,9 @@ function renderPartPage(m, pid){
     const advice = mine&&!theirs ? `This bag has the tag, so give ${others.length===1?'the other part':'the others'} a new number.`
       : !mine&&theirs ? `${others.length===1?'That one has':'One of those has'} the tag, so give this one a new number.`
       : 'Give one of them a new number, and write it on its bag.';
-    const c=h(`<div class="checknote clash"><div><b>Bag ${esc(bagStr(BG.bagOf(p)))} is on ${cl.length} parts.</b> Also on ${others.map(x=>`<a href="#part/${esc(x.id)}">${esc(x.name)}</a>${binOf(x)?` (${esc(binOf(x).code)})`:''}`).join(', ')}. ${advice}</div>${S.canWrite?`<button class="btn sm" id="renumber">New number: ${esc(bagStr(nb))}</button>`:''}</div>`);
+    const c=h(`<div class="checknote clash"><div><b>Bag ${esc(bagStr(BG.bagOf(p)))} is on ${cl.length} parts.</b> Also on ${others.map(x=>`<a href="#part/${esc(x.id)}">${esc(x.name)}</a>${binOf(x)?` (${esc(binOf(x).code)})`:''}`).join(', ')}. ${advice}</div>${!S.canWrite?'':mine&&!theirs?others.map(x=>`<button class="btn sm" data-renumber="${esc(x.id)}">Renumber ${esc(x.name)}: ${esc(bagStr(nb))}</button>`).join(''):`<button class="btn sm" id="renumber">New number: ${esc(bagStr(nb))}</button>`}</div>`);
+    // this part's sticker carries the number, so it's the other part that takes a new one
+    c.querySelectorAll('[data-renumber]').forEach(btn=>btn.onclick=()=>{ const x=S.parts.get(btn.dataset.renumber); if(x) editPart({...x, bag:nb},{tag:true}); });
     c.querySelector('#renumber')?.addEventListener('click',()=>editPart({...p, bag:nb},{tag:true}));
     m.append(c);
   }

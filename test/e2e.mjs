@@ -851,6 +851,17 @@ await desk.goto(base);
   await pg.click('.sheet #save'); await pg.waitForSelector('#tz.wait'); await pg.evaluate(() => window.__tap()); await gone();
   assert.equal((await got('p-sgp')).bag, 3); assert.equal((await got('p-sgp')).tagWritten, true);
 
+  // SCD41 has the tag for #002 and the buzzer doesn't: SCD41's page offers to renumber the buzzer, not itself (it used to
+  // renumber SCD41, leaving its sticker opening the buzzer)
+  await pg.goto(base + '#part/p-scd'); await pg.waitForSelector('.clash');
+  assert.equal(await pg.locator('#renumber').count(), 0, 'the tagged part offers to renumber itself');
+  assert.equal(await pg.textContent('.clash [data-renumber]'), 'Renumber Buzzer: #004');
+  await pg.click('.clash [data-renumber]'); await pg.waitForSelector('.sheet #p-bag');
+  assert.equal(await pg.inputValue('#p-name'), 'Buzzer'); assert.equal(await pg.inputValue('#p-bag'), '4'); assert.ok(await pg.isChecked('#p-dotag'));
+  await pg.click('.sheet #cancel'); await gone();
+  await pg.goto(base + '#part/p-buzz'); await pg.waitForSelector('.clash');
+  assert.equal(await pg.textContent('#renumber'), 'New number: #004');
+
   // the bag box says what a new number does to the old bag, and saving one leaves no tag claimed for it
   await pg.goto(base + '#part/p-scd'); await pg.click('#edit'); await pg.waitForSelector('.sheet #p-bag');
   assert.equal(await pg.textContent('.bt-head'), 'Rewrite this bag’s tag when I save'); assert.equal(await pg.textContent('#p-bagnote'), '');

@@ -238,6 +238,7 @@ a{color:var(--accent-ink)}
 .checknote{display:flex;gap:8px 12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--warn-soft);border-left:3px solid var(--warn);border-radius:var(--r);padding:9px 12px;font-size:13.5px;margin:0 0 12px}
 .checknote>div{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
 .checknote b{color:var(--warn)}
+.checknote .btn[data-renumber]{white-space:normal;text-align:left;overflow-wrap:anywhere;max-width:100%}
 .photo:has(img) svg,.thumb:has(img) svg,.refbig:has(img) svg{display:none}
 .refphoto{position:relative;background:#fff!important}
 .binhead .photo.refphoto{cursor:zoom-in}

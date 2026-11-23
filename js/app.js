@@ -530,22 +530,42 @@ function aName(n){ n=String(n||'').trim(); const w=n.split(/\s/)[0]||'';
   const an=/^[aeiou]/i.test(w) && !/^(?:uni|use|usb|eu|one)/i.test(w) || /^8|^1[18](?:\D|$|\d{2})/.test(w) || /^[FHLMNRS](?:[A-Z0-9]|$)/.test(w) || /^X[0-9]/.test(w);
   return (an?'an ':'a ')+n; }
 let bomOnly=''; // the lines shown, by status (have, check, short, missing), or '' for all of them: a tap on a count above the results
-let bomPicked=''; // the saved BOM in the box, picked or just saved, so the picker still shows it when the screen is drawn again
+// The saved BOM in the box, picked or just saved: it stays picked through a redraw, an edit to the list and a reload, until
+// another is picked, "Saved BOMs…" is, or it's deleted. Save changes writes the list in the box over it.
+let bomPicked=localGet('sr.bompick','');
+function pickBom(pid){ bomPicked=pid; localSet('sr.bompick',pid); }
+let bomSay=false; // the screen drawn again for a BOM just picked: what it found is said, as a Check is
+// Names a BOM in a sheet (Save this BOM, Save as new, Rename). Two saved BOMs can't share a name, which is how copies of
+// one piled up. done(name) saves it and says whether that worked; the sheet stays open if not.
+function nameBom({title, name='', button='Save', except=''}, done){
+  const {el,close}=sheet(`<h3>${title}</h3>
+    <div class="field"><label for="b-name">Name</label><input id="b-name" value="${esc(name)}" placeholder="e.g. Weather station v2" autocomplete="off"></div>
+    <div class="actions"><button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">${button}</button></div>`);
+  el.querySelector('#cancel').onclick=close; enterSaves(el);
+  const f=el.querySelector('#b-name'); if(name && document.activeElement===f) f.select();
+  el.querySelector('#save').onclick=async()=>{
+    const n=f.value.trim(); if(!n){ refuse(el,'#b-name','Give the BOM a name'); return; }
+    const dup=[...S.projects.values()].find(p=>p.id!==except && String(p.name||'').trim().toLowerCase()===n.toLowerCase());
+    if(dup){ refuse(el,'#b-name',`A BOM called “${dup.name}” is saved already`,3000); return; }
+    if(await done(n)) close();
+  };
+}
 function renderBom(m){
   m.append(h('<div class="topbar"><h2>BOM check</h2></div>'));
   const saved=[...S.projects.values()].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
   const last=localGet('sr.bom','');
-  if(!S.projects.has(bomPicked)) bomPicked='';
+  const cur=S.projects.get(bomPicked)||null; // not yet loaded, or deleted on another device: none picked
   const ui=h(`<div>
-    <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}" ${p.id===bomPicked?'selected':''}>${esc(p.name)}</option>`).join('')}</select><span class="grow"></span></div>
+    <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}" ${p.id===cur?.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><span class="grow"></span>${cur?'<button class="btn sm" id="rename">Rename…</button><button class="btn sm danger" id="delbom">Delete</button>':''}</div>
     <div class="field"><label for="bom">Parts list — one per line, quantity first or last (<code>2x XIAO ESP32-S3</code>, <code>SCD41 ×1</code>)</label><textarea id="bom" placeholder="2x XIAO ESP32-S3&#10;1 SCD41 breakout&#10;3 WS2812 strip segment&#10;M3 heat-set inserts x8">${esc(last)}</textarea></div>
-    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span><button class="btn" id="save">Save this BOM</button></div>
+    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span>${cur?`<button class="btn" id="update" ${last===cur.text?'disabled':''}>Save changes</button><button class="btn" id="saveas">Save as new…</button>`:'<button class="btn" id="savebom">Save this BOM</button>'}</div>
     <div id="out" style="margin-top:14px"></div></div>`);
   m.append(ui);
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
-  // kept as it's typed, so another screen, a reload or a redraw doesn't lose it; changed, it's no longer the saved one picked
-  ta.oninput=()=>{ localSet('sr.bom',ta.value); bomPicked=''; bomOnly=''; };
-  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); bomPicked=p?p.id:''; bomOnly=''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
+  // kept as it's typed, so another screen, a reload or a redraw doesn't lose it; changed, the saved one picked can take it
+  const upd=ui.querySelector('#update');
+  ta.oninput=()=>{ localSet('sr.bom',ta.value); bomOnly=''; if(upd) upd.disabled=ta.value===cur.text; };
+  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); pickBom(p?p.id:''); bomOnly=''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); bomSay=true; } render(); };
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
@@ -631,15 +651,33 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
       run(all.map(r=>r.heading?{...r, m:null}:items[rows.indexOf(r)]));
     }catch(e){ if(['not_granted','cut_off','refused'].includes(e.code)) toast(e.message+' Used plain matching.',4000); else toast('Smart matching unavailable, used plain matching'); run(); }
   });
-  // A list with no lines to check isn't saved (an empty box was saved as a BOM), and the one saved shows in the picker.
-  ui.querySelector('#save')?.addEventListener('click', async()=>{
-    if(!parseBom(ta.value).some(r=>!r.heading)){ toast('Paste a parts list first'); ta.focus(); return; }
-    const name=(prompt('Name this BOM:', '')||'').trim(); if(!name) return;
-    const pid=id(), was=bomPicked; bomPicked=pid; // picked as the screen is drawn again with it
-    try{ await S.db.doc('projects/'+pid).set({name, text:ta.value, updatedAt:new Date().toISOString()}); }catch(e){ bomPicked=was; writeFail(e); return; }
-    toast(`Saved “${name}”`);
+  // A list with no lines to check isn't saved (an empty box was saved as a BOM), and the one saved is picked.
+  const listed=()=>{ if(parseBom(ta.value).some(r=>!r.heading)) return true; toast('Paste a parts list first'); ta.focus(); return false; };
+  const saveNew=async name=>{
+    const pid=id(), was=bomPicked; pickBom(pid); // picked as the screen is drawn again with it
+    try{ await S.db.doc('projects/'+pid).set({name, text:ta.value, updatedAt:new Date().toISOString()}); }catch(e){ pickBom(was); writeFail(e); return false; }
+    toast(`BOM saved: ${name}`); return true;
+  };
+  ui.querySelector('#savebom')?.addEventListener('click',()=>{ if(listed()) nameBom({title:'Save this BOM'}, saveNew); });
+  ui.querySelector('#saveas')?.addEventListener('click',()=>{ if(listed()) nameBom({title:'Save as a new BOM', name:cur.name}, saveNew); });
+  upd?.addEventListener('click', async()=>{
+    if(!listed()) return;
+    try{ await S.db.doc('projects/'+cur.id).update({text:ta.value}); }catch(e){ writeFail(e); return; }
+    toast(`BOM saved: ${cur.name}`);
   });
-  if(last) run(null, true); // the list left from last time, checked again as the screen opens: its heading is what's said
+  ui.querySelector('#rename')?.addEventListener('click',()=>nameBom({title:'Rename this BOM', name:cur.name, button:'Rename', except:cur.id}, async name=>{
+    try{ await S.db.doc('projects/'+cur.id).update({name}); }catch(e){ writeFail(e); return false; }
+    toast(`BOM renamed: ${name}`); return true;
+  }));
+  // Deleted like a part, so it goes from every device; the list stays in the box.
+  ui.querySelector('#delbom')?.addEventListener('click', async()=>{
+    if(!confirm(`Delete the BOM “${cur.name}”? The list stays in the box.`)) return;
+    pickBom('');
+    try{ await S.db.doc('projects/'+cur.id).delete(); }catch(e){ pickBom(cur.id); writeFail(e); return; }
+    toast(`Deleted the BOM “${cur.name}”`);
+  });
+  if(last) run(null, !bomSay); // the list left from last time, checked again as the screen opens: its heading is what's said
+  bomSay=false;
 }
 
 // ---- Pack (scan-in with a sticky destination container)
@@ -985,7 +1023,7 @@ async function writePart(p){ const d={...p}; delete d.id; d.updatedAt=new Date()
 // hear of it); dismissing what's waiting in the Inbox can.
 // A part or bin deleted on another device since this screen was drawn (a sync brought the deletion in) can't be changed:
 // that's said, and the screen drawn again without it.
-function writeFail(e){ if(e&&e.code==='deleted'){ toast(`That ${e.kind==='bins'?'bin':'part'} was deleted on another device`,4000); render(); } else if(e&&e.code==='quota_exceeded') toast('This browser’s storage is full, so that wasn’t saved.'+(INBOX.batches.length?' Dismiss what’s waiting in the Inbox to make room.':''),4500); else toast('Save failed — try again'); }
+function writeFail(e){ if(e&&e.code==='deleted'){ toast(`That ${e.kind==='bins'?'bin':e.kind==='projects'?'BOM':'part'} was deleted on another device`,4000); render(); } else if(e&&e.code==='quota_exceeded') toast('This browser’s storage is full, so that wasn’t saved.'+(INBOX.batches.length?' Dismiss what’s waiting in the Inbox to make room.':''),4500); else toast('Save failed — try again'); }
 // opts.from 'pack': one bag after another (Pack, the Inbox), so the sheet's button says Skip the tag, then Next bag; from a
 // part's page or a bin's it says Close, then Done.
 function tagSheet(b, kind='bin', opts={}){

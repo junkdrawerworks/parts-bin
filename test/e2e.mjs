@@ -323,14 +323,20 @@ assert.match(await page.textContent('.bom-table tbody tr:first-child td:nth-chil
 // the examples above the list read as they're typed, not uppercased like the label (2X XIAO ESP32-S3)
 assert.equal(await page.$eval('.field label code', c => getComputedStyle(c).textTransform), 'none');
 await shot(page, 'phone-bom');
+// a saved BOM picked shows Rename…, Delete, Save changes and Save as new…; with none picked, Save this BOM
+const savedBoms = () => page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).filter(p => !p.del).length);
+const bomNamed = name => page.evaluate(name => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.projects).find(([, p]) => p.name === name)?.[0], name);
+const bomButtons = () => page.$$eval('#rename, #delbom, #update, #saveas, #savebom', bs => bs.map(b => b.textContent + (b.disabled ? ' (off)' : '')));
+assert.deepEqual(await bomButtons(), ['Rename…', 'Delete', 'Save changes (off)', 'Save as new…']);
+await page.selectOption('#proj', '');
+assert.deepEqual(await bomButtons(), ['Save this BOM']);
+assert.equal(await page.inputValue('#bom'), '2 BME280\n1 SCD41\n1 SGP30', 'the list stays in the box');
 // Save this BOM with nothing in the box saves nothing and says what to do (an empty BOM was saved under the name typed)
-const savedBoms = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('parts-bin')).items.projects).length);
 const bomsBefore = await savedBoms();
 await page.fill('#bom', '  \n');
-let namedEmpty = false; const ask = d => { namedEmpty = true; d.dismiss(); }; page.on('dialog', ask);
-await page.click('#save');
+await page.click('#savebom');
 await page.waitForSelector('#toast:has-text("Paste a parts list first")');
-page.off('dialog', ask); assert.ok(!namedEmpty, 'it asked for a name for an empty BOM'); assert.equal(await savedBoms(), bomsBefore);
+assert.equal(await page.locator('.sheet').count(), 0, 'it asked for a name for an empty BOM'); assert.equal(await savedBoms(), bomsBefore);
 // a list typed but not checked yet stays through another screen, a reload, and Save this BOM
 await page.fill('#bom', '1 SCD41\n2 heat-set inserts');
 await page.click('#tabbar [data-go="parts"]'); await page.waitForSelector('#cat');
@@ -339,30 +345,77 @@ assert.equal(await page.inputValue('#bom'), '1 SCD41\n2 heat-set inserts');
 await page.reload(); await page.waitForSelector('#bom');
 assert.equal(await page.inputValue('#bom'), '1 SCD41\n2 heat-set inserts');
 await page.fill('#bom', '3 WS2812 strip segment');
-assert.equal(await page.textContent('#save'), 'Save this BOM');
-page.once('dialog', d => { assert.equal(d.message(), 'Name this BOM:'); d.accept('Lamp'); });
-await page.click('#save');
-await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).some(p => p.name === 'Lamp'));
-// it says which, and the picker shows it once the screen is drawn again (it went back to "Saved BOMs…")
-await page.waitForSelector('#toast:has-text("Saved “Lamp”")');
-const lampId = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.projects).find(([, p]) => p.name === 'Lamp')[0]);
+// it's named in a sheet in the page's own style (the browser's prompt asked "Name this BOM:"), which needs a name
+await page.click('#savebom');
+await page.waitForSelector('.sheet #b-name');
+assert.equal(await page.textContent('.sheet h3'), 'Save this BOM');
+await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("Give the BOM a name")');
+await page.fill('.sheet #b-name', 'Lamp'); await page.click('.sheet #save');
+await page.waitForFunction(() => !document.querySelector('.sheet'));
+// it says which, as a BOM, and the picker shows it once the screen is drawn again (it went back to "Saved BOMs…")
+await page.waitForSelector('#toast:has-text("BOM saved: Lamp")');
+const lampId = await bomNamed('Lamp');
 await page.waitForFunction(id => document.getElementById('proj').value === id, lampId, { timeout: 2000 }).catch(() => assert.fail('the saved BOM isn’t picked'));
 await page.waitForTimeout(100);
 assert.equal(await page.inputValue('#proj'), lampId);
 assert.equal(await page.inputValue('#bom'), '3 WS2812 strip segment');
+assert.deepEqual(await bomButtons(), ['Rename…', 'Delete', 'Save changes (off)', 'Save as new…']);
+// an edit keeps it picked (the menu went back to "Saved BOMs…"), and Save changes writes the list over it: no second copy
+const n0 = await savedBoms();
+await page.fill('#bom', '3 WS2812 strip segment\n1 SCD41');
+assert.equal(await page.inputValue('#proj'), lampId);
+assert.deepEqual(await bomButtons(), ['Rename…', 'Delete', 'Save changes', 'Save as new…']);
+await page.click('#update');
+await page.waitForSelector('#toast:has-text("BOM saved: Lamp")');
+await page.waitForFunction(id => JSON.parse(localStorage.getItem('parts-bin')).items.projects[id].text === '3 WS2812 strip segment\n1 SCD41', lampId);
+assert.equal(await savedBoms(), n0);
+await page.waitForFunction(() => document.getElementById('update')?.disabled);
+// and through a reload
+await page.reload(); await page.waitForSelector('#proj');
+assert.equal(await page.inputValue('#proj'), lampId, 'a reload forgot which BOM it was');
+// Rename… renames it in place
+await page.click('#rename'); await page.waitForSelector('.sheet #b-name');
+assert.equal(await page.inputValue('.sheet #b-name'), 'Lamp');
+await page.fill('.sheet #b-name', 'Lamp v2'); await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("BOM renamed: Lamp v2")');
+await page.waitForFunction(id => document.querySelector(`#proj option[value="${id}"]`)?.textContent === 'Lamp v2' && document.getElementById('proj').value === id, lampId);
+assert.equal(await savedBoms(), n0);
+// Save as new… makes a second BOM, under a name no other BOM has (the copies piled up under one name)
+await page.fill('#bom', '3 WS2812 strip segment\n2 SCD41');
+await page.click('#saveas'); await page.waitForSelector('.sheet #b-name');
+assert.equal(await page.textContent('.sheet h3'), 'Save as a new BOM');
+await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("A BOM called “Lamp v2” is saved already")');
+await page.fill('.sheet #b-name', 'Lamp v3'); await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("BOM saved: Lamp v3")');
+const v3 = await bomNamed('Lamp v3');
+await page.waitForFunction(id => document.getElementById('proj').value === id, v3);
+assert.equal(await savedBoms(), n0 + 1);
+assert.equal(await page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.projects[id].text, lampId), '3 WS2812 strip segment\n1 SCD41', 'the first one changed too');
+// Delete deletes it the way a part is, so it goes from the other devices too, and the list stays in the box
+page.once('dialog', d => { assert.equal(d.message(), 'Delete the BOM “Lamp v3”? The list stays in the box.'); d.accept(); });
+await page.click('#delbom');
+await page.waitForSelector('#toast:has-text("Deleted the BOM “Lamp v3”")');
+assert.ok(await page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.projects[id].del > 0, v3), 'no deletion to pass on');
+assert.equal(await savedBoms(), n0);
+await page.waitForFunction(() => document.getElementById('proj').value === '');
+assert.deepEqual(await bomButtons(), ['Save this BOM']);
+assert.equal(await page.inputValue('#bom'), '3 WS2812 strip segment\n2 SCD41');
 // a long parts list (a KiCad export with footprints and datasheet links) is saved whole: it was cut to 4,000 characters
 // on every load, mid-line, while the page said Saved
 const longBom = Array.from({ length: 80 }, (_, i) => `1 R${i} 10k Resistor_SMD:R_0603_1608Metric https://example.com/datasheets/r${i}.pdf`).join('\n').slice(0, 5000);
 assert.equal(longBom.length, 5000);
 await page.fill('#bom', longBom);
-page.once('dialog', d => d.accept('Long board'));
-await page.click('#save');
+await page.click('#savebom'); await page.fill('.sheet #b-name', 'Long board'); await page.click('.sheet #save');
 await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).some(p => p.name === 'Long board'));
+await page.selectOption('#proj', '');
 await page.fill('#bom', '3 WS2812 strip segment');
 await page.reload(); await page.waitForSelector('#proj');
-const longId = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.projects).find(([, p]) => p.name === 'Long board')[0]);
+const longId = await bomNamed('Long board');
 await page.selectOption('#proj', longId);
 assert.equal(await page.inputValue('#bom'), longBom, 'the saved BOM came back cut short');
+await page.selectOption('#proj', '');
 await page.fill('#bom', '3 WS2812 strip segment');
 // a shortfall in metres reads 0.2, not 0.19999999999999998, on screen and in the shopping list
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-heat'] = { name: 'Heat shrink tubing 3mm', qty: 0.1, unit: 'm', binId: 'bin-env', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
@@ -1148,6 +1201,9 @@ await page.evaluate(() => {
   localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' }));
 });
 for (const hash of ['#scan', '#inbox', '#parts', '#part/p-scd41', '#bins', '#bin/box-long', '#bom', '#part/p-long']) { await page.goto(base + hash); await page.waitForTimeout(150); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, hash + ' scrolls sideways on a phone'); }
+await page.goto(base + '#bom'); const boxWas = await page.inputValue('#bom'); await page.selectOption('#proj', 'proj-long'); await page.waitForSelector('#rename');
+assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'a long BOM name picked scrolls sideways on a phone');
+await page.selectOption('#proj', ''); await page.fill('#bom', boxWas);
 // every field writes at 16 px on a phone, as Safari on an iPhone zooms the page in on a field with smaller writing as soon
 // as it's tapped: search, Pack, BOM check, the Inbox, a part's count, and the part and bin sheets
 const smallFields = () => page.evaluate(() => [...document.querySelectorAll('input:not([type=file]):not([type=checkbox]),select,textarea')].filter(e => e.getClientRects().length && parseFloat(getComputedStyle(e).fontSize) < 16).map(e => e.id || e.tagName));
@@ -1333,8 +1389,9 @@ await page.click('.sheet #cancel');
 await noToast(); await page.click('#inc'); await page.waitForSelector(FULL);
 assert.equal(await page.inputValue('#qv'), String(scdQty));
 // Save this BOM
-await page.goto(base + '#bom'); await page.waitForSelector('#save');
-await noToast(); page.once('dialog', d => d.accept('No room')); await page.click('#save'); await page.waitForSelector(FULL);
+await page.goto(base + '#bom'); await page.waitForSelector('#savebom');
+await noToast(); await page.click('#savebom'); await page.fill('.sheet #b-name', 'No room'); await page.click('.sheet #save'); await page.waitForSelector(FULL);
+assert.equal(await page.inputValue('.sheet #b-name'), 'No room', 'the name sheet stays open'); await page.click('.sheet #cancel');
 // suggestions from the Inbox stay waiting until they can be saved
 await page.goto(base + '#inbox');
 await page.fill('#inb-paste', await IN.encode({ partsbin: 1, batch: { id: 'ptest-full', source: 'details', items: [{ id: 'p-bme280', volts: '1.71–3.6 V' }] } }));

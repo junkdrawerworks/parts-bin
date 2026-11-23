@@ -834,7 +834,9 @@ function tagSheet(b, kind='bin', opts={}){
   let ctl=null, written=false; // however the sheet closes (Back, Escape, a tap outside, Cancel), a write still waiting for the sticker stops
   tagWait={read:null}; const wait=tagWait; // a tag read while this sheet is open (onTag): whose sticker is being held
   const {el,close}=sheet(`<h3>${title}</h3>
-    ${kind==='part'&&b.bag?`<p class="muted">${newBag?`This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.`:`Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.`}</p>`:''}
+    ${kind==='part'&&newBag?`<p class="muted">This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.</p>`
+      : opts.overwrite?'<p class="muted">Keep it at the top of the phone: this sticker gets the new link.</p>' // an old tag being rewritten: the bag has its number already
+      : kind==='part'&&b.bag?`<p class="muted">Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.</p>`:''}
     <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status" role="status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
     <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(tagWait===wait) tagWait=null; if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
@@ -936,7 +938,7 @@ function onTag(ev){
 function offerRewrite({kind,item}){
   const label=kind==='part'?(bagStr(item.bag)||item.name):item.code;
   const {el,close}=sheet(`<h3>Update this tag?</h3>
-    <p class="muted">${esc(label)}’s tag still points at the old Stockroom artifact on claude.ai, so with Parts Bin closed your phone offers the Claude app. Rewrite it to open Parts Bin instead. Keep it at the top of the phone.</p>
+    <p class="muted">${esc(label)}’s tag still points at the old Stockroom artifact on claude.ai, so with Parts Bin closed your phone offers the Claude app. Rewrite it to open Parts Bin instead.${kind==='part'&&!BG.bagOf(item)?` It’ll become bag ${esc(bagStr(nextBag()))}.`:''} Keep it at the top of the phone.</p>
     <div class="actions"><button class="btn" id="later">Not now</button><button class="btn primary" id="go">${ICONS.nfc} Rewrite tag</button></div>`);
   el.querySelector('#later').onclick=close;
   el.querySelector('#go').onclick=()=>{ close(); tagSheet(item,kind,{auto:true,overwrite:true}); };

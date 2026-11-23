@@ -236,6 +236,8 @@ await page.evaluate(() => window.__read('https://claude.ai/artifact/3tWd7DUCw34E
 await page.waitForTimeout(200); assert.equal(await page.locator('#toast:has-text("Close this")').count(), 0, 'it said to close the sheet to open the bag behind it');
 await page.click('.sheet #go');
 await page.waitForSelector('#tz.wait');
+// the bag has its number already: the sheet says to keep the sticker there, not to write the number on the bag
+assert.equal(await page.textContent('.sheet p.muted'), 'Keep it at the top of the phone: this sticker gets the new link.');
 await page.evaluate(() => window.__tap());
 await page.waitForFunction(() => !document.querySelector('.sheet'));
 assert.equal((await page.evaluate(() => window.__written)).at(-1), base + '#bag/001');
@@ -245,6 +247,12 @@ await page.evaluate(u => window.__read(u), base + '#bag/001');
 await page.waitForTimeout(300);
 assert.equal(await page.evaluate(() => location.hash), '#bins');
 await page.waitForTimeout(3000);
+// an old tag for a part with no bag yet says the bag number it will get
+await page.evaluate(() => window.__read('https://claude.ai/artifact/3tWd7DUCw34ExEy7Jo4CpG#part/p-scd41'));
+await page.waitForSelector('.sheet:has-text("Update this tag?")');
+assert.match(await page.textContent('.sheet p.muted'), /Rewrite it to open Parts Bin instead\. It’ll become bag #00\d\. Keep it at the top of the phone\.$/);
+await page.click('.sheet #later'); await page.waitForFunction(() => !document.querySelector('.sheet'));
+await page.goto(base + '#bins');
 // someone else's link is left alone
 await page.evaluate(() => window.__read('https://example.com/#bag/001'));
 await page.waitForSelector('text=That tag isn’t one of yours');

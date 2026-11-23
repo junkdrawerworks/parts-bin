@@ -1476,6 +1476,42 @@ await desk.goto(base);
   await sCtx.close();
 }
 
+// ---- a write that fails partway (the sticker taken away too soon) starts listening again by itself, up to five times, and
+// says so in plain words (it stopped, and showed the browser's own message: "Couldn't write it (Failed to write due to an
+// IO error)")
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts: { 'p-12': { name: 'Thing 1', qty: 1, unit: 'pcs', tags: [], bag: 12, t: 1 } } } });
+  const rCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await rCtx.addInitScript(fakeNfc);
+  await rCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const rp = await rCtx.newPage();
+  rp.problems = []; rp.on('pageerror', e => rp.problems.push(e.message)); rp.on('console', m => { if (m.type() === 'error') rp.problems.push(m.text()); });
+  const ioFail = () => rp.evaluate(() => window.__fail('NetworkError', 'Failed to write due to an IO error'));
+  const listening = () => rp.waitForFunction(() => window.__waiting(), null, { timeout: 3000 });
+  await rp.goto(base + '#part/p-12');
+  await rp.click('text=Bag tag'); await rp.click('.sheet #write'); await listening();
+  await ioFail(); await rp.waitForSelector('#tz.bad');
+  assert.equal(await rp.textContent('#t-status'), 'Didn’t take. Hold it flat and still: still listening.');
+  // listening again with no tap, and the next hold writes it
+  await listening();
+  assert.ok(await rp.evaluate(() => window.__tap())); await rp.waitForSelector('#tz.ok');
+  assert.match((await rp.evaluate(() => window.__written)).at(-1), /#bag\/012$/);
+  await rp.waitForFunction(() => !document.querySelector('.sheet'));
+  // it stops after five tries of its own, and says to tap
+  await rp.click('text=Bag tag'); await rp.click('.sheet #write'); await listening();
+  for (let i = 0; i < 5; i++) { await ioFail(); await listening(); }
+  await ioFail(); await rp.waitForTimeout(900);
+  assert.equal(await rp.evaluate(() => window.__waiting()), false, 'it kept trying');
+  assert.equal(await rp.textContent('#t-status'), 'Didn’t take. Hold it flat and still, then tap Write tag.');
+  // a tap starts over, with five more tries
+  await rp.click('.sheet #write'); await listening(); await ioFail(); await listening();
+  // closed while it's about to try again: it doesn't
+  await ioFail(); await rp.click('.sheet #done'); await rp.waitForTimeout(900);
+  assert.equal(await rp.evaluate(() => window.__waiting()), false, 'it listened again with the sheet closed');
+  assert.deepEqual(rp.problems, []);
+  await rCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

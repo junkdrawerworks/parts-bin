@@ -829,10 +829,14 @@ function tagSheet(b, kind='bin', opts={}){
   const claim=async()=>{ if(taken()) return false; if(!newBag) return true; try{ await S.db.doc('parts/'+b.id).update({bag:newBag}); }catch(e){ if(e?.code!=='invalid_argument'){ writeFail(e); return false; } } return true; };
   el.querySelector('#copy').onclick=async()=>{ if(!await claim()) return; copyText(url,'Link copied','Copy the tag link'); };
   const st=el.querySelector('#t-status'), tz=el.querySelector('#tz');
-  async function write(overwrite=false){
-    if(taken()) return;
+  // A write that fails partway (the sticker moved away too soon) starts again by itself, a few times: again is one of those.
+  let tries=0, retry=0;
+  async function write(overwrite=false, again=false){
+    clearTimeout(retry);
+    if(!el.isConnected || taken()) return;
+    if(!again) tries=0;
     ctl?.abort(); ctl=new AbortController();
-    tz.className='tagzone wait'; st.innerHTML='Hold the sticker to the <b>top edge of the phone</b>…';
+    tz.className='tagzone wait'; st.removeAttribute('title'); if(!again) st.innerHTML='Hold the sticker to the <b>top edge of the phone</b>…';
     try{
       await new NDEFReader().write({records:[{recordType:'url', data:url}]}, {overwrite, signal:ctl.signal});
       lastWrite=Date.now(); written=true;
@@ -857,7 +861,12 @@ function tagSheet(b, kind='bin', opts={}){
       } else if(/activation|gesture/i.test(e.message||'')) st.textContent='Tap Write tag to start.';
       else if(e.name==='NotAllowedError') st.textContent='NFC is blocked for this site: tap the icon left of the address → Permissions → NFC.';
       else if(e.name==='NotReadableError') st.textContent='NFC looks switched off. Turn it on in the phone’s settings.';
-      else st.textContent='Couldn’t write it ('+(e.message||e.name)+'). Hold it flat and still, then tap Write tag.';
+      else {
+        st.title=e.message||e.name; // the browser's own words, kept out of the way
+        const granted=await navigator.permissions?.query({name:'nfc'}).then(p=>p.state==='granted').catch(()=>false);
+        if(granted && tries<5 && el.isConnected){ tries++; st.textContent='Didn’t take. Hold it flat and still: still listening.'; retry=setTimeout(()=>write(overwrite,true),600); }
+        else st.textContent='Didn’t take. Hold it flat and still, then tap Write tag.';
+      }
     }
   }
   // the Write button, to write over what's on the sticker (with its icon)

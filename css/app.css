@@ -247,6 +247,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .clashbar.short{padding:7px 12px}
 .clashbar.short a{padding-block:8px;font-weight:600}
 .matchlist button{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.matchlist button.again{margin:-4px 0 0 18px;padding:6px 12px;min-height:44px;border-style:dashed;color:var(--accent-ink);font-weight:600}
+.matchlist button.again .tiny{font-weight:400}
 .matchlist button.pick{border-color:var(--accent);background:var(--accent-soft)}
 .matchlist .s{font-size:12.5px;color:var(--ink3)}
 .matchlist button.pick .s{color:var(--ink2)}

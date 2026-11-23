@@ -2161,6 +2161,61 @@ await desk.goto(base);
   await cCtx.close();
 }
 
+// ---- a second bag of a part that's in a bag already: Pack's matches offer "It's another bag of it" under it, which makes
+// a second entry with its name and details, the next bag number and its own count (picking the part itself puts the
+// count on its one bag)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-bme': { name: 'BME280 (Adafruit)', binId: 'b-env', category: 'Sensors', qty: 3, unit: 'pcs', minQty: 1, tags: ['qwiic'], mpn: '2652', iface: ['I2C'], addr: '0x77', volts: '3.3–5 V', notes: 'Temp, humidity, pressure', bag: 1, tagWritten: true, t: 1 },
+      'p-bmp': { name: 'BME680', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 2, t: 1 },
+      'p-sgp': { name: 'BME sensor kit', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const aCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await aCtx.addInitScript(fakeNfc);
+  await aCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('sr.packbox', '"box-1"'); } }, seed);
+  const ap = await aCtx.newPage();
+  ap.problems = []; ap.on('pageerror', e => ap.problems.push(e.message)); ap.on('console', m => { if (m.type() === 'error') ap.problems.push(m.text()); });
+  const parts = () => ap.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts);
+  const closed = () => ap.waitForFunction(() => !document.querySelector('.sheet'));
+  await ap.goto(base + '#scan'); await ap.waitForSelector('#desc');
+  const before = (await parts())['p-bme'];
+  await ap.fill('#desc', 'BME280'); await ap.waitForSelector('.matchlist [data-id="p-bme"]');
+  // offered under the part named, in a bag; not under one with no bag (picking it bags it), nor one only partly named
+  assert.deepEqual(await ap.locator('.matchlist [data-again]').evaluateAll(b => b.map(x => x.dataset.again)), ['p-bme']);
+  assert.equal(await ap.textContent('.matchlist [data-again] span'), 'It’s another bag of it');
+  assert.equal(await ap.getAttribute('.matchlist [data-again]', 'aria-label'), 'It’s another bag of BME280 (Adafruit): a new entry in bag #003');
+  await ap.click('.matchlist [data-again="p-bme"]'); await ap.waitForSelector('.sheet #p-name');
+  assert.match(await ap.textContent('.sheet p.muted'), /^Another bag of BME280 \(Adafruit\) \(#001\): a new entry with its own number, sticker and count\.$/);
+  assert.equal(await ap.inputValue('#p-name'), 'BME280 (Adafruit)'); assert.equal(await ap.inputValue('#p-bag'), '3');
+  assert.equal(await ap.inputValue('#p-qty'), '1'); assert.equal(await ap.inputValue('#p-bin'), 'box-1'); assert.equal(await ap.inputValue('#p-mpn'), '2652');
+  await ap.fill('#p-qty', '5');
+  assert.equal(await ap.textContent('.sheet #save'), 'Save & tag');
+  await ap.click('.sheet #save'); await ap.waitForSelector('#tz.wait');
+  assert.equal(await ap.textContent('.sheet #done'), 'Skip the tag');
+  await ap.evaluate(() => window.__tap()); await closed();
+  assert.match((await ap.evaluate(() => window.__written)).at(-1), /#bag\/003$/);
+  const all = await parts(), twos = Object.entries(all).filter(([, x]) => x.name === 'BME280 (Adafruit)');
+  assert.equal(twos.length, 2, 'a second entry');
+  const [nid, n] = twos.find(([k]) => k !== 'p-bme');
+  assert.deepEqual([n.category, n.unit, n.minQty, n.tags, n.mpn, n.iface, n.addr, n.volts, n.notes, n.qty, n.bag, n.binId, n.tagWritten, n.from],
+    ['Sensors', 'pcs', 1, ['qwiic'], '2652', ['I2C'], '0x77', '3.3–5 V', 'Temp, humidity, pressure', 5, 3, 'box-1', true, '']);
+  assert.deepEqual(all['p-bme'], before, 'the first bag changed');
+  assert.match(await ap.textContent('.packhead .big'), /#004/);
+  // each bag's sticker opens its own entry
+  await ap.goto(base + '#bag/003'); await ap.waitForSelector('.binhead h2');
+  assert.equal(await ap.evaluate(() => location.hash), '#bag/003');
+  assert.equal(await ap.inputValue('#qv'), '5');
+  // Enter still opens the part named, not another bag of it
+  await ap.goto(base + '#scan'); await ap.waitForSelector('#desc');
+  await ap.fill('#desc', 'BME680'); await ap.press('#desc', 'Enter'); await ap.waitForSelector('.sheet #p-name');
+  assert.equal(await ap.inputValue('#p-bag'), '2'); assert.equal(await ap.locator('.sheet p.muted').count(), 0);
+  await ap.click('.sheet #cancel'); await closed();
+  assert.deepEqual(ap.problems, []);
+  await aCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

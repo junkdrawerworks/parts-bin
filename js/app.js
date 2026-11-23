@@ -780,8 +780,13 @@ function renderScan(m){
   function showPreview(){ res.innerHTML=''; if(!file) return; const img=new Image(); img.className='preview'; img.src=URL.createObjectURL(file); res.append(img); }
   // After a save. Saving has drawn the screen again already, keeping the description (render), so it's emptied there too.
   function reset(){ file=null; if(fi) fi.value=''; for(const d of [ui.querySelector('#desc'), document.getElementById('desc')]) if(d) d.value=''; res.innerHTML=''; st.textContent=''; }
-  function openEditor(seed, matched){
+  function openEditor(seed, matched, again=null){
     const destId=head.querySelector('#dest').value;
+    // Another bag of a part already in one: a second entry with its name and details, and the next bag number, so each
+    // bag has its own sticker and count.
+    if(again){ const base={qty:Number(seed.qty)||1, bag:'', binId:destId||again.binId||''};
+      for(const k of AGAIN) if(again[k]!=null) base[k]=Array.isArray(again[k])?[...again[k]]:again[k];
+      editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }}); return; }
     const base = matched ? {...matched} : {name:seed.name||'', category:seed.category||'', mpn:seed.mpn||'', unit:seed.unit||'pcs', tags:Array.isArray(seed.tags)?seed.tags.map(String):[], notes:seed.notes||''};
     if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · '); }
     else base.qty=Number(seed.qty)||1;
@@ -806,11 +811,12 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
       // candidates list: model's match first, then local text matches on the name
       const local=searchParts(j.name||desc).slice(0,4).filter(p=>!matched||p.id!==matched.id);
       const box=h(`<div><div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${subLine(matched)}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
-        ${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
+        ${matched?againRow(matched):''}${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
         <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
         <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
       res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box); listedFor=desc||null;
       box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
+      wireAgain(box, j);
     }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
   }
   ui.querySelector('#identify')?.addEventListener('click', identify);
@@ -834,16 +840,21 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
     if(listedFor!==q || !res.querySelector('.matchlist')){ clearTimeout(tt); localList(q); }
     const rows=[...res.querySelectorAll('.matchlist [data-id]')];
     (rows.find(b=>b.dataset.id && namesIt(q,S.parts.get(b.dataset.id)||{})) || rows.find(b=>!b.dataset.id))?.click(); };
+  // Under a part named by what's typed that's in a bag already: picking the part itself puts this bag's count on that bag,
+  // and this makes a second bag of it instead.
+  function againRow(p){ return BG.bagOf(p) ? `<button type="button" class="again" data-again="${esc(p.id)}" aria-label="It’s another bag of ${esc(p.name)}: a new entry in bag ${esc(bagStr(nextBag()))}"><span>It’s another bag of it</span><span class="tiny">new entry, bag ${esc(bagStr(nextBag()))}</span></button>` : ''; }
+  function wireAgain(box, seed){ box.querySelectorAll('[data-again]').forEach(btn=>btn.onclick=()=>{ const p=S.parts.get(btn.dataset.again); if(p) openEditor(seed, null, p); }); }
   function localList(q){
     res.querySelector('.matchlist')?.parentElement?.remove();
     listedFor=q||null;
     if(!q) return;
     // the parts every word names first, so the one Enter opens is the top row
     const all=searchParts(q), hits=[...all.filter(p=>namesIt(q,p)), ...all.filter(p=>!namesIt(q,p))].slice(0,6);
-    const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
+    const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>${namesIt(q,p)?againRow(p):''}`).join('')}
       <button type="button" data-id=""><span><b>${esc(q)}</b><div class="s">Not in the inventory yet</div></span><span class="chip warn">new part</span></button></div></div>`);
     res.append(box);
     box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor({name:q}, btn.dataset.id?S.parts.get(btn.dataset.id):null));
+    wireAgain(box, {name:q});
   }
 }
 
@@ -961,6 +972,8 @@ const PART_FORM={
   iface:['#p-iface', x=>(x.iface||[]).join(', '), v=>IN.ifaces(v)], addr:['#p-addr', x=>x.addr, v=>v.trim()], volts:['#p-volts', x=>x.volts, v=>v.trim()],
   logic:['#p-logic', x=>x.logic, v=>v.trim()], img:['#p-img', x=>x.img, v=>IN.httpsUrl(v.trim())], check:['#p-check', x=>x.check, v=>v.trim()],
 };
+// What another bag of a part takes from it (Pack's "It's another bag of it"): everything but its bag, count, bin and tag.
+const AGAIN=['name','category','unit','minQty','mpn','tags','link','notes','iface','addr','volts','logic','img','check'];
 const PART_BLANK={name:'', category:'', mpn:'', qty:1, unit:'pcs', minQty:'', binId:'', tags:[], notes:'', link:'', bag:'', from:''};
 function editPart(p, opts={}){
   const isNew=!p.id; p={id:id(), ...PART_BLANK, ...p};
@@ -972,6 +985,7 @@ function editPart(p, opts={}){
   const inBag=!(NFC_OK&&!FRAMED) && !!BG.bagOf(p);
   const {el,close}=sheet(`${isNew?'<h3>New part</h3>':'<div class="sheethead"><h3>Edit part</h3><button class="btn sm" id="copyp">Copy as new part</button></div>'}
     ${opts.copyOf?`<p class="muted" style="margin:-4px 0 10px">A copy of ${esc(opts.copyOf)}. Change the name, then save.</p>`:''}
+    ${opts.againOf?`<p class="muted" style="margin:-4px 0 10px">Another bag of ${esc(opts.againOf.name)}${BG.bagOf(opts.againOf)?` (${esc(bagStr(BG.bagOf(opts.againOf)))})`:''}: a new entry with its own number, sticker and count.</p>`:''}
     <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="e.g. Seeed XIAO ESP32-S3"></div>
     ${inBag?'<div class="bagtag inbag">':`<label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>`}
       <span class="bt-num" id="p-bagshow">${esc(bagStr(p.bag||nextBag()))}</span>

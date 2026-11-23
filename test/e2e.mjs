@@ -292,6 +292,7 @@ await page.fill('#inb-paste', await IN.encode({ partsbin: 1, batch: { id: 'ptest
   { id: 'p-bme280', category: 'Sensors', mpn: 'BME280', iface: ['I2C', 'SPI'], addr: '0x77, 0x76', volts: '3–5 V', notes: 'Bosch', tags: ['qwiic'] },
   { id: 'p-scd41', iface: ['I2C'], addr: '0x62' },
   { id: 'p-not-here', volts: '5 V' },
+  { id: 'p-gone', name: 'INA219 (Adafruit)', addr: '0x40' }, // a rename for a part that isn't here: not a new part
 ] } }));
 await page.click('#inb-go');
 await page.waitForSelector('.diff');
@@ -301,8 +302,16 @@ assert.deepEqual(await page.locator('.diff .k').allTextContents(), ['Part number
 await page.uncheck('.diff input[data-k="notes"]');
 await page.click('[data-a="apply"]');
 // a suggestion for a part this browser doesn't have is kept and explained, until it's dismissed
-await page.waitForSelector('text=isn’t in this browser’s inventory');
-assert.equal(await page.locator('.card.inb').count(), 0); assert.equal(await page.textContent('#tabbar .badge'), '1');
+await page.waitForSelector('.note.lost');
+assert.equal(await page.locator('.card.inb').count(), 0); assert.equal(await page.textContent('#tabbar .badge'), '2');
+// each is named (by its id when the suggestion has no name), with its own Skip
+assert.match(await page.textContent('.note.lost p'), /^2 suggestions are for parts that aren’t in this browser’s inventory/);
+assert.deepEqual(await page.locator('.note.lost .row .grow').allTextContents(), ['p-not-here', 'INA219 (Adafruit)']);
+assert.equal(await page.locator('.note.lost .row .grow .mono').count(), 1);
+await page.click('.note.lost .row:has-text("INA219") [data-a="skip"]');
+await page.waitForFunction(() => document.querySelectorAll('.note.lost .row').length === 1);
+assert.equal(await page.textContent('#tabbar .badge'), '1');
+assert.match(await page.textContent('.note.lost p'), /^1 suggestion is for a part that isn’t in this browser’s inventory/);
 page.once('dialog', d => d.accept());
 await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');
 let bme2 = await part('p-bme280');

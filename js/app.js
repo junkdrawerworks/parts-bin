@@ -875,17 +875,24 @@ function renderInbox(m){
   wireRefs(m);
 }
 function batchSection(b){
-  const ups=b.items.filter(isUpdate), news=b.items.filter(x=>!isUpdate(x)&&x.name);
+  // An item with an id is a suggestion for that part, with a name or without one (a rename); only one without is something
+  // to bag. A suggestion for a part this browser doesn't have is never offered as a new part: that would make a second
+  // record of it once the device that has it syncs.
+  const ups=b.items.filter(isUpdate), news=b.items.filter(x=>!x.id), lost=b.items.filter(x=>x.id&&!S.parts.has(x.id));
   const sec=h(`<section class="batch" data-batch="${esc(b.id)}"><div class="section-h"><h3>${esc(b.name||SOURCES[b.source])}</h3><span class="tiny">${b.name?esc(SOURCES[b.source])+' · ':''}${b.items.length} left</span></div>
     <div class="row batchbar">${ups.length>1?`<button class="btn primary" data-a="all">Apply all ${ups.length}</button>`:''}<span class="grow"></span><button class="btn sm" data-a="drop">Dismiss the rest</button></div></section>`);
   sec.querySelector('[data-a="all"]')?.addEventListener('click',()=>applyUpdates(b, ups.map(x=>({x,keys:ticked(b,x)}))));
   sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; settled(b,null); IN.resolve(INBOX,b.id,null); keepInbox(); render(); };
   for(const x of news) sec.append(newCard(b,x));
   for(const x of ups) sec.append(updateCard(b,x));
-  // Suggestions for parts this browser doesn't have. They stay until dismissed: the parts may be on another device
-  // that hasn't synced here yet.
-  const lost=b.items.filter(x=>!isUpdate(x)&&!x.name).length;
-  if(lost) sec.append(h(`<div class="note" style="margin-bottom:14px">${lost} suggestion${lost===1?' is':'s are'} for ${lost===1?'a part that isn’t':'parts that aren’t'} in this browser’s inventory. If another device has ${lost===1?'it':'them'}, sync here first and ${lost===1?'it':'they'}’ll show up; otherwise dismiss.</div>`));
+  // Suggestions for parts this browser doesn't have, each named, with its own Skip. They stay until skipped: the parts
+  // may be on another device that hasn't synced here yet.
+  if(lost.length){
+    const n=lost.length, note=h(`<div class="note lost" style="margin-bottom:14px"><p>${n} suggestion${n===1?' is':'s are'} for ${n===1?'a part that isn’t':'parts that aren’t'} in this browser’s inventory. If another device has ${n===1?'it':'them'}, sync here first and ${n===1?'it':'they'}’ll show up; otherwise skip ${n===1?'it':'them'}.</p>
+      ${lost.map(x=>`<div class="row" data-k="${esc(x.k)}"><span class="grow">${x.name?esc(x.name):`<span class="mono">${esc(x.id)}</span>`}</span><button class="btn sm" data-a="skip">Skip</button></div>`).join('')}</div>`);
+    note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ settled(b,[r.dataset.k]); IN.resolve(INBOX,b.id,[r.dataset.k]); keepInbox(); render(); });
+    sec.append(note);
+  }
   return sec;
 }
 // Parts already listed that this could be: the one Claude named first, then near matches on the name or part number.

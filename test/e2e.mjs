@@ -57,6 +57,9 @@ await writeFile(exportFile, JSON.stringify({
 const fakeNfc = () => {
   window.__written = []; let pending = null;
   window.__tap = () => { const p = pending; pending = null; if (!p) return false; window.__written.push(p.msg.records[0].data); p.resolve(); return true; };
+  // the sticker refuses the write, as a real one does: NotAllowedError (it already holds something), NetworkError (taken away too soon)
+  window.__fail = (name, msg) => { const p = pending; pending = null; if (!p) return false; p.reject(new DOMException(msg || name, name)); return true; };
+  window.__waiting = () => !!pending;
   window.NDEFReader = class {
     async write(msg, o = {}) { return new Promise((resolve, reject) => { const p = pending = { msg, resolve, reject }; o.signal?.addEventListener('abort', () => { if (pending === p) pending = null; reject(new DOMException('stopped', 'AbortError')); }); }); } // a write that's stopped isn't made
     async scan() { window.__reader = this; }
@@ -1426,6 +1429,51 @@ await desk.goto(base);
   assert.ok(JSON.parse(await up.evaluate(() => localStorage.getItem('parts-bin'))).items.bins['box-u'].del, 'the box was deleted');
   assert.deepEqual(up.problems, []);
   await uCtx.close();
+}
+
+// ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
+// it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
+// sheet is open says to close it (it did nothing)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', location: 'Moving boxes', t: 1 } },
+    parts: {
+      'p-11': { name: 'Thing 0', binId: 'box-1', qty: 1, unit: 'pcs', tags: [], bag: 11, tagWritten: true, t: 1 },
+      'p-12': { name: 'Thing 1', binId: 'box-1', qty: 1, unit: 'pcs', tags: [], bag: 12, t: 1 },
+    } } });
+  const sCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await sCtx.addInitScript(fakeNfc);
+  await sCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const sp = await sCtx.newPage();
+  sp.problems = []; sp.on('pageerror', e => sp.problems.push(e.message)); sp.on('console', m => { if (m.type() === 'error') sp.problems.push(m.text()); });
+  await sp.goto(base + '#part/p-12'); await sp.waitForFunction(() => !!window.__reader);
+  await sp.click('text=Bag tag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
+  // bag #011's sticker held up by mistake: Chrome reads it, then refuses the write
+  await sp.evaluate(url => window.__read(url), base + '#bag/011');
+  assert.equal(await sp.evaluate(() => location.hash), '#part/p-12', 'reading it left the tag sheet');
+  await sp.evaluate(() => window.__fail('NotAllowedError', 'The NFC tag already has data.'));
+  await sp.waitForSelector('#tz.bad');
+  assert.equal(await sp.textContent('#t-status'), 'That’s bag #011’s sticker (Thing 0, BOX 01). Hold a blank one. Writing over it makes #011’s sticker open #012.');
+  assert.equal((await sp.textContent('.sheet #write')).trim(), 'Write over #011’s sticker');
+  assert.equal(await sp.locator('.sheet #write svg').count(), 1, 'the button lost its icon');
+  // a sticker that holds something, with no reading of it: what writing over it would do
+  await sp.click('.sheet #done'); await sp.waitForFunction(() => !document.querySelector('.sheet'));
+  await sp.click('text=Bag tag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
+  await sp.evaluate(() => window.__fail('NotAllowedError', 'The NFC tag already has data.'));
+  await sp.waitForSelector('#tz.bad');
+  assert.equal(await sp.textContent('#t-status'), 'That sticker already holds a link. If it’s on another bag, use a blank one: writing over it makes that bag’s sticker open this one.');
+  assert.equal((await sp.textContent('.sheet #write')).trim(), 'Write over it'); assert.equal(await sp.locator('.sheet #write svg').count(), 1);
+  await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
+  assert.ok(await sp.evaluate(() => window.__tap())); await sp.waitForSelector('#tz.ok');
+  await sp.waitForFunction(() => !document.querySelector('.sheet'));
+  // a tag held while the Edit sheet is open says to close it, and stays where it is
+  await sp.waitForTimeout(3100); // a tag read straight after one is written is that tag
+  await sp.click('#edit'); await sp.waitForSelector('.sheet #p-name');
+  await sp.evaluate(url => window.__read(url), base + '#bag/011');
+  await sp.waitForSelector('#toast:has-text("Close this to open #011")');
+  assert.equal(await sp.evaluate(() => location.hash), '#part/p-12');
+  assert.deepEqual(sp.problems, []);
+  await sCtx.close();
 }
 
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin

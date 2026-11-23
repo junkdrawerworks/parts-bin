@@ -816,11 +816,12 @@ function tagSheet(b, kind='bin', opts={}){
   const native = NFC_OK && !FRAMED;
   const title = kind==='part' ? `Tag bag <span class="label lg">${esc(bagStr(b.bag)||b.name)}</span>` : `Tag <span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span>`;
   let ctl=null, written=false; // however the sheet closes (Back, Escape, a tap outside, Cancel), a write still waiting for the sticker stops
+  tagWait={read:null}; const wait=tagWait; // a tag read while this sheet is open (onTag): whose sticker is being held
   const {el,close}=sheet(`<h3>${title}</h3>
     ${kind==='part'&&b.bag?`<p class="muted">${newBag?`This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.`:`Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.`}</p>`:''}
     <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
-    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
+    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(tagWait===wait) tagWait=null; if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
   el.querySelector('#done').onclick=close;
   // The number was free when the sheet opened. If another part has taken it since (another tab, a sync), stop here
   // rather than put two bags on one number.
@@ -845,17 +846,26 @@ function tagSheet(b, kind='bin', opts={}){
       try{ navigator.vibrate?.([40,60,40]); }catch{}
       tz.className='tagzone bad';
       if(e.name==='NotAllowedError' && !overwrite && !/permission|activation|gesture/i.test(e.message||'')){
-        st.textContent='That sticker already holds something.'; const w=el.querySelector('#write'); w.textContent='Write over it'; w.onclick=()=>write(true);
+        // Most likely another bag's sticker, held up by mistake: Chrome may have read it as it came near. Writing over it
+        // would make that bag's sticker open this one, and nothing in the data would show it.
+        const r=wait.read && Date.now()-wait.read.at<3000 ? tagTarget(wait.read.url) : null, hit=r && findTarget(r);
+        const other=hit && !(hit.kind===kind && hit.item.id===b.id) ? hit : null;
+        if(other){ const x=other.item, xl=other.kind==='part'?(bagStr(x.bag)||x.name):x.code, about=other.kind==='part'?[x.bag?x.name:'', binOf(x)?.code]:[x.name];
+          st.textContent=`That’s ${other.kind==='part'?(x.bag?'bag ':''):isBox(x)?'box ':'bin '}${xl}’s sticker${about.filter(Boolean).length?` (${about.filter(Boolean).join(', ')})`:''}. Hold a blank one. Writing over it makes ${xl}’s sticker open ${label}.`;
+          writeBtn(`Write over ${xl}’s sticker`); }
+        else { st.textContent='That sticker already holds a link. If it’s on another bag, use a blank one: writing over it makes that bag’s sticker open this one.'; writeBtn('Write over it'); }
       } else if(/activation|gesture/i.test(e.message||'')) st.textContent='Tap Write tag to start.';
       else if(e.name==='NotAllowedError') st.textContent='NFC is blocked for this site: tap the icon left of the address → Permissions → NFC.';
       else if(e.name==='NotReadableError') st.textContent='NFC looks switched off. Turn it on in the phone’s settings.';
       else st.textContent='Couldn’t write it ('+(e.message||e.name)+'). Hold it flat and still, then tap Write tag.';
     }
   }
+  // the Write button, to write over what's on the sticker (with its icon)
+  function writeBtn(text){ const w=el.querySelector('#write'); w.innerHTML=`${ICONS.nfc} ${esc(text)}`; w.onclick=()=>write(true); }
   if(native){
     el.querySelector('#write').onclick=()=>write(false);
     // When NFC is already allowed, start listening straight away: no extra tap between saving and tagging.
-    if(opts.overwrite){ const w=el.querySelector('#write'); w.textContent='Write over it'; w.onclick=()=>write(true); }
+    if(opts.overwrite) writeBtn('Write over it');
     if(opts.auto) navigator.permissions?.query({name:'nfc'}).then(p=>{ if(p.state==='granted') write(!!opts.overwrite); }).catch(()=>{});
   }
 }
@@ -864,7 +874,7 @@ function tagSheet(b, kind='bin', opts={}){
 // instead of Android offering another app (old tags point at the Stockroom artifact on claude.ai).
 // Chrome pauses the listener when the tab is hidden and resumes it when it comes back.
 // Once NFC is allowed for the site it starts by itself; the first time, the NFC button asks.
-let reading=null, lastWrite=0;
+let reading=null, lastWrite=0, tagWait=null; // tagWait: while a tag sheet is open, the last tag read ({url, at})
 const OLD_HOSTS=/(^|\.)claude\.ai$/;
 function tagTarget(u){
   let url; try{ url=new URL(u); }catch{ return null; }
@@ -879,18 +889,22 @@ function findTarget(t){
   const p=BG.opens(S.parts.values(), t.arg); return p&&{kind:'part',item:p};
 }
 function onTag(ev){
-  if(document.querySelector('#sheet-root .sheet') || Date.now()-lastWrite<3000) return; // writing, or the tag just written
+  if(Date.now()-lastWrite<3000) return; // the tag just written
   const recs=ev.message?.records||[];
   if(!recs.length) return; // a blank sticker
+  const open=!!document.querySelector('#sheet-root .sheet');
   for(const rec of recs){
     if(rec.recordType!=='url' && rec.recordType!=='absolute-url') continue;
-    const t=tagTarget(new TextDecoder().decode(rec.data)); if(!t) continue;
+    const url=new TextDecoder().decode(rec.data), t=tagTarget(url); if(!t) continue;
+    // A tag sheet keeps it, to say whose sticker it is if writing fails; another sheet says what it's in the way of.
+    if(tagWait){ tagWait.read={url, at:Date.now()}; return; }
+    if(open){ const hit=findTarget(t); if(hit) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg);
     if(t.old){ const hit=findTarget(t); if(hit && S.canWrite) setTimeout(()=>offerRewrite(hit),150); }
     return;
   }
-  toast('That tag isn’t one of yours');
+  if(!open && !tagWait) toast('That tag isn’t one of yours');
 }
 function offerRewrite({kind,item}){
   const label=kind==='part'?(bagStr(item.bag)||item.name):item.code;

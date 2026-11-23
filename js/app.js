@@ -529,6 +529,7 @@ function renderPartPage(m, pid){
 function aName(n){ n=String(n||'').trim(); const w=n.split(/\s/)[0]||'';
   const an=/^[aeiou]/i.test(w) && !/^(?:uni|use|usb|eu|one)/i.test(w) || /^8|^1[18](?:\D|$|\d{2})/.test(w) || /^[FHLMNRS](?:[A-Z0-9]|$)/.test(w) || /^X[0-9]/.test(w);
   return (an?'an ':'a ')+n; }
+let bomOnly=''; // the lines shown, by status (have, check, short, missing), or '' for all of them: a tap on a count above the results
 let bomPicked=''; // the saved BOM in the box, picked or just saved, so the picker still shows it when the screen is drawn again
 function renderBom(m){
   m.append(h('<div class="topbar"><h2>BOM check</h2></div>'));
@@ -543,8 +544,8 @@ function renderBom(m){
   m.append(ui);
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
   // kept as it's typed, so another screen, a reload or a redraw doesn't lose it; changed, it's no longer the saved one picked
-  ta.oninput=()=>{ localSet('sr.bom',ta.value); bomPicked=''; };
-  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); bomPicked=p?p.id:''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
+  ta.oninput=()=>{ localSet('sr.bom',ta.value); bomPicked=''; bomOnly=''; };
+  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); bomPicked=p?p.id:''; bomOnly=''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
@@ -564,12 +565,13 @@ function renderBom(m){
         if(near(r)){ st='check'; cls='warn'; check++; }
         else if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
       const unit=r.unit||unitOf(r);
-      return `<tr><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
+      return `<tr data-st="${st.split(' ')[0]}"><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
     // Everything on hand says so, and where it all is (the bins in the order the list comes to them). Otherwise a count of
     // none isn't shown: a red "0 missing" read as something wrong.
     let sum, say;
     if(!short && !missing && !check){
+      bomOnly='';
       const ids=new Set(), bins=[], loose=new Set();
       for(const r of items) if(r.m){ ids.add(r.m.p.id); const b=binOf(r.m.p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); }
       const and=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1], n=ids.size;
@@ -579,7 +581,9 @@ function renderBom(m){
     } else {
       const counts=[[have,'have','ok'],[check,'check','warn'],[short,'short','warn'],[missing,'missing','bad']].filter(([k])=>k);
       // the shopping list from the top as well, so a phone needn't scroll past every line to it
-      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<span class="chip ${c}">${k} ${w}</span>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button></div>`;
+      // each count shows only its lines when tapped, and every line again when tapped again
+      if(!counts.some(([,w])=>w===bomOnly)) bomOnly='';
+      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<button type="button" class="chip ${c}" data-only="${w}" aria-pressed="false">${k} ${w}</button>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button></div>`;
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
@@ -588,6 +592,19 @@ function renderBom(m){
     const shopping=items.filter(r=>!r.heading && (near(r) || lacks(r))).filter(r=>!r.m || near(r) || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>near(r)
       ? `${r.qty} ${r.unit||'×'} ${r.name} (check: you have ${aName(r.m.p.name)})` // all of it, in case what was found is the wrong part
       : `${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${asPiece(r)?`${r.qty} ${r.unit} `:''}${r.name}`); // 0.2 m heat shrink, 1 × BME280, 1 × 2 m USB-C cable
+    // A heading shows while a line under it does (or always, with every line shown).
+    const only=()=>{
+      out.querySelectorAll('.bom-summary [data-only]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.only===bomOnly)));
+      out.querySelector('.bom-summary')?.classList.toggle('only',!!bomOnly);
+      let sect=null, any=false; const head=()=>{ if(sect) sect.hidden=!!bomOnly && !any; };
+      for(const tr of out.querySelectorAll('.bom-table tbody tr')){
+        if(tr.classList.contains('sect')){ head(); sect=tr; any=false; continue; }
+        tr.hidden=!!bomOnly && tr.dataset.st!==bomOnly; if(!tr.hidden) any=true;
+      }
+      head();
+    };
+    only();
+    out.querySelectorAll('.bom-summary [data-only]').forEach(b=>b.onclick=()=>{ bomOnly=bomOnly===b.dataset.only?'':b.dataset.only; only(); said(bomOnly?`Showing only ${b.textContent}`:'Showing every line'); });
     out.querySelectorAll('#copy,#copytop').forEach(b=>b.onclick=()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }

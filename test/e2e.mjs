@@ -428,6 +428,24 @@ await page.waitForFunction(() => window.__shared === '1 × SGP30');
 await page.evaluate(() => { window.__shared = ''; });
 await page.click('.bom-summary #copytop');
 await page.waitForFunction(() => window.__shared === '1 × SGP30');
+// a tap on a count shows only its lines (the 10 to order on a 40-line list, without scrolling past the 30 on hand), with
+// a heading only while a line under it shows; a tap again shows every line, and so does a new list
+const shownRows = () => page.$$eval('.bom-table tbody tr', rs => rs.filter(r => r.offsetParent).map(r => r.querySelector('.it, th').textContent));
+await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts'); await page.click('#check');
+await page.click('.bom-summary [data-only="missing"]');
+assert.deepEqual(await shownRows(), ['Electronics', 'SGP30']);
+assert.equal(await page.getAttribute('.bom-summary [data-only="missing"]', 'aria-pressed'), 'true');
+await page.waitForFunction(() => document.getElementById('say').textContent === 'Showing only 1 missing', null, { timeout: 2000 }).catch(() => assert.fail('the filter said nothing'));
+await page.click('.bom-summary [data-only="have"]');
+assert.deepEqual(await shownRows(), ['Electronics', 'SCD41', 'Hardware Supplies', 'heat-set inserts']);
+await page.click('#check'); // checked again, it stays as it was
+assert.deepEqual(await shownRows(), ['Electronics', 'SCD41', 'Hardware Supplies', 'heat-set inserts']);
+await page.click('.bom-summary [data-only="have"]');
+assert.equal((await shownRows()).length, 5);
+assert.equal(await page.getAttribute('.bom-summary [data-only="have"]', 'aria-pressed'), 'false');
+await page.click('.bom-summary [data-only="missing"]');
+await page.fill('#bom', '1 SCD41\nSGP30\n1 BME280'); await page.click('#check');
+assert.equal((await shownRows()).length, 3, 'a new list shows every line');
 await page.fill('#bom', '1 SCD41 with a long description of the board it goes on, far wider than a phone\n1 SGP30'); await page.click('#check');
 const card = await page.evaluate(() => { const r = document.querySelector('.bom-table tbody tr'), line = parseFloat(getComputedStyle(r.querySelector('td:nth-child(4)')).lineHeight) || 20, box = r.getBoundingClientRect(), chip = r.querySelector('.chip').getBoundingClientRect();
   return { grid: getComputedStyle(r).display, h: box.height, chipIn: chip.right <= box.right, where: r.querySelector('td:nth-child(4)').getBoundingClientRect().height, line, cells: r.cells.length, wide: document.documentElement.scrollWidth };});

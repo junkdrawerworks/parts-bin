@@ -183,6 +183,10 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 .bom-summary{align-items:center}
 .bom-summary .grow{flex:1 1 auto}
+/* a count above the results is a button: tapped, only its lines show; tapped again, every line */
+.bom-summary button.chip{border:0;font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:6px 12px;cursor:pointer}
+.bom-summary button.chip[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
+.bom-summary.only button.chip[aria-pressed="false"]{opacity:.65}
 /* On a phone each line of the results is a card of two lines, from the same table (a screen reader still reads a table):
    need × item and its status, then what it matched, the stock, and its bin, bag and bin name, cut short to fit. */
 @media(max-width:480px){

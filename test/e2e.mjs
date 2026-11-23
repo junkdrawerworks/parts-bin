@@ -893,6 +893,12 @@ await page.evaluate(() => {
   localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' }));
 });
 for (const hash of ['#scan', '#inbox', '#parts', '#part/p-scd41', '#bins', '#bin/box-long', '#bom', '#part/p-long']) { await page.goto(base + hash); await page.waitForTimeout(150); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, hash + ' scrolls sideways on a phone'); }
+// every field writes at 16 px on a phone, as Safari on an iPhone zooms the page in on a field with smaller writing as soon
+// as it's tapped: search, Pack, BOM check, the Inbox, a part's count, and the part and bin sheets
+const smallFields = () => page.evaluate(() => [...document.querySelectorAll('input:not([type=file]):not([type=checkbox]),select,textarea')].filter(e => e.getClientRects().length && parseFloat(getComputedStyle(e).fontSize) < 16).map(e => e.id || e.tagName));
+for (const hash of ['#bins', '#scan', '#inbox', '#bom', '#part/p-scd41']) { await page.goto(base + hash); await page.waitForTimeout(150); assert.deepEqual(await smallFields(), [], hash + ': a field under 16 px'); }
+await page.click('#edit'); await page.waitForSelector('#p-name'); await page.$eval('.sheet details.more', d => { d.open = true; }); assert.deepEqual(await smallFields(), [], 'the part sheet: a field under 16 px'); await page.click('.sheet #cancel');
+await page.goto(base + '#bin/bin-env'); await page.click('#edit'); await page.waitForSelector('#f-code'); assert.deepEqual(await smallFields(), [], 'the bin sheet: a field under 16 px'); await page.click('.sheet #cancel');
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));

@@ -34,6 +34,8 @@ h1,h2,h3{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font
 code,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
 button{font:inherit;color:inherit;cursor:pointer}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--field-line);border-radius:var(--r);padding:8px 10px;width:100%}
+/* 16 px on a phone: Safari on an iPhone zooms the page in on a field with smaller writing, as soon as it's tapped (pinch-zoom still works) */
+@media(max-width:760px){input,select,textarea{font-size:16px}}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 /* Take photo and Choose photo are labels round a hidden file input: the ring goes on the button you see */
 label.btn:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}

@@ -1296,6 +1296,49 @@ await desk.goto(base);
   await lCtx.close();
 }
 
+// ---- two boxes with one code (each device made BOX 01 before they synced): either can still be edited (Save said "Code
+// BOX 01 already used" until one was renamed, and nothing said so), the Bins page and each box's page say to rename one,
+// and Pack's list tells them apart
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'box-a': { code: 'BOX 01', kind: 'box', name: '', location: 'Moving boxes', t: 1 }, 'box-b': { code: 'BOX 01', kind: 'box', name: '', location: 'Moving boxes', tagWritten: true, t: 2 },
+      'bin-c': { code: 'C1', name: 'Cables', location: 'Workroom', t: 1 } },
+    parts: { 'p-1': { name: 'Buzzer', binId: 'box-b', qty: 1, unit: 'pcs', tags: [], bag: 1, t: 1 } } } });
+  const tCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await tCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const tp = await tCtx.newPage();
+  tp.problems = []; tp.on('pageerror', e => tp.problems.push(e.message)); tp.on('console', m => { if (m.type() === 'error') tp.problems.push(m.text()); });
+  await tp.goto(base + '#bins'); await tp.waitForSelector('.codenote');
+  assert.equal(await tp.locator('.codenote').count(), 1);
+  assert.match(await tp.textContent('.codenote'), /BOX 01 is on two boxes\. Rename one, and rewrite its label\./);
+  // Pack's list: no trailing " · " on a box with no name, and the two told apart
+  await tp.goto(base + '#scan'); await tp.waitForSelector('#dest');
+  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01 · 0 bags', 'BOX 01 · 1 bag', 'C1 · Cables']);
+  // the box without a tag written is changed and saved, with its code as it was
+  await tp.goto(base + '#bin/box-a'); await tp.waitForSelector('.codenote');
+  await tp.click('#edit'); await tp.waitForSelector('.sheet #f-name');
+  await tp.fill('.sheet #f-name', 'Kitchen stuff'); await tp.click('.sheet #save');
+  await tp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.bins['box-a'].name === 'Kitchen stuff');
+  assert.equal(await tp.locator('.sheet').count(), 0, 'the sheet stayed open');
+  assert.match(await tp.textContent('#toast'), /^Saved/);
+  // a code typed that another bin has is still refused
+  await tp.click('#edit'); await tp.waitForSelector('.sheet #f-code');
+  await tp.fill('.sheet #f-code', 'c1'); await tp.click('.sheet #save');
+  await tp.waitForSelector('#toast:has-text("Code c1 already used")'); assert.equal(await tp.locator('.sheet').count(), 1);
+  await tp.click('.sheet #cancel');
+  // Rename on the box's page goes straight to the code; a new one there clears the note everywhere
+  await tp.waitForSelector('.codenote'); await tp.click('.codenote .btn'); await tp.waitForSelector('.sheet #f-code');
+  assert.equal(await tp.evaluate(() => document.activeElement.id), 'f-code');
+  await tp.fill('.sheet #f-code', 'BOX 02'); await tp.click('.sheet #save');
+  await tp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.bins['box-a'].code === 'BOX 02');
+  await tp.waitForFunction(() => !document.querySelector('.codenote'));
+  await tp.goto(base + '#bins'); await tp.waitForSelector('.bin'); assert.equal(await tp.locator('.codenote').count(), 0);
+  await tp.goto(base + '#scan'); await tp.waitForSelector('#dest');
+  assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01', 'BOX 02 · Kitchen stuff', 'C1 · Cables']);
+  assert.deepEqual(tp.problems, [], 'problems with two boxes on one code');
+  await tCtx.close();
+}
+
 // ---- works offline once it has been opened: every screen, the inventory and the fonts, with no network at all. The
 // server goes down as well as the browser: in some Chromium builds the browser's offline switch alone doesn't stop the
 // service worker's own requests, and this passed with no copy at all.

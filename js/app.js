@@ -186,7 +186,7 @@ function redrawResults(m, tb){
 // ---- Bins
 function renderBins(m){
   const tb=topbar(m,'Bins', S.canWrite?`<button class="btn primary" id="addbin">${ICONS.plus} Bin</button>`:'');
-  clashBar(m);
+  clashBar(m); codeNote(m);
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
   const bins=searchBins('');
@@ -255,6 +255,29 @@ function gapNote(m){
   const list=g.slice(0,30).map(bagStr).join(', ')+(g.length>30?` and ${g.length-30} more`:'');
   m.append(h(`<p class="tiny gapnote" style="margin:-4px 0 12px">On no part: ${list}. A bag with one of these numbers isn’t logged yet, or the number was skipped or its part deleted.</p>`));
 }
+// ---- one label code on two bins or boxes (two devices each made BOX 01 before they synced): each can still be edited,
+// and this says which to rename
+const codeKey=b=>String(b.code||'').toLowerCase();
+function codeTwins(b){ return [...S.bins.values()].filter(x=>x.id!==b.id && codeKey(x)===codeKey(b)); }
+function codeNote(m, only){
+  const groups=new Map(); for(const b of [...S.bins.values()].sort(binCodeSort)){ const k=codeKey(b); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(b); }
+  for(const list of groups.values()){
+    if(list.length<2 || (only && !list.includes(only))) continue;
+    const n=list.length, boxes=list.filter(isBox).length, num=n===2?'two':String(n);
+    const what=boxes===n?`${num} boxes`:!boxes?`${num} bins`:n===2?'a box and a bin':`${n} bins and boxes`;
+    // the one to rename: this one on its own page; on Bins, one without its tag written if there is one
+    const pick=only || list.find(x=>!x.tagWritten) || list[list.length-1];
+    const el=h(`<div class="checknote codenote"><div><b>${esc(list[0].code)} is on ${what}.</b> Rename one, and rewrite its label.</div>${S.canWrite?'<button class="btn sm">Rename</button>':''}</div>`);
+    el.querySelector('button')?.addEventListener('click',()=>editBin(pick,{code:true}));
+    m.append(el);
+  }
+}
+// How a bin or box reads in a list to pick from: its code and name, and where two share a code, where it is or how full.
+function contLabel(c){
+  const twins=codeTwins(c), n=partsInBin(c.id).length;
+  const tell=!twins.length?'':c.location&&twins.some(x=>(x.location||'')!==c.location)?c.location:`${n} ${isBox(c)?'bag':'part'}${n===1?'':'s'}`;
+  return [c.code, c.name, tell].filter(Boolean).join(' · ');
+}
 let knownClash=null;
 function noteNewClashes(){
   const now=[...bagClashes().keys()];
@@ -281,11 +304,12 @@ function renderBin(m, binId){
   head.querySelector('#print').onclick=()=>printList(b,ps);
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
   m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${b.sealed?' · sealed':''}</div></div></div>`));
+  codeNote(m,b);
   if(!ps.length){ const e=h(`<div class="empty"><p>${isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p>${S.canWrite?`<button class="btn primary" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`); e.querySelector('#packe')?.addEventListener('click',pack); m.append(e); return; }
   if(isBox(b)&&S.canWrite){
     // unpack helper: move bags out of the box into a bin. The bin picked stays picked while the page redraws after each move.
     const bins=[...S.bins.values()].filter(x=>!isBox(x)).sort(binCodeSort);
-    const bar=h(`<div class="row" style="margin-bottom:10px"><label class="muted" for="unpack-to">Unpack into</label><select id="unpack-to" style="width:auto"><option value="">choose a bin…</option>${bins.map(x=>`<option value="${x.id}" ${x.id===unpackTo?'selected':''}>${esc(x.code)} · ${esc(x.name||'')}</option>`).join('')}</select><span class="tiny">then tap a bag's ⇢</span></div>`);
+    const bar=h(`<div class="row" style="margin-bottom:10px"><label class="muted" for="unpack-to">Unpack into</label><select id="unpack-to" style="width:auto"><option value="">choose a bin…</option>${bins.map(x=>`<option value="${x.id}" ${x.id===unpackTo?'selected':''}>${esc(contLabel(x))}</option>`).join('')}</select><span class="tiny">then tap a bag's ⇢</span></div>`);
     bar.querySelector('#unpack-to').onchange=e=>{ unpackTo=e.target.value; };
     m.append(bar);
     const l=h('<div class="list"></div>');
@@ -432,7 +456,7 @@ function renderScan(m){
   let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
   const nb=nextBag();
   const head=h(`<div class="packhead">
-    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(c.code)} · ${esc(c.name||'')}</option>`).join('')}</select><button class="btn sm" id="newbin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
+    <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(contLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
   m.append(head);
   head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
@@ -561,7 +585,7 @@ function sheet(html, onClose){
   openSheet=me; keepStep();
   return {el:bg.querySelector('.sheet'), close};
 }
-function editBin(b){
+function editBin(b, {code:toCode=false}={}){
   const isNew=!b; const wantBox = b===null && localGet('sr.newkind','bin')==='box';
   b=b||{id:id(), kind:wantBox?'box':'bin', code:wantBox?nextBoxCode():nextBinCode(), name:'', location:wantBox?'Moving boxes':localGet('sr.lastloc',''), notes:''};
   const locs=[...new Set([...S.bins.values()].map(x=>x.location).filter(Boolean))].sort();
@@ -576,13 +600,15 @@ function editBin(b){
     ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close;
+  if(toCode){ const f=el.querySelector('#f-code'); f.focus(); f.select(); } // Rename: straight to the code
   el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
   el.querySelector('#del')?.addEventListener('click', async()=>{ const n=partsInBin(b.id).length, box=isBox(b);
     const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
     if(!confirm(`Delete ${word(b.kind)} ${b.code}?${left}`)) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); toast(`Deleted ${word(b.kind)} ${b.code}`); go('bins'); });
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ toast('Label code is required'); return; }
-    const dup=[...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
+    // a code another bin has is refused only when it's typed here: one that already clashes (two devices made it) still saves
+    const dup=(isNew||code.toLowerCase()!==String(b.code||'').toLowerCase()) && [...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
     const doc={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim(), photo:b.photo||'', tagWritten:!!b.tagWritten, updatedAt:new Date().toISOString()};
     const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it

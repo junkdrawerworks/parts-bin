@@ -1676,7 +1676,8 @@ await desk.goto(base);
   await ip.getByRole('button', { name: 'Skip Rotary encoder' }).focus(); await ip.keyboard.press('Enter');
   await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 2);
   assert.equal(await at(), 'BH1750 light sensor (GY-302)');
-  assert.equal(await ip.textContent('#say'), 'Skipped Rotary encoder');
+  // said on the next frame, once the card has gone
+  await ip.waitForFunction(() => document.getElementById('say').textContent === 'Skipped Rotary encoder', null, { timeout: 2000 }).catch(() => assert.fail('Skip didn’t say what it skipped'));
   // Apply the same
   await ip.getByRole('button', { name: 'Apply to BH1750 light sensor (GY-302)' }).focus(); await ip.keyboard.press('Enter');
   await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 1);

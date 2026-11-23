@@ -96,6 +96,21 @@ test('a number with a unit, and a line of plain words, match as before', () => {
   assert.equal(matchPart('red hookup wire', [{ id: 'w', name: 'Silicone wire 22AWG' }]), null, 'under half of the words');
 });
 
+test('a part without the line’s value or variant is only a fuzzy match', () => {
+  const parts = [{ id: 'r10k', name: '10k resistor' }, { id: 's3', name: 'Seeed XIAO ESP32-S3' }, { id: 'c10', name: '10uF capacitor' }, { id: 'ins', name: 'M2 heat-set inserts' }];
+  // it can still be offered, but under 0.8, so BOM check marks it fuzzy (a 10k for a 1k showed as sure)
+  for (const line of ['1k resistor', '4.7k resistor', 'ESP32-C3', '100uF capacitor', 'M3 heat-set inserts']) {
+    const m = matchPart(line, parts); assert.ok(m && m.conf < 0.8, `${line}: ${m?.p.name} at ${m?.conf}`);
+  }
+  // the right value is sure, however it's spaced, and is picked over the wrong one
+  assert.equal(matchPart('10k resistor', parts).conf, 1);
+  assert.equal(matchPart('ESP32-S3', parts).conf, 1);
+  assert.equal(matchPart('100uF capacitor', [{ id: 'c', name: '100 uF capacitor' }]).conf, 1);
+  assert.equal(matchPart('40pin header', [{ id: 'h', name: 'Male header 40 pin' }]).conf, 1);
+  assert.equal(matchPart('1k resistor', [...parts, { id: 'r1k', name: '1k resistor' }]).p.id, 'r1k');
+  assert.equal(matchPart('ESP32-C3', [...parts, { id: 'c3', name: 'ESP32-C3 SuperMini' }]).p.id, 'c3');
+});
+
 test('a shortfall in metres or grams reads as a person would write it', () => {
   assert.equal(shortBy(0.3, 0.1), 0.2);
   assert.equal(shortBy(1.25, 0.5), 0.75);

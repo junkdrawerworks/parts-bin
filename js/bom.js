@@ -32,21 +32,30 @@ export function parseBom(text) {
 const UNIT = /^\d+(\.\d+)?[a-z]+$/, VOLTS = /^\d+(\.\d+)?v$/;
 export const isPartNumber = w => w.length >= 4 && /[a-z]/.test(w) && /\d/.test(w) && (!UNIT.test(w) || VOLTS.test(w));
 
+// A value or a variant: a number with a unit (1k, 4.7k, 100uF, 3mm) or a short code with a digit (C3, S3, M3). A part
+// without one the line has may still be the part, but isn't sure to be (a 10k resistor for "1k resistor", an ESP32-S3
+// for "ESP32-C3"), so it matches no better than fuzzy. "100 uF" and "100uF" are the same value. Takes words from norm().
+const isValue = w => UNIT.test(w) || (w.length <= 3 && /\d/.test(w) && /[a-z]/.test(w));
+const joined = hay => hay.replace(/(^| )(\d+(?:\.\d+)?) ([a-z]+)(?= |$)/g, '$1$2$3'); // "100 uf" as "100uf"
+const FUZZY = 0.75; // under BOM check's 0.8 for a sure match
+
 // The part a line most likely means: the one whose name, part number and tags hold the most of the line's words, counted
 // by length, with part numbers counted twice. A line that names a part number only matches a part that has one of them,
 // and a part that has one always matches, at a share of at least 0.6: "SCD41 breakout" is the SCD41, and "BME280
-// breakout" isn't a BMP280 breakout. A line of plain words needs at least half of them. conf is the share.
+// breakout" isn't a BMP280 breakout. A line of plain words needs at least half of them. conf is the share, at most
+// FUZZY for a part without one of the line's values or variants.
 export function matchPart(name, parts) {
   const t = norm(name).split(' ').filter(w => w.length > 1); if (!t.length) return null;
   const weight = w => (isPartNumber(w) ? 2 : 1) * w.length, all = t.reduce((n, w) => n + weight(w), 0);
-  const numbered = t.some(isPartNumber);
+  const numbered = t.some(isPartNumber), values = t.filter(isValue);
   let best = null, bs = 0;
   for (const p of parts) {
-    const hay = norm([p.name, p.mpn, (p.tags || []).join(' ')].join(' '));
+    const hay = norm([p.name, p.mpn, (p.tags || []).join(' ')].join(' ')), hayJ = joined(hay);
     let s = 0, shared = false;
-    for (const w of t) if (hay.includes(w)) { s += weight(w); if (isPartNumber(w)) shared = true; }
-    const cov = s / all;
+    for (const w of t) if (hay.includes(w) || hayJ.includes(w)) { s += weight(w); if (isPartNumber(w)) shared = true; }
+    let cov = s / all;
     if (numbered ? !shared : cov < 0.5) continue;
+    if (values.length) { const has = new Set([...hay.split(' '), ...hayJ.split(' ')]); if (values.some(w => !has.has(w))) cov = Math.min(cov, FUZZY); }
     if (cov > bs) { bs = cov; best = p; }
   }
   return best ? { p: best, conf: numbered ? Math.max(bs, 0.6) : bs } : null;

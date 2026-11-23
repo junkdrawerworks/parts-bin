@@ -714,11 +714,14 @@ function editPart(p, opts={}){
   if(isNew && !p.binId){ const last=localGet('pb.lastbin',''); if(S.bins.has(last)) p.binId=last; }
   const bins=[...S.bins.values()].sort(binCodeSort);
   const cats=[...new Set([...S.parts.values()].map(x=>x.category).filter(Boolean))].sort();
+  // Where no tag can be written (an iPhone, a laptop), a part already in a bag shows its bag with no tick box: there's
+  // no tag to write, and unticking it wouldn't take it out of the bag (emptying Bag number does).
+  const inBag=!(NFC_OK&&!FRAMED) && !!BG.bagOf(p);
   const {el,close}=sheet(`<h3>${isNew?'New part':'Edit part'}</h3>
     <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="Seeed XIAO ESP32-S3"></div>
-    <label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>
+    ${inBag?'<div class="bagtag inbag">':`<label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>`}
       <span class="bt-num" id="p-bagshow">${esc(bagStr(p.bag||nextBag()))}</span>
-      <span class="bt-text"><span class="bt-head"></span><small>${NFC_OK&&!FRAMED?'Have a blank sticker ready; hold it to the top of the phone after you tap Save.':'Write the number on the bag. Tags need Chrome on Android.'}</small><small id="p-bagnote"></small></span></label>
+      <span class="bt-text"><span class="bt-head"></span><small>${inBag?'Write the number on the bag.':NFC_OK&&!FRAMED?'Have a blank sticker ready; hold it to the top of the phone after you tap Save.':'Write the number on the bag. Tags need Chrome on Android.'}</small><small id="p-bagnote"></small></span>${inBag?'</div>':'</label>'}
     <div class="grid2">
       <div class="field"><label for="p-bin">Bin</label><select id="p-bin"><option value="">— no bin —</option>${bins.map(b=>`<option value="${b.id}" ${b.id===p.binId?'selected':''}>${esc(b.code)} · ${esc(b.name||'')}</option>`).join('')}</select></div>
       <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="MCU boards"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
@@ -744,7 +747,7 @@ function editPart(p, opts={}){
     ${opts.photoFile?'<div class="tiny" style="margin-bottom:10px">The scanned photo will be attached.</div>':''}
     <div class="actions">${!isNew?'<button class="btn danger left" id="del">Delete</button>':''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close; enterSaves(el);
-  const dotag=el.querySelector('#p-dotag'), bagIn=el.querySelector('#p-bag'), saveBtn=el.querySelector('#save'), show=el.querySelector('#p-bagshow');
+  const dotag=el.querySelector('#p-dotag')||{checked:false}, bagIn=el.querySelector('#p-bag'), saveBtn=el.querySelector('#save'), show=el.querySelector('#p-bagshow');
   // Ticking the box fills in the next bag number; unticking it takes back a number it filled in, so the part is saved
   // without a bag. A number typed in, or the part's own bag, stays. filled: the number Parts Bin handed out here (opts.autoBag:
   // the one it was opened with), as opposed to one typed in.
@@ -759,12 +762,12 @@ function editPart(p, opts={}){
   const native=NFC_OK&&!FRAMED, was=S.parts.get(p.id), wasBag=BG.bagOf(was);
   const bagText=()=>{
     const n=BG.bagOf({bag:bagIn.value}), shown=bagStr(n||nextBag());
-    el.querySelector('.bt-head').textContent = n && n===wasBag ? (native ? (was.tagWritten ? 'Rewrite this bag’s tag when I save' : `Tag bag ${shown} when I save`) : `Keep it in bag ${shown}`)
+    el.querySelector('.bt-head').textContent = inBag && !n ? 'Not in a bag' : n && n===wasBag ? (native ? (was.tagWritten ? 'Rewrite this bag’s tag when I save' : `Tag bag ${shown} when I save`) : inBag ? `In bag ${shown}.` : `Keep it in bag ${shown}`)
       : native ? `Put it in bag ${shown} and tag it when I save` : `Put it in bag ${shown}`;
     el.querySelector('#p-bagnote').textContent = !wasBag || n===wasBag ? ''
       : (was.tagWritten ? `Bag ${bagStr(wasBag)}’s tag will stop opening this part` : `It leaves bag ${bagStr(wasBag)}`)+(n ? `; write ${bagStr(n)} on the new bag.` : '.');
   };
-  const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked); bagText(); };
+  const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=inBag&&!Number(bagIn.value)?'—':bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked||inBag&&!!Number(bagIn.value)); bagText(); };
   dotag.onchange=syncTag; bagIn.oninput=syncTag; syncTag();
   // A number handed out here comes from this device's last sync: bring in what other devices have packed since, so Save
   // can move it on if one of them has used it (below).

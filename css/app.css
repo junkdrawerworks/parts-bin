@@ -240,6 +240,7 @@ a{color:var(--accent-ink)}
 
 .bagtag{display:grid;grid-template-columns:auto auto 1fr;gap:4px 12px;align-items:center;border:2px dashed var(--line);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;cursor:pointer}
 .bagtag.on{border-style:solid;border-color:var(--accent);background:var(--accent-soft)}
+.bagtag.inbag{grid-template-columns:auto 1fr;cursor:default} /* a bag shown as it is, where no tag can be written */
 .bagtag input{width:20px;height:20px;accent-color:var(--accent)}
 .bagtag .bt-num{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
 .bagtag:not(.on) .bt-num{color:var(--ink3)}

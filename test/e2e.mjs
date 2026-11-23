@@ -1572,6 +1572,33 @@ await desk.goto(base);
   await fCtx.close();
 }
 
+// ---- Edit on a part that's in a bag, in a browser that can't write tags: the bag shows as it is, with no tick box (an
+// unticked "Keep it in bag #001" box suggested it would leave its bag, and ticking it did nothing)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts: { 'p-bagged': { name: 'Bagged part', qty: 2, unit: 'pcs', tags: [], bag: 1, t: 1 }, 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });
+  const kCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  await kCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const kp = await kCtx.newPage();
+  kp.problems = []; kp.on('pageerror', e => kp.problems.push(e.message)); kp.on('console', m => { if (m.type() === 'error') kp.problems.push(m.text()); });
+  const got = id => kp.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  await kp.goto(base + '#part/p-bagged'); await kp.click('#edit'); await kp.waitForSelector('.sheet .bagtag');
+  assert.equal(await kp.locator('#p-dotag').count(), 0, 'a tick box that does nothing here');
+  assert.equal(await kp.textContent('.bagtag .bt-num'), '#001');
+  assert.equal(await kp.textContent('.bagtag .bt-text'), 'In bag #001.Write the number on the bag.');
+  assert.ok(await kp.$eval('.bagtag', e => e.classList.contains('on')), 'drawn as ticked');
+  await kp.fill('#p-qty', '5'); await kp.click('.sheet #save'); await kp.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.equal((await got('p-bagged')).bag, 1); assert.equal((await got('p-bagged')).qty, 5);
+  // emptying the bag number still takes it out of its bag
+  await kp.click('#edit'); await kp.fill('#p-bag', '');
+  assert.equal(await kp.textContent('.bagtag .bt-head'), 'Not in a bag'); assert.equal(await kp.textContent('#p-bagnote'), 'It leaves bag #001.');
+  await kp.press('.sheet #p-name', 'Escape');
+  // a part with no bag keeps its box: unticking leaves it without a number
+  await kp.goto(base + '#part/p-loose'); await kp.click('#edit'); await kp.waitForSelector('.sheet #p-dotag');
+  assert.ok(await kp.isChecked('#p-dotag'));
+  assert.deepEqual(kp.problems, []);
+  await kCtx.close();
+}
+
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'b01': { code: 'B01', name: 'Sensors', location: 'Workroom', t: 1 } }, parts: { 'p-loose': { name: 'Loose part', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });

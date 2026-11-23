@@ -82,3 +82,13 @@ test('ids an object already has are refused, so they can’t vanish or turn into
   const m = M.mergeDocs(M.putItem(M.blankDoc(), 'parts', 'constructor', { name: 'X' }), M.blankDoc());
   assert.equal(m.items.parts.constructor.name, 'X');
 });
+test('two changes stamped the same time come out the same on every device', () => {
+  // a phone whose clock runs fast stamped the item; the laptop and the tablet are behind it, so both stamp its t + 1
+  const laptop = doc({ x: { name: 'SCD41', qty: 4, t: 1800000600001 } }), tablet = doc({ x: { name: 'SCD41', qty: 2, t: 1800000600001 } });
+  assert.equal(M.canon(M.mergeDocs(laptop, tablet)), M.canon(M.mergeDocs(tablet, laptop)));
+  // one deletes it and the other edits it at the same time: the deletion wins, either way round
+  const del = doc({ x: { name: 'SCD41', qty: 3, t: 50, del: 70 } }), edit = doc({ x: { name: 'SCD41', qty: 5, t: 70 } });
+  assert.ok(M.gone(M.mergeDocs(del, edit).items.parts.x)); assert.ok(M.gone(M.mergeDocs(edit, del).items.parts.x));
+  // a later edit still wins over both
+  assert.equal(M.mergeDocs(doc({ x: { name: 'SCD41', qty: 9, t: 71 } }), M.mergeDocs(del, edit)).items.parts.x.qty, 9);
+});

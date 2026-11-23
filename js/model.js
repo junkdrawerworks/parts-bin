@@ -67,7 +67,18 @@ export function canon(doc) {
   return JSON.stringify(sortObj({ app: APP, v: 1, items: doc.items }));
 }
 
-const newer = (x, y) => Math.max(x.t || 0, x.del || 0) >= Math.max(y.t || 0, y.del || 0);
+// Whether x wins over y: the later change. Two devices can stamp the same time (a clock behind the item's own stamp gives
+// old t + 1 on both), so a tie is settled the same way everywhere: a deletion wins, as gone() reads a deletion and an
+// edit at one time, and then the larger of the two as text. Either way round, every copy ends up with the same one.
+const stampOf = x => Math.max(x.t || 0, x.del || 0);
+const asText = x => JSON.stringify(Object.keys(x).sort().map(k => [k, x[k]]));
+function newer(x, y) {
+  if (x === y) return true;
+  const a = stampOf(x), b = stampOf(y);
+  if (a !== b) return a > b;
+  if (gone(x) !== gone(y)) return gone(x);
+  return asText(x) >= asText(y);
+}
 
 // first: this device's first sync with this copy. Then nothing on either side counts as removed.
 export function mergeDocs(local, remote, { first = false } = {}) {

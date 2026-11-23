@@ -250,3 +250,33 @@ test('a part with the line’s pin count or value comes before one with more of 
   assert.equal(matchPart('JST-PH 3-pin – Male', jst).p.id, 'ph3f');
   assert.ok(matchPart('JST-PH 3-pin – Male', jst).conf < 0.8, 'male isn’t in female');
 });
+
+test('designators in front of a line are its count, and say what kind of part a bare value is', () => {
+  // as schematics, forum posts and KiCad's grouped output write them
+  assert.deepEqual(parseBom('R1,R2,R3 10k\nR4, R5 220\nC1 C2 100nF\nD1-D4 1N4148\nR10 - R12 4.7k\nR7 1k\nC1, C2 10uF electrolytic'), [
+    { qty: 3, name: '10k resistor' }, { qty: 2, name: '220 resistor' }, { qty: 2, name: '100nF capacitor' }, { qty: 4, name: '1N4148 diode' },
+    { qty: 3, name: '4.7k resistor' }, { qty: 1, name: '1k resistor' }, { qty: 2, name: '10uF electrolytic' },
+  ]);
+  reads('R1,R2,R3 10k', 3, 'r10k');
+  reads('R4, R5 220', 2, 'r220');
+  reads('R4, R5 220 ohm', 2, 'r220');
+  reads('C1 C2 100nF', 2, 'c100n');
+  reads('D1-D4 1N4148', 4, 'd4148');
+  // one alone stays in the name as it was written, and matching looks past it
+  reads('LED1 5mm red LED', 1, 'led5r');
+  reads('U1 NE555', 1, 'ne555');
+  reads('Q1 2N2222', 1, 'q2222');
+  reads('J1 Screw terminal 2-pin', 1, 'st2');
+  assert.deepEqual(parseBom('LED1 5mm red LED\nU1 NE555'), [{ qty: 1, name: 'LED1 5mm red LED' }, { qty: 1, name: 'U1 NE555' }]);
+  // a count given as well is the count
+  assert.deepEqual(parseBom('R1, R2 10k x4\n2x R1 10k'), [{ qty: 4, name: '10k resistor' }, { qty: 2, name: 'R1 10k' }]);
+  // a part's own name that starts like one isn't a designator, and is still found by all of it
+  assert.deepEqual(parseBom('DHT22 sensor\nSCD41\nL298N motor driver\nR2D2 kit\nM3 screws\nD1 mini'), [
+    { qty: 1, name: 'DHT22 sensor' }, { qty: 1, name: 'SCD41' }, { qty: 1, name: 'L298N motor driver' }, { qty: 1, name: 'R2D2 kit' },
+    { qty: 1, name: 'M3 screws' }, { qty: 1, name: 'D1 mini' },
+  ]);
+  const boards = [P('d1', 'Wemos D1 mini'), P('c3', 'ESP32-C3 SuperMini'), P('s3', 'ESP32-S3 SuperMini')];
+  assert.equal(matchPart('D1 mini', boards).p.id, 'd1');
+  assert.equal(matchPart('C3 SuperMini', boards).p.id, 'c3');
+  assert.equal(matchPart('C3 SuperMini', boards).conf, 1);
+});

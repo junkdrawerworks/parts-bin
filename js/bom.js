@@ -27,10 +27,35 @@ const COUNTS = [ // [pattern, the count's group, the name's group, unless(match)
   [new RegExp(`^${N}\\s+(.+)$`), 1, 2, m => (/^\d{3,}$/.test(m[1]) && !/\s/.test(m[2])) || VALUE.test(m[2])], // 3 name; not 555 timer or 220 ohm
 ];
 export function parseBom(text) {
-  return String(text || '').split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(l => {
-    for (const [re, q, n, unless] of COUNTS) { const m = re.exec(l); if (m && !unless?.(m)) return { qty: Number(m[q]), name: m[n].trim() }; }
-    return { qty: 1, name: l };
-  });
+  return String(text || '').split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
+}
+function readLine(l) {
+  const d = designators(l);
+  if (d) {
+    // two or more are the count, unless one is given too, and so is one before a bare value, which they name the kind of:
+    // "R1,R2,R3 10k" is three 10k resistors. One before anything else stays in the name as written (matchPart looks past it).
+    const r = count(d.rest), kind = /^\d[\w.]*(?:\s*(?:ohms?|Ω))?$/i.test(r.name) ? d.kind : '';
+    if (d.n > 1 || kind) return { qty: r.qty ?? d.n, name: kind ? `${r.name} ${kind}` : r.name };
+  }
+  const r = count(l); return { qty: r.qty ?? 1, name: r.name };
+}
+function count(l) {
+  for (const [re, q, n, unless] of COUNTS) { const m = re.exec(l); if (m && !unless?.(m)) return { qty: Number(m[q]), name: m[n].trim() }; }
+  return { qty: null, name: l };
+}
+
+// Designators: the names a schematic gives each part on the board (R1, C2, D1-D4, LED1, U1), in a run at the start of a
+// line, by commas or spaces. Only the usual letters, in capitals, and each ends where its number does, so DHT22, SCD41,
+// L298N and R2D2 aren't any. n: how many (D1-D4 is four); kind: what all R, C, L or D are, which a bare value after them
+// (220, 100nF, 1N4148) needs to be found, as a list that says "R4, R5 220" never says resistor.
+const DES = '(?:LED|SW|IC|BT|TP|FB|RV|VR|CN|JP|LS|BZ|DS|RN|R|C|L|D|Q|U|J|P|K|F|Y)\\d+(?![A-Za-z0-9])';
+const DES_RUN = new RegExp(`^(${DES}(?:\\s*[-–]\\s*${DES})?(?:(?:\\s*,\\s*|\\s+)${DES}(?:\\s*[-–]\\s*${DES})?)*)\\s*,?\\s+(\\S.*)$`);
+const KINDS = { R: 'resistor', C: 'capacitor', L: 'inductor', D: 'diode' };
+function designators(l) {
+  const m = DES_RUN.exec(l); if (!m) return null;
+  let n = 0; const letters = new Set();
+  for (const [, a, from, to] of m[1].matchAll(/([A-Z]+)(\d+)(?:\s*[-–]\s*[A-Z]+(\d+))?/g)) { letters.add(a); n += to ? Math.max(1, Math.min(999, to - from + 1)) : 1; }
+  return { n, rest: m[2].trim(), kind: letters.size === 1 && KINDS[[...letters][0]] || '' };
 }
 
 // A part number is a word with letters and digits, four characters or more: SCD41, 1N4148, ESP32, 3.3V. A number with a
@@ -103,7 +128,15 @@ function find(w, x) {
 // FUZZY for a part without one of the line's values or variants, and such a part is only picked over one with them when
 // it holds a quarter more of the line: "JST-PH 2-pin female" is the 2-pin cable before the 3-pin female one. Of two parts
 // that hold as much of the line, the one with fewer other words in its name wins: "Pi Pico" is the Pico, not the Pico W.
+// A designator in front ("LED1 5mm red LED", "U1 NE555") is looked past, but tried too ("D1 mini", "C3 SuperMini").
 export function matchPart(name, parts) {
+  parts = [...parts];
+  const all = bestPart(name, parts), d = designators(String(name || ''));
+  if (!d) return all;
+  const past = bestPart(d.rest, parts);
+  return !all || (past && past.conf > all.conf) ? past : all;
+}
+function bestPart(name, parts) {
   const t = words(name); if (!t.length) return null;
   const weight = w => (isPartNumber(w) ? 2 : 1) * w.length, all = t.reduce((n, w) => n + weight(w), 0);
   const numbered = t.some(isPartNumber), values = t.filter(isValue);

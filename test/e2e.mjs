@@ -985,6 +985,19 @@ await desk.goto(base);
   const asked = new Promise(r => np.once('dialog', d => { r(d.message()); d.dismiss(); }));
   await np.click('.sheet #del'); assert.equal(await asked, 'Delete bin B01? Its part stays, without a bin.');
   await np.click('.sheet #cancel');
+  // deleting a part names it, says what its bag's tag will do, and says it's done (it asked "Delete this part?", then
+  // nothing)
+  const oled = await np.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(([, x]) => x.name === 'OLED 0.96')[0]);
+  await np.goto(base + '#part/' + oled); await np.click('#edit');
+  const askedPart = new Promise(r => np.once('dialog', d => { r(d.message()); d.accept(); }));
+  await np.click('.sheet #del'); assert.equal(await askedPart, 'Delete OLED 0.96? Bag #001’s tag will open nothing.');
+  await np.waitForSelector('#toast:has-text("Deleted OLED 0.96")'); await np.waitForFunction(() => location.hash === '#parts');
+  // and a box
+  const box = await np.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.bins).find(([, x]) => x.kind === 'box')[0]);
+  await np.goto(base + '#bin/' + box); await np.click('#edit');
+  const askedBox = new Promise(r => np.once('dialog', d => { r(d.message()); d.accept(); }));
+  await np.click('.sheet #del'); assert.equal(await askedBox, 'Delete box BOX 01?');
+  await np.waitForSelector('#toast:has-text("Deleted box BOX 01")'); await np.waitForFunction(() => location.hash === '#bins');
 
   assert.deepEqual(np.problems, [], 'problems with no NFC');
   await nCtx.close();

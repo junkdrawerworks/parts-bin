@@ -539,7 +539,7 @@ function editBin(b){
   el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
   el.querySelector('#del')?.addEventListener('click', async()=>{ const n=partsInBin(b.id).length, box=isBox(b);
     const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
-    if(!confirm(`Delete ${word(b.kind)} ${b.code}?${left}`)) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); go('bins'); });
+    if(!confirm(`Delete ${word(b.kind)} ${b.code}?${left}`)) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); toast(`Deleted ${word(b.kind)} ${b.code}`); go('bins'); });
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ toast('Label code is required'); return; }
     const dup=[...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
@@ -608,7 +608,9 @@ function editPart(p, opts={}){
   };
   const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked); bagText(); };
   dotag.onchange=syncTag; bagIn.oninput=syncTag; syncTag();
-  el.querySelector('#del')?.addEventListener('click', async()=>{ if(!confirm('Delete this part?')) return; try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); go('parts'); });
+  el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);
+    if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
+    try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
     const name=el.querySelector('#p-name').value.trim(); if(!name){ toast('Name is required'); return; }
     // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in

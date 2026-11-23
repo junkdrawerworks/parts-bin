@@ -135,3 +135,14 @@ test('an old document with short fields loads exactly as it was saved', () => {
     projects: { pr: { name: 'Test BOM', text: '2 BME280\n1 SCD41', t: 8 } } } };
   assert.equal(M.canon(M.cleanDoc(JSON.parse(JSON.stringify(old)))), M.canon(old));
 });
+test('an item stamped at the last time a Date can hold stays there when it’s edited or deleted', () => {
+  const MAX = 8.64e15, d = doc({ x: { name: 'SCD41', qty: 3, t: MAX } });
+  const e = M.putItem(d, 'parts', 'x', { name: 'SCD41', qty: 2 });
+  assert.equal(e.items.parts.x.t, MAX, 'the edit kept its time (it was 0, and lost every merge)');
+  assert.equal(M.mergeDocs(doc({ x: { name: 'SCD41', qty: 3, t: MAX - 5 } }), e).items.parts.x.qty, 2, 'it wins over anything older');
+  const r = M.removeItem(d, 'parts', 'x');
+  assert.equal(r.items.parts.x.del, MAX);
+  assert.ok(M.gone(M.cleanDoc(JSON.parse(M.canon(r))).items.parts.x), 'the deletion is still there once saved and loaded');
+  // a time past the last one is still none, so a file with a garbage time can't win forever
+  assert.equal(M.cleanItem({ name: 'x', t: MAX + 1 }).t, 0);
+});

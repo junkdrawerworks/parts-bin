@@ -15,7 +15,9 @@ const tOk = t => (Number.isFinite(+t) && +t >= 0 && +t <= MAX_T ? Math.floor(+t)
 
 export const blankDoc = () => ({ app: APP, v: 1, items: { bins: {}, parts: {}, projects: {} } });
 export const gone = x => !!(x && x.del && x.del >= (x.t || 0));
-export const stamp = old => Math.max(Date.now(), (old?.t || 0) + 1, (old?.del || 0) + 1);
+// One past the item's own time, so a change wins over what it changed, but never past the last time there is: an item
+// stamped there stays there (a tie then goes by the tie rule below), where one past it would read as no time at all.
+export const stamp = old => Math.min(MAX_T, Math.max(Date.now(), (old?.t || 0) + 1, (old?.del || 0) + 1));
 
 export function newId() {
   const b = new Uint8Array(8); globalThis.crypto.getRandomValues(b);

@@ -91,6 +91,7 @@ a{color:var(--accent-ink)}
 .grow{flex:1 1 auto}
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
 .field label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)}
+.field label code{text-transform:none;letter-spacing:0} /* an example as it's typed: 2x, not 2X */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 @media(max-width:480px){.grid2{grid-template-columns:1fr}}
 .empty{border:1px dashed var(--line);border-radius:var(--r);padding:28px 20px;text-align:center;color:var(--ink2)}

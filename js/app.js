@@ -391,7 +391,7 @@ function renderBom(m){
     const trs=items.map(r=>{
       let st, cls, where='', note='';
       if(!r.m){ st='missing'; cls='bad'; missing++; }
-      else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=b?`<span class="label">${esc(b.code)}</span> ${esc(b.name||'')}`:'<span class="tiny">no bin</span>';
+      else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
         if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty} needed across ${n.lines} lines</div>`; } }
       return `<tr><td class="n">${r.qty}</td><td>${esc(r.name)}${r.m?`<div class="tiny">→ ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');

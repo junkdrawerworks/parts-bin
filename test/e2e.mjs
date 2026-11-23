@@ -252,6 +252,10 @@ await page.selectOption('#proj', 'proj-x');
 await page.waitForSelector('.bom-summary');
 const summary = await page.textContent('.bom-summary');
 assert.match(summary, /2 have/); assert.match(summary, /1 missing/);
+// where each part is: its bin, and the bag in it (the bag was left out)
+assert.match(await page.textContent('.bom-table tbody tr:first-child td:nth-child(4)'), /^ENV #001\s*Environmental$/);
+// the examples above the list read as they're typed, not uppercased like the label (2X XIAO ESP32-S3)
+assert.equal(await page.$eval('.field label code', c => getComputedStyle(c).textTransform), 'none');
 await shot(page, 'phone-bom');
 // a list typed but not checked yet stays through another screen, a reload, and Save as project
 await page.fill('#bom', '1 SCD41\n2 heat-set inserts');

@@ -146,3 +146,19 @@ test('an item stamped at the last time a Date can hold stays there when it’s e
   // a time past the last one is still none, so a file with a garbage time can't win forever
   assert.equal(M.cleanItem({ name: 'x', t: MAX + 1 }).t, 0);
 });
+test('loading a backup counts only the parts and bins it adds or changes, not deletions that come with it', async () => {
+  const mem = {};
+  globalThis.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+  const { store } = await import('../js/store.js?counts'); // a store of its own, starting empty
+  const live = { a: { name: 'SCD41', qty: 3, t: 10 }, b: { name: 'BME280', qty: 5, t: 10 }, c: { name: 'SGP30', qty: 1, t: 10 } };
+  const dead = Object.fromEntries([1, 2, 3, 4, 5].map(i => ['d' + i, { name: 'Old ' + i, t: 10, del: 20 }]));
+  const backup = JSON.stringify(doc({ ...live, ...dead }));
+  assert.deepEqual(store.importText(backup), { changed: 3, back: 0 }, 'three parts arrive (it said 8)');
+  assert.equal(Object.keys(store.doc.items.parts).length, 8, 'the deletions still travel with it');
+  // the same parts, and newer deletions: nothing on screen changes
+  const newer = JSON.stringify(doc({ ...live, b: { ...live.b, t: 15 }, ...Object.fromEntries(Object.entries(dead).map(([id, x]) => [id, { ...x, del: 30 }])), d6: { name: 'Old 6', t: 5, del: 6 } }));
+  assert.deepEqual(store.importText(newer), { changed: 0, back: 0 });
+  assert.equal(store.doc.items.parts.d1.del, 30); assert.equal(store.doc.items.parts.b.t, 15);
+  // a changed part counts, and so does one back from a deletion here
+  assert.deepEqual(store.importText(JSON.stringify(doc({ a: { name: 'SCD41', qty: 4, t: 40 }, d1: { name: 'Old 1', t: 50 } }))), { changed: 1, back: 1 });
+});

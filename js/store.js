@@ -65,6 +65,7 @@ export const db = {
   },
 };
 
+const body = x => { const { t, del, ...rest } = x; return JSON.stringify(rest); }; // what an item says, without its times
 export const store = {
   get doc() { return doc; },
   onSave(f) { saved.push(f); }, // after each change that was kept
@@ -84,7 +85,10 @@ export const store = {
     for (const k of M.KINDS) for (const [id, m] of Object.entries(merged.items[k])) {
       const here = doc.items[k][id];
       if (M.gone(here) && !M.gone(m)) { const { del, ...x } = m; merged.items[k][id] = { ...x, t: M.stamp(here) }; back++; }
-      else if (JSON.stringify(m) !== JSON.stringify(here)) changed++;
+      // Counted only when it shows: here after the load and not before, or saying something different. A deletion that
+      // comes with the file, or a new time on what's here already, changes nothing on screen. (Nothing here is deleted by
+      // a load: a first-sync merge never removes anything.)
+      else if (!M.gone(m) && (!here || body(m) !== body(here))) changed++;
     }
     write(merged);
     return { changed, back };

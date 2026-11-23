@@ -1,7 +1,7 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { norm, parseBom, matchPart, isPartNumber, shortBy, needs } from '../js/bom.js';
+import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf } from '../js/bom.js';
 
 test('norm folds the ways a name can be typed', () => {
   // search, bags and BOM check all read names through it
@@ -279,4 +279,44 @@ test('designators in front of a line are its count, and say what kind of part a 
   assert.equal(matchPart('D1 mini', boards).p.id, 'd1');
   assert.equal(matchPart('C3 SuperMini', boards).p.id, 'c3');
   assert.equal(matchPart('C3 SuperMini', boards).conf, 1);
+});
+
+test('a length or weight is read with its unit, which leaves the name', () => {
+  assert.deepEqual(parseBom('2m of wire\n2 m of wire\n0.5 m LED strip\nWS2812B strip 0.5m\n1.5m 22AWG silicone wire red\nheat shrink 3mm, 30cm\nSolder 20g\n30 g solder\n0.5kg solder\nLED strip (1 m)\n0.8 m heat shrink tubing 3mm\n500mm of heat shrink\n10 ft of wire\n2–3 m of wire'), [
+    { qty: 2, unit: 'm', name: 'wire' }, { qty: 2, unit: 'm', name: 'wire' }, { qty: 0.5, unit: 'm', name: 'LED strip' }, { qty: 0.5, unit: 'm', name: 'WS2812B strip' },
+    { qty: 1.5, unit: 'm', name: '22AWG silicone wire red' }, { qty: 0.3, unit: 'm', name: 'heat shrink 3mm' }, { qty: 20, unit: 'g', name: 'Solder' },
+    { qty: 30, unit: 'g', name: 'solder' }, { qty: 500, unit: 'g', name: 'solder' }, { qty: 1, unit: 'm', name: 'LED strip' },
+    { qty: 0.8, unit: 'm', name: 'heat shrink tubing 3mm' }, { qty: 0.5, unit: 'm', name: 'heat shrink' }, { qty: 10, unit: 'ft', name: 'wire' },
+    { qty: 3, unit: 'm', name: 'wire' },
+  ]);
+  // a size in millimetres is the part's, as is any other number with letters after it
+  assert.deepEqual(parseBom('5mm red LEDs\n3mm LED x10\nHeat shrink tubing 3mm\nKapton tape 10mm\n0.96in OLED x2\nSIM7600 4G\nWS2812B LED strip 60/m\nPerfboard 5x7cm'), [
+    { qty: 1, name: '5mm red LEDs' }, { qty: 10, name: '3mm LED' }, { qty: 1, name: 'Heat shrink tubing 3mm' }, { qty: 1, name: 'Kapton tape 10mm' },
+    { qty: 2, name: '0.96in OLED' }, { qty: 1, name: 'SIM7600 4G' }, { qty: 1, name: 'WS2812B LED strip 60/m' }, { qty: 1, name: 'Perfboard 5x7cm' },
+  ]);
+  // a range is the most it could need
+  assert.deepEqual(parseBom('4-6 M3x8 screws\n2–3x NeoPixel Jewel\n3-4 pin JST'), [{ qty: 6, name: 'M3x8 screws' }, { qty: 3, name: 'NeoPixel Jewel' }, { qty: 1, name: '3-4 pin JST' }]);
+  reads('2m of wire', 2, ['wire', 'jump'], false);
+  reads('WS2812B strip 0.5m', 0.5, ['stripa', 'stripb'], false);
+  reads('0.8 m heat shrink tubing 3mm', 0.8, 'heat');
+  reads('1.5m 22AWG silicone wire red', 1.5, 'wire');
+  reads('4-6 M3x8 screws', 6, ['m3x8', 'm3x8pan']);
+  reads('Solder 20g', 20, 'solder', false);
+});
+
+test('a line in another unit of the same kind is counted in its part’s', () => {
+  const heat = { id: 'heat', name: 'Heat shrink tubing 3mm', qty: 1, unit: 'm' }, solder = { id: 's', name: 'Solder', qty: 250, unit: 'g' }, bme = { id: 'b', name: 'BME280', qty: 5, unit: 'pcs' };
+  assert.equal(inPartUnit({ qty: 0.3, unit: 'm', m: { p: heat } }), 0.3);
+  assert.equal(inPartUnit({ qty: 10, unit: 'ft', m: { p: heat } }), 3.048);
+  assert.equal(inPartUnit({ qty: 0.3, m: { p: heat } }), 0.3, 'no unit: the part’s');
+  assert.equal(inPartUnit({ qty: 2, unit: 'm', m: { p: bme } }), 2, 'a part in pieces: as written');
+  assert.equal(inPartUnit({ qty: 0.5, unit: 'm', m: { p: { ...heat, unit: 'cm' } } }), 50);
+  assert.equal(inPartUnit({ qty: 20, unit: 'g', m: { p: { ...solder, unit: 'kg' } } }), 0.02);
+  assert.equal(unitOf({ qty: 0.3, m: { p: heat } }), 'm');
+  assert.equal(unitOf({ qty: 10, unit: 'ft', m: { p: heat } }), 'm');
+  assert.equal(unitOf({ qty: 2, unit: 'm', m: { p: bme } }), 'm');
+  assert.equal(unitOf({ qty: 2, m: { p: bme } }), '');
+  assert.equal(unitOf({ qty: 2, unit: 'm', m: null }), 'm');
+  const n = needs([{ qty: 0.5, unit: 'm', m: { p: heat } }, { qty: 30, unit: 'cm', m: { p: heat } }, { qty: 2, unit: 'ft', m: { p: heat } }]);
+  assert.deepEqual(n.get('heat'), { qty: 1.41, lines: 3 });
 });

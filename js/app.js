@@ -3,7 +3,7 @@ import { db as localDb, store } from './store.js';
 import { drive } from './sync.js';
 import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
-import { norm, parseBom, matchPart, shortBy, needs } from './bom.js';
+import { norm, parseBom, matchPart, shortBy, needs, unitOf } from './bom.js';
 import * as BG from './bags.js';
 // ------------------------------------------------------------------ state
 const S = {
@@ -474,18 +474,19 @@ function renderBom(m){
     if(!items.length){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
     const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
+    const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
     let have=0, short=0, missing=0;
     const trs=items.map(r=>{
       let st, cls, where='', note='';
       if(!r.m){ st='missing'; cls='bad'; missing++; }
       else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
-        if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty} needed across ${n.lines} lines</div>`; } }
-      return `<tr><td class="n">${r.qty}</td><td>${esc(r.name)}${r.m?`<div class="tiny">→ ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
+        if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
+      return `<tr><td class="n">${r.qty}${esc(u(r.unit||unitOf(r)))}</td><td>${esc(r.name)}${r.m?`<div class="tiny">→ ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
     out.innerHTML=`<div class="bom-summary"><span class="chip ok">${have} have</span><span class="chip warn">${short} short</span><span class="chip bad">${missing} missing</span></div><div class="tablewrap"><table class="bom-table"><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
-    const shopping=items.filter(lacks).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} × ${r.name}`);
+    const shopping=items.filter(lacks).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
     out.querySelector('#copy')?.addEventListener('click',()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
   }
   ui.querySelector('#check').onclick=()=>run();

@@ -301,10 +301,20 @@ assert.equal(await page.inputValue('#bom'), longBom, 'the saved BOM came back cu
 await page.fill('#bom', '3 WS2812 strip segment');
 // a shortfall in metres reads 0.2, not 0.19999999999999998, on screen and in the shopping list
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-heat'] = { name: 'Heat shrink tubing 3mm', qty: 0.1, unit: 'm', binId: 'bin-env', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+// and says what in: the unit is the part's, not part of the name (it read 0.2 × m heat shrink tubing 3mm)
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check');
-assert.equal(await page.textContent('.bom-table .chip.warn'), 'short 0.2');
+assert.equal(await page.textContent('.bom-table .chip.warn'), 'short 0.2 m');
+assert.equal(await page.textContent('.bom-table tbody td.n'), '0.3 m');
+assert.equal(await page.textContent('.bom-table tbody td:nth-child(2)'), 'heat shrink tubing 3mm→ Heat shrink tubing 3mm');
 await page.click('#out #copy');
-await page.waitForFunction(() => window.__shared === '0.2 × m heat shrink tubing 3mm');
+await page.waitForFunction(() => window.__shared === '0.2 m heat shrink tubing 3mm');
+// a line in centimetres against a part kept in metres, and a count with no unit, which is the part's
+await page.fill('#bom', 'heat shrink tubing 3mm, 50cm\nheat shrink tubing 3mm, 0.1\n1 SCD41'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td.n:first-child', ts => ts.map(t => t.textContent)), ['0.5 m', '0.1 m', '1']);
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['short 0.5 m', 'short 0.5 m', 'have']);
+assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-child(2) .tiny:last-child'), '0.6 m needed across 2 lines');
+await page.click('#out #copy');
+await page.waitForFunction(() => window.__shared === '0.5 m heat shrink tubing 3mm');
 // two lines for one part are checked together: each fits the stock alone, but not both (both said have, and the shopping
 // list left them out); the shortfall is bought once
 const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280'].qty);
@@ -1157,7 +1167,7 @@ assert.match(await page.inputValue('.sheet textarea'), /^Moved part 03 ×1\n/);
 await page.click('.sheet #done');
 await page.goto(base + '#bom'); await page.click('#out #copy');
 await page.waitForSelector('.sheet textarea');
-assert.equal(await page.inputValue('.sheet textarea'), '0.2 × m heat shrink tubing 3mm');
+assert.equal(await page.inputValue('.sheet textarea'), '0.2 m heat shrink tubing 3mm');
 await page.click('.sheet #done');
 await page.reload(); // the pretend clipboard again
 

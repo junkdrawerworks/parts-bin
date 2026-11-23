@@ -35,14 +35,33 @@ function readLine(l) {
     // two or more are the count, unless one is given too, and so is one before a bare value, which they name the kind of:
     // "R1,R2,R3 10k" is three 10k resistors. One before anything else stays in the name as written (matchPart looks past it).
     const r = count(d.rest), kind = /^\d[\w.]*(?:\s*(?:ohms?|Ω))?$/i.test(r.name) ? d.kind : '';
-    if (d.n > 1 || kind) return { qty: r.qty ?? d.n, name: kind ? `${r.name} ${kind}` : r.name };
+    if (d.n > 1 || kind) return { ...r, qty: r.qty ?? d.n, name: kind ? `${r.name} ${kind}` : r.name };
   }
-  const r = count(l); return { qty: r.qty ?? 1, name: r.name };
+  const r = count(l); return { ...r, qty: r.qty ?? 1 };
 }
 function count(l) {
+  l = l.replace(RANGE, '');
+  for (const re of MEASURES) {
+    const m = re.exec(l); if (!m) continue;
+    const { q, u, name } = m.groups, [unit, per] = TO_BASE[u];
+    return { qty: Number((Number(q) * per).toPrecision(12)), unit, name: name.trim() };
+  }
   for (const [re, q, n, unless] of COUNTS) { const m = re.exec(l); if (m && !unless?.(m)) return { qty: Number(m[q]), name: m[n].trim() }; }
   return { qty: null, name: l };
 }
+// A count with a unit, in metres, grams or feet (cm and mm are read as m, kg as g), before the name or after it, glued
+// or spaced: "2m of wire", "30 g solder", "WS2812B strip 0.5m", "heat shrink 3mm, 30cm", "LED strip (1 m)". In lower
+// case only, so 4G and a 4.7M resistor aren't any. Millimetres only before "of" ("500mm of heat shrink"), as a 5mm LED
+// and heat shrink 3mm are sizes. A range is the most it could need: "4-6 M3x8 screws" is six.
+const Q = '(?<q>\\d+(?:\\.\\d+)?)', LEN = '(?<u>m|cm|g|kg|ft)';
+const MEASURES = [
+  new RegExp(`^${Q}\\s*${LEN}\\s+(?:of\\s+)?(?<name>\\S.*)$`), // 2m of wire, 0.5 m LED strip
+  new RegExp(`^${Q}\\s*(?<u>mm)\\s+of\\s+(?<name>\\S.*)$`), // 500mm of heat shrink
+  new RegExp(`^(?<name>.+?)\\s*\\(\\s*${Q}\\s*${LEN}\\s*\\)$`), // LED strip (1 m)
+  new RegExp(`^(?<name>.+?)(?:\\s*,\\s*|\\s+)${Q}\\s*${LEN}$`), // WS2812B strip 0.5m, heat shrink 3mm, 30cm
+];
+const TO_BASE = { m: ['m', 1], cm: ['m', 0.01], mm: ['m', 0.001], ft: ['ft', 1], g: ['g', 1], kg: ['g', 1000] };
+const RANGE = /^\d+(?:\.\d+)?\s*[-–]\s*(?=\d+(?:\.\d+)?(?:\s*(?:m|cm|mm|g|kg|ft|[x×*]))?\s+(?!(?:pins?|ways?|positions?)(?![a-z])))/i;
 
 // Designators: the names a schematic gives each part on the board (R1, C2, D1-D4, LED1, U1), in a run at the start of a
 // line, by commas or spaces. Only the usual letters, in capitals, and each ends where its number does, so DHT22, SCD41,
@@ -159,14 +178,33 @@ function bestPart(name, parts) {
 // subtraction says 0.19999999999999998).
 export const shortBy = (need, have) => Math.round((need - have) * 1000) / 1000;
 
-// What the lines matched to each part need between them, by part id: { qty, lines }. Two lines for one part ("2x M3
-// heat-set insert" and "M3 heat-set inserts x6") need 8, which 6 in stock doesn't cover, though each line alone fits.
+// Lengths and weights: each unit as its kind's base (m or g) and how many of the base one is.
+const PER = { m: ['m', 1], cm: ['m', 0.01], mm: ['m', 0.001], ft: ['m', 0.3048], g: ['g', 1], kg: ['g', 1000] };
+const per = u => PER[String(u || '').trim().toLowerCase()];
+const pieces = u => !u || u === 'pcs';
+// A line's count in its part's unit, to the thousandth: 10 ft of a wire kept in metres is 3.048, 50 cm is 0.5. A line
+// with no unit is in the part's, and one in a unit that can't become the part's (2 m of a part counted in pieces) is
+// taken as written.
+export function inPartUnit(r) {
+  const from = per(r.unit), to = per(r.m?.p.unit);
+  return from && to && from[0] === to[0] ? Math.round(r.qty * from[1] / to[1] * 1000) / 1000 : r.qty;
+}
+// The unit a line's shortfall is in: its part's, unless that's pieces or another kind than the line's own.
+export function unitOf(r) {
+  const pu = r.m?.p.unit;
+  if (!pieces(pu) && (!r.unit || (per(r.unit) && per(pu) && per(r.unit)[0] === per(pu)[0]))) return pu;
+  return r.unit || '';
+}
+
+// What the lines matched to each part need between them, by part id: { qty, lines }, in the part's unit. Two lines for
+// one part ("2x M3 heat-set insert" and "M3 heat-set inserts x6") need 8, which 6 in stock doesn't cover, though each
+// line alone fits.
 export function needs(items) {
   const out = new Map();
   for (const r of items) {
     if (!r.m) continue;
     const n = out.get(r.m.p.id) || { qty: 0, lines: 0 };
-    out.set(r.m.p.id, { qty: Math.round((n.qty + r.qty) * 1000) / 1000, lines: n.lines + 1 });
+    out.set(r.m.p.id, { qty: Math.round((n.qty + inPartUnit(r)) * 1000) / 1000, lines: n.lines + 1 });
   }
   return out;
 }

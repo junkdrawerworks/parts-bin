@@ -615,7 +615,7 @@ function renderBom(m){
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
-      ${missing+short+check||pick.length?`<div class="row" style="margin-top:10px">${missing+short+check?'<button class="btn sm" id="copy">Copy shopping list</button>':''}${pickBtn('pick')}</div>`:''}`;
+      <div class="row" style="margin-top:10px">${missing+short+check?'<button class="btn sm" id="copy">Copy shopping list</button>':''}${pickBtn('pick')}<span class="grow"></span>${have+short+check?'<button class="btn sm" id="built">Built it: take these from stock</button>':''}</div>`;
     const listed=new Set(); // a part short across two lines is bought once, for both
     const shopping=items.filter(r=>!r.heading && (near(r) || lacks(r))).filter(r=>!r.m || near(r) || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>near(r)
       ? `${r.qty} ${r.unit||'×'} ${r.name} (check: you have ${aName(r.m.p.name)})` // all of it, in case what was found is the wrong part
@@ -633,6 +633,7 @@ function renderBom(m){
     };
     only();
     out.querySelectorAll('.bom-summary [data-only]').forEach(b=>b.onclick=()=>{ bomOnly=bomOnly===b.dataset.only?'':b.dataset.only; only(); said(bomOnly?`Showing only ${b.textContent}`:'Showing every line'); });
+    out.querySelector('#built')?.addEventListener('click',()=>builtSheet(items));
     out.querySelectorAll('#pick,#picktop').forEach(b=>b.onclick=()=>copyText(pick.join('\n'),'Pick list copied','Copy the pick list'));
     out.querySelectorAll('#copy,#copytop').forEach(b=>b.onclick=()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
@@ -678,6 +679,45 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
   });
   if(last) run(null, !bomSay); // the list left from last time, checked again as the screen opens: its heading is what's said
   bomSay=false;
+}
+
+// "Built it": a checked BOM's parts taken out of stock in one go, instead of a tap on − on each part's page after a build.
+// One row a part, with what the lines for it need between them and its count before and after; a line short of stock
+// takes only what's there, and a part found by a loose or near match starts unticked. Confirm writes each part once,
+// from its count as it is by then, and Undo puts back what was taken.
+const round3=x=>Math.round(x*1000)/1000;
+function builtSheet(items){
+  drive.pull(); // what other devices have taken since this device's last sync
+  const need=needs(items), rows=[], seen=new Set();
+  for(const r of items){
+    if(!r.m || seen.has(r.m.p.id)) continue; seen.add(r.m.p.id);
+    const p=S.parts.get(r.m.p.id)||r.m.p, stock=Number(p.qty||0), n=need.get(p.id).qty, take=round3(Math.max(0,Math.min(n,stock)));
+    rows.push({p, take, stock, after:round3(stock-take), short:n>stock, loose:items.some(x=>x.m?.p.id===p.id && x.m.conf<0.8)});
+  }
+  const q=(p,v)=>esc(fmtQty({...p, qty:v}));
+  const {el,close}=sheet(`<h3>Built it: take these from stock</h3>
+    <p class="muted">Each part ticked has what this list needs taken off its count. A loose or near match starts unticked.</p>
+    <div class="built">${rows.map((x,i)=>`<label${x.take?'':' class="off"'}><input type="checkbox" data-i="${i}"${!x.take?' disabled':x.loose?'':' checked'}><span class="bn">${esc(x.p.name)}${x.loose?' <span class="chip">fuzzy</span>':''}${x.short?`<small>${x.take?`only ${q(x.p,x.stock)} in stock`:'none in stock'}</small>`:''}</span><span class="bq">${q(x.p,x.stock)} → ${q(x.p,x.after)}</span></label>`).join('')}</div>
+    <div class="actions"><button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Take from stock</button></div>`);
+  el.querySelector('#cancel').onclick=close;
+  const boxes=[...el.querySelectorAll('.built input')], go=el.querySelector('#save');
+  const count=()=>{ const n=boxes.filter(b=>b.checked).length; go.textContent=n?`Take ${many(n,'part')} from stock`:'Take from stock'; go.disabled=!n; };
+  boxes.forEach(b=>b.onchange=count); count();
+  go.onclick=async()=>{
+    const took=[];
+    for(const b of boxes.filter(b=>b.checked)){
+      const x=rows[b.dataset.i], cur=S.parts.get(x.p.id); if(!cur) continue; // deleted meanwhile
+      const have=Number(cur.qty||0), take=round3(Math.min(x.take,have)); if(take<=0) continue;
+      try{ await S.db.doc('parts/'+x.p.id).update({qty:round3(have-take)}); }catch(e){ writeFail(e); break; }
+      took.push({id:x.p.id, take});
+    }
+    close(); if(!took.length) return;
+    toast(`${many(took.length,'part')} taken from stock`,1800,{label:'Undo', run:async()=>{
+      for(const t of took){ const cur=S.parts.get(t.id); if(!cur) continue;
+        try{ await S.db.doc('parts/'+t.id).update({qty:round3(Number(cur.qty||0)+t.take)}); }catch(e){ writeFail(e); return; } }
+      toast(`${many(took.length,'part')} put back in stock`);
+    }});
+  };
 }
 
 // ---- Pack (scan-in with a sticky destination container)

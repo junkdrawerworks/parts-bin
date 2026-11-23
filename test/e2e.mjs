@@ -522,6 +522,22 @@ await page.fill('#bom', '1 BME280\n1 SCD41\nSGP30\n50cm hookup wire\n0.1 m heat 
 await page.click('#out #pick');
 await page.waitForFunction(() => window.__shared === 'ENV: 1× BME280 (Adafruit) #001, 2× SCD41\nNo bin: 0.5 m Hookup wire');
 await inject('p-loose2', null);
+// Built it takes a checked list's parts out of stock in one go: a part a row with its count before and after, a short line
+// takes what's there, a near match starts unticked, each part is written once, and Undo puts it all back
+const qtyOf = id => page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].qty, id);
+const [bme0, scd0] = [await qtyOf('p-bme280'), await qtyOf('p-scd41')];
+await page.fill('#bom', `2 BME280\n${scd0 + 1} SCD41\nSGP30\n0.1 m heat shrink tubing 5mm`); await page.click('#check');
+await page.click('#out #built'); await page.waitForSelector('.sheet .built');
+assert.deepEqual(await page.$$eval('.sheet .built label', ls => ls.map(l => [l.querySelector('.bn').textContent, l.querySelector('.bq').textContent, l.querySelector('input').checked])), [
+  ['BME280 (Adafruit)', `${bme0} → ${bme0 - 2}`, true], [`SCD41only ${scd0} in stock`, `${scd0} → 0`, true], ['Heat shrink tubing 3mm fuzzy', '0.1 m → 0 m', false]]);
+assert.equal(await page.textContent('.sheet #save'), 'Take 2 parts from stock');
+await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("2 parts taken from stock")');
+assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-scd41'), await qtyOf('p-heat')], [bme0 - 2, 0, 0.1]);
+await page.waitForFunction(n => document.querySelector('.bom-table tbody tr:first-child td:nth-child(3)')?.textContent === String(n), bme0 - 2, { timeout: 2000 }).catch(() => assert.fail('BOM check wasn’t checked again'));
+await page.click('#toast button:has-text("Undo")');
+await page.waitForSelector('#toast:has-text("2 parts put back in stock")');
+assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-scd41')], [bme0, scd0]);
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card

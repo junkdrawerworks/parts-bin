@@ -231,6 +231,9 @@ await page.goto(base + '#bins');
 await page.evaluate(() => window.__read('https://claude.ai/artifact/3tWd7DUCw34ExEy7Jo4CpG#bag/001'));
 await page.waitForSelector('h2:has-text("BME280")');
 await page.waitForSelector('.sheet:has-text("Update this tag?")');
+// read again as it's held: it's the bag open behind the sheet, so nothing says to close it
+await page.evaluate(() => window.__read('https://claude.ai/artifact/3tWd7DUCw34ExEy7Jo4CpG#bag/001'));
+await page.waitForTimeout(200); assert.equal(await page.locator('#toast:has-text("Close this")').count(), 0, 'it said to close the sheet to open the bag behind it');
 await page.click('.sheet #go');
 await page.waitForSelector('#tz.wait');
 await page.evaluate(() => window.__tap());

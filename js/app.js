@@ -923,7 +923,9 @@ function onTag(ev){
     const url=new TextDecoder().decode(rec.data), t=tagTarget(url); if(!t) continue;
     // A tag sheet keeps it, to say whose sticker it is if writing fails; another sheet says what it's in the way of.
     if(tagWait){ tagWait.read={url, at:Date.now()}; return; }
-    if(open){ const hit=findTarget(t); if(hit) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
+    // (Not for what's open behind it already: the old tag that opened "Update this tag?", read again as it's held.)
+    if(open){ const hit=findTarget(t), here=['bag','bin','part'].includes(S.route.view) && findTarget(S.route);
+      if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg);
     if(t.old){ const hit=findTarget(t); if(hit && S.canWrite) setTimeout(()=>offerRewrite(hit),150); }

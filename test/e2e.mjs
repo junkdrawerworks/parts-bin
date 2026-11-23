@@ -7,6 +7,7 @@ import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fakeGoogle } from './fake-google.mjs';
 
@@ -15,11 +16,30 @@ let pw;
 try { pw = require('playwright'); } catch { pw = require(join(execSync('npm root -g').toString().trim(), 'playwright')); }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
-const server = createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  try { const body = await readFile(join(root, path === '/' ? 'index.html' : path)); res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'text/html' }); res.end(body); }
-  catch { res.writeHead(404); res.end(); }
+// The server answers the way GitHub Pages does: a browser may keep each file for ten minutes, and asks again by its
+// ETag. `net` is the connection, for the offline copy's checks at the end: 'up', 'down' (the server drops every
+// connection) or 'stalled' (a garage with one bar, a captive wifi: it takes each request and holds on to it). With
+// `release` set it serves the next release.
+let net = 'up', release = false;
+const held = [];
+const server = createServer((req, res) => {
+  if (net === 'down') { req.socket.destroy(); return; }
+  if (net === 'stalled') { held.push([req, res]); return; }
+  serve(req, res);
 }).listen(0);
+async function serve(req, res) {
+  let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  if (path.endsWith('/')) path += 'index.html';
+  let body;
+  try { body = await readFile(join(root, path)); } catch { res.writeHead(404); res.end(); return; }
+  if (release && path === '/sw.js') body = Buffer.from(String(body).replace(/const FILES = '[0-9a-f]*'/, "const FILES = 'next'"));
+  if (release && path === '/index.html') body = Buffer.concat([body, Buffer.from('<!-- the next release -->\n')]);
+  const etag = `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
+  const head = { etag, 'cache-control': 'max-age=600', 'content-type': TYPES[extname(path)] || 'text/html' };
+  if (req.headers['if-none-match'] === etag) { res.writeHead(304, head); res.end(); return; }
+  res.writeHead(200, head);
+  res.end(body);
+}
 const origin = `http://localhost:${server.address().port}`, base = origin + '/';
 
 // A small inventory in the Stockroom artifact's export shape.
@@ -51,6 +71,14 @@ const fakeNfc = () => {
 
 const g = fakeGoogle();
 const browser = await pw.chromium.launch();
+// Every file a page asks this server for, on every device: each one has to be in the offline copy (checked at the end).
+const asked = new Set();
+const newContext = browser.newContext.bind(browser);
+browser.newContext = async o => {
+  const c = await newContext(o);
+  c.on('request', r => { const u = new URL(r.url()); if (u.origin === origin) asked.add(u.pathname); });
+  return c;
+};
 async function device() {
   // No offline copy on these devices (it's checked on one of its own at the end): routes can't reach what a service worker
   // fetches, so it would hand the page sync.js without the stand-in Drive's address.
@@ -1146,7 +1174,11 @@ await desk.goto(base);
   await nCtx.close();
 }
 
-// ---- works offline once it has been opened: the inventory, the screens and the fonts, with no network at all
+// ---- works offline once it has been opened: every screen, the inventory and the fonts, with no network at all. The
+// server goes down as well as the browser: in some Chromium builds the browser's offline switch alone doesn't stop the
+// service worker's own requests, and this passed with no copy at all.
+const sw = await readFile(join(root, 'sw.js'), 'utf8');
+const SHELL = [...sw.match(/SHELL = \[([^\]]*)\]/)[1].replace(/\/\/.*/g, '').matchAll(/'([^']*)'/g)].map(m => m[1]);
 const offCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
 const off = await offCtx.newPage();
 off.problems = [];
@@ -1155,14 +1187,51 @@ off.on('console', m => { if (m.type() === 'error') off.problems.push(m.text()); 
 await off.goto(base);
 await off.evaluate(v => localStorage.setItem('parts-bin', v), await page.evaluate(() => localStorage.getItem('parts-bin')));
 await off.waitForFunction(() => navigator.serviceWorker?.controller, null, { timeout: 10000 });
+// it installs: Chromium finds nothing missing (a manifest, its icons, the offline copy)
+const cdp = await offCtx.newCDPSession(off);
+assert.deepEqual((await cdp.send('Page.getInstallabilityErrors')).installabilityErrors, [], 'Chromium says it can’t be installed');
+net = 'down';
 await offCtx.setOffline(true);
-await off.reload();
-await off.waitForSelector('.bin:has-text("Environmental")');
-await off.goto(base + '#part/p-bme280'); await off.waitForSelector('h2:has-text("BME280")');
+const screens = [['#bins', 'Bins'], ['#bin/bin-env', 'Environmental'], ['#bin/box-move', 'Bench'], ['#parts', 'Parts'], ['#part/p-bme280', 'BME280'],
+  ['#bag/001', 'BME280'], ['#bom', 'BOM check'], ['#scan', 'Pack'], ['#inbox', 'Inbox'], ['#settings', 'Settings']];
+for (const [hash, title] of screens) {
+  await off.goto(base + hash); // the same page with another #, so it's the reload that opens it from the copy
+  await off.reload();
+  await off.waitForSelector(`#main h2:has-text("${title}")`, { timeout: 5000 }).catch(() => assert.fail(`${hash} didn’t open offline`));
+}
+await off.goto(base + '#bins'); await off.reload(); await off.waitForSelector('.bin:has-text("Environmental")');
 await off.evaluate(() => document.fonts.ready);
 assert.ok(await off.evaluate(() => document.fonts.check('600 24px "Barlow Condensed"') && document.fonts.check('16px Barlow')), 'the fonts came from the offline copy');
 await offCtx.setOffline(false);
+// On a connection that's up but not answering (a garage with one bar, a captive wifi), it opens from the copy too,
+// after the worker's few seconds' wait for the network: the page and every file it loads (were any of them left waiting
+// on the network, it wouldn't open).
+net = 'stalled';
+const t0 = Date.now();
+await off.reload({ timeout: 10000 }).catch(() => {});
+const took = Date.now() - t0;
+assert.ok(took < 8000, `the page took ${took} ms to open on a stalled connection`);
+await off.waitForSelector('.bin:has-text("Environmental")', { timeout: 1000 }).catch(() => assert.fail('the inventory didn’t show on a stalled connection'));
+net = 'up';
+for (const [req, res] of held.splice(0)) serve(req, res);
+// A new release: every file in the new copy comes from the server, though the browser still has its own copies of the
+// old ones for ten minutes. (The next release changes index.html, and so FILES in sw.js, as a real one does.)
+release = true;
+await off.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+await until(() => off.evaluate(async () => !!(await (await caches.match('index.html'))?.text())?.includes('<!-- the next release -->')),
+  'the new release’s offline copy to have the new index.html (it kept the old one)');
+release = false;
+// everything any device asked this server for is in the offline copy
+assert.deepEqual([...asked].map(p => (p === '/' ? './' : p.slice(1))).filter(p => p !== 'sw.js' && !SHELL.includes(p)), [], 'files the page loads that the offline copy doesn’t keep');
 for (const p of [page, laptop.page, other.page, off]) assert.deepEqual(p.problems, [], 'problems while using it');
 await browser.close();
 server.close();
+
+// sw.js changes whenever a file it keeps does, so a release replaces the whole offline copy at once: FILES in sw.js is
+// a fingerprint of every file in SHELL (sha1 of each, in the list's order, an address like './' read as its
+// index.html; the first 8 hex of the sha1 of those).
+const all = createHash('sha1');
+for (const f of SHELL) all.update(createHash('sha1').update(await readFile(join(root, f.endsWith('/') ? f + 'index.html' : f))).digest());
+const files = all.digest('hex').slice(0, 8);
+assert.equal(sw.match(/const FILES = '([0-9a-f]*)'/)?.[1], files, `a file sw.js keeps for offline has changed: set FILES in sw.js to '${files}'`);
 console.log('all good');

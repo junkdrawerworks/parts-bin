@@ -388,18 +388,24 @@ const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('part
 await page.fill('#bom', `${bmeStock - 1} BME280\nBME280 x2\n1 SCD41`); await page.click('#check');
 assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['short 1', 'short 1', 'have']);
 assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-child(2) .tiny:last-child'), `${bmeStock + 1} needed across 2 lines`);
-assert.match(await page.textContent('.bom-summary'), /1 have.*2 short.*0 missing/);
+assert.equal(await page.textContent('.bom-summary'), '1 have2 short'); // a count of none isn't shown
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × BME280');
 // a guide's headings are rows over the lines after them, not missing parts in the summary or the shopping list
 await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts\nFor this build you’ll need:'); await page.click('#check');
 assert.deepEqual(await page.$$eval('.bom-table tbody tr.sect th', ts => ts.map(t => [t.textContent, t.colSpan, t.scope])), [['Electronics', 5, 'colgroup'], ['Hardware Supplies', 5, 'colgroup'], ['For this build you’ll need', 5, 'colgroup']]);
 assert.equal(await page.$$eval('.bom-table tbody tr:not(.sect)', rs => rs.length), 3);
-assert.match(await page.textContent('.bom-summary'), /^2 have0 short1 missing$/);
+assert.equal(await page.textContent('.bom-summary'), '2 have1 missing');
 // and the summary is said, as the table is drawn out of hearing below the button
-await page.waitForFunction(() => document.getElementById('say').textContent === '2 have, 0 short, 1 missing', null, { timeout: 2000 }).catch(() => assert.fail('BOM check said nothing'));
+await page.waitForFunction(() => document.getElementById('say').textContent === '2 have, 1 missing', null, { timeout: 2000 }).catch(() => assert.fail('BOM check said nothing'));
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × SGP30');
+// everything on hand says so, and which bins it's in, with no red "0 missing" (it showed three chips, two of them 0)
+await page.fill('#bom', '1 BME280\n1 SCD41\nSCD41 x1'); await page.click('#check');
+assert.equal(await page.textContent('.bom-summary'), 'You have everything for this. 2 parts, in ENV');
+assert.equal(await page.locator('.bom-summary .chip, #out #copy').count(), 0);
+assert.equal(await page.textContent('.bom-summary .label'), 'ENV');
+await page.waitForFunction(() => document.getElementById('say').textContent === 'You have everything for this. 2 parts', null, { timeout: 2000 }).catch(() => assert.fail('BOM check didn’t say it has everything'));
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card

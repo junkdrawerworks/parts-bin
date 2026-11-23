@@ -176,6 +176,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .bom-table tr.sect th{padding:18px 8px 6px;color:var(--ink2)} /* a heading from the pasted list */
 .bom-table tbody tr.sect:first-child th{padding-top:10px}
 .bom-summary{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.bom-summary.allhave{background:var(--ok-soft);border-left:3px solid var(--ok);border-radius:var(--r);padding:9px 12px;font-size:14px;line-height:1.9}
+.bom-summary.allhave b{color:var(--ok)}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 
 /* ---- scan ---- */

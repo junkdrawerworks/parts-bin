@@ -519,7 +519,7 @@ function renderBom(m){
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
-    if(!items.length){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
+    if(!items.some(r=>!r.heading)){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
     const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
     const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
@@ -532,12 +532,27 @@ function renderBom(m){
         if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
       return `<tr><td class="n">${r.qty}${esc(u(r.unit||unitOf(r)))}</td><td>${esc(r.name)}${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
-    out.innerHTML=`<div class="bom-summary"><span class="chip ok">${have} have</span><span class="chip warn">${short} short</span><span class="chip bad">${missing} missing</span></div><div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
+    // Everything on hand says so, and where it all is (the bins in the order the list comes to them). Otherwise a count of
+    // none isn't shown: a red "0 missing" read as something wrong.
+    let sum, say;
+    if(!short && !missing){
+      const ids=new Set(), bins=[], loose=new Set();
+      for(const r of items) if(r.m){ ids.add(r.m.p.id); const b=binOf(r.m.p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); }
+      const and=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1], n=ids.size;
+      const where=[bins.length?'in '+and(bins.map(b=>`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`)):'', loose.size?(bins.length?`${loose.size} not in a bin`:'not in a bin'):''].filter(Boolean).join('; ');
+      sum=`<div class="bom-summary allhave"><span><b>You have everything for this.</b> ${many(n,'part')}${where?', '+where:''}</span></div>`;
+      say=`You have everything for this. ${many(n,'part')}`;
+    } else {
+      const counts=[[have,'have','ok'],[short,'short','warn'],[missing,'missing','bad']].filter(([k])=>k);
+      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<span class="chip ${c}">${k} ${w}</span>`).join('')}</div>`;
+      say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
+    }
+    out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
     const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
     out.querySelector('#copy')?.addEventListener('click',()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
-    if(!quiet) said(`${have} have, ${short} short, ${missing} missing`); // the table is drawn below the button, out of hearing
+    if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }
   ui.querySelector('#check').onclick=()=>run();
   ui.querySelector('#smart')?.addEventListener('click', async()=>{

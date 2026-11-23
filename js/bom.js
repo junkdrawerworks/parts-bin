@@ -29,7 +29,9 @@ const COUNTS = [ // [pattern, the count's group, the name's group, unless(match)
   [new RegExp(`^${N}\\s+(.+)$`), 1, 2, m => (/^\d{3,}$/.test(m[1]) && !/\s/.test(m[2])) || VALUE.test(m[2])], // 3 name; not 555 timer or 220 ohm
 ];
 export function parseBom(text) {
-  return String(text || '').split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
+  // A run of spaces reads as one, and a run with a tab in it as one tab (a spreadsheet's column, read below), so a line
+  // padded out to a width doesn't take the patterns below seconds to try.
+  return String(text || '').split(/\n|;/).map(l => l.replace(/\s{2,}/g, w => (w.includes('\t') ? '\t' : ' ')).trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
 }
 function readLine(l) {
   if (/:$/.test(l)) return { qty: 1, name: l.slice(0, -1).trim(), heading: true };

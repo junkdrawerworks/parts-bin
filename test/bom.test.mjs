@@ -355,3 +355,14 @@ test('a wire gauge, a wattage or a current before the name is part of it, not a 
     { qty: 2, name: 'Arduino Nano' }, { qty: 3, name: 'WS2812B' },
   ]);
 });
+
+test('a line padded with a long run of spaces or tabs is read at once, the same as with one', () => {
+  for (const pad of [' ', '\t', ' ', ' \t ']) {
+    const t = performance.now(), r = parseBom('1' + pad.repeat(50000) + 'a');
+    assert.ok(performance.now() - t < 50, `${JSON.stringify(pad)} × 50,000 took ${Math.round(performance.now() - t)} ms`);
+    assert.equal(r.length, 1);
+  }
+  assert.deepEqual(parseBom('2      x     SCD41\nSCD41\t\t\t3\nBME280 ,    5\nPin header     1x40'), [
+    { qty: 2, name: 'SCD41' }, { qty: 3, name: 'SCD41' }, { qty: 5, name: 'BME280' }, { qty: 1, name: 'Pin header 1x40' },
+  ]);
+});

@@ -36,15 +36,23 @@ const good = t => !!(t && t.token && t.exp - 60000 > Date.now() && String(t.scop
 const live = () => good(tok) || (good(get(KT)) && !!(tok = get(KT)));
 function setStatus(s, n = '') { status = s; note = n; for (const f of [...watchers]) { try { if (f() === false) watchers.splice(watchers.indexOf(f), 1); } catch { watchers.splice(watchers.indexOf(f), 1); } } }
 
+// A request that never answers (a stalled connection: one bar in the garage, a café's Wi-Fi sign-in page) is given up
+// after 30 seconds and counts as Drive not reached, so the sync ends and the next one can start. (The tests shorten it.)
+const WAIT = () => +window.__driveTimeout || 30000;
 async function api(method, path, body, type) {
   if (!tok) throw { auth: true };
   const headers = { Authorization: 'Bearer ' + tok.token };
   if (type) headers['Content-Type'] = type;
-  const r = await fetch(API + path, { method, headers, body });
-  // Google refused the sign-in: forget it here, and for the other projects unless one has a newer one already.
-  if (r.status === 401) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; throw { auth: true }; }
-  if (!r.ok) throw { http: r.status };
-  return r.status === 204 ? null : r.json();
+  const stop = new AbortController(), timer = setTimeout(() => stop.abort(), WAIT());
+  try {
+    const r = await fetch(API + path, { method, headers, body, signal: stop.signal });
+    // Google refused the sign-in: forget it here, and for the other projects unless one has a newer one already.
+    if (r.status === 401) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; throw { auth: true }; }
+    if (!r.ok) throw { http: r.status };
+    return r.status === 204 ? null : await r.json();
+  } catch (e) {
+    throw e?.name === 'AbortError' ? { http: 0 } : e;
+  } finally { clearTimeout(timer); }
 }
 const query = meta => {
   const [k, v] = Object.entries(meta.appProperties)[0];
@@ -277,6 +285,7 @@ if (CLIENT_ID) {
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && st.on && live() && Date.now() - st.last > 30000) sync(); });
   setInterval(() => { if (!document.hidden && st.on) { if (live()) sync(); else setStatus('tap'); } }, 5 * 60000);
+  window.addEventListener('online', () => { if (st.on && live()) sync(); }); // the signal's back: no wait for the next round
   window.addEventListener('storage', e => { // another tab signed in, stopped, or synced
     if (e.key === KS || e.key === KT) {
       st = { ...fresh(), ...(get(KS) || {}) }; tok = get(KT);

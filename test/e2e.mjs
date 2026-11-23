@@ -435,6 +435,23 @@ await laptop.page.evaluate(() => document.querySelector('#cloud').click());
 await laptop.page.waitForFunction(() => { const x = JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-scd41']; return x && !(x.del >= x.t); }, null, { timeout: 8000 });
 await page.evaluate(() => { document.getElementById('toast').hidden = true; });
 
+// ---- a Drive request that never answers (a stalled connection) is given up, and the chip turns red instead of staying on
+// "Syncing" until a reload; once the connection is back, Sync now works
+await page.goto(base + '#part/' + iron.id); await page.waitForSelector('#inc');
+await page.evaluate(() => { window.__driveTimeout = 300; });
+await page.route('https://www.googleapis.com/upload/**', () => {}); // never answers
+const ironQty = (await part(iron.id)).qty;
+await page.click('#inc');
+await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'error', null, { timeout: 8000 });
+await page.goto(base + '#settings');
+assert.match(await page.textContent('#drivecard'), /Couldn’t reach Google Drive/);
+assert.equal(await page.isEnabled('#drivecard [data-a="now"]'), true, 'Sync now can be tapped again');
+await page.unroute('https://www.googleapis.com/upload/**');
+await page.click('#drivecard [data-a="now"]');
+await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 8000 });
+assert.equal(onDrive(iron.id).qty, ironQty + 1, 'the count that waited reached Drive');
+await page.evaluate(() => { delete window.__driveTimeout; });
+
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');

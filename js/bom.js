@@ -8,7 +8,7 @@ export const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace
   .replace(/(\d)\s*([km]?)\s*(?:ω|ohms?)(?![a-z])/g, '$1$2').replace(/[^a-z0-9.+]+/g, ' ').trim();
 
 // One part per line (or per ;), with its count first or last: "2x XIAO ESP32-S3", "SCD41 ×1". Lines starting with # are
-// skipped, and a bullet in front is dropped. A name can start with a digit (1N4148, 74HC595, 18650 cells), so each way of
+// skipped, a bullet in front is dropped, and a heading ("Hardware Supplies", "You'll need:") is marked heading: true. A name can start with a digit (1N4148, 74HC595, 18650 cells), so each way of
 // writing a count says which side the count is on, and a marked count (2x, x8, ×2, ", 5") is believed before a bare
 // number at the start: "18650 cells×2" is two 18650 cells. A size isn't a count: a pin header's 1x40 and a screw's M3x8
 // are part of the name, spaced or not (Screws M3 x 10 is one size of screw). Nor is a long number before a single word,
@@ -30,6 +30,7 @@ export function parseBom(text) {
   return String(text || '').split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
 }
 function readLine(l) {
+  if (/:$/.test(l)) return { qty: 1, name: l.slice(0, -1).trim(), heading: true };
   const d = designators(l);
   if (d) {
     // two or more are the count, unless one is given too, and so is one before a bare value, which they name the kind of:
@@ -37,8 +38,16 @@ function readLine(l) {
     const r = count(d.rest), kind = /^\d[\w.]*(?:\s*(?:ohms?|Ω))?$/i.test(r.name) ? d.kind : '';
     if (d.n > 1 || kind) return { ...r, qty: r.qty ?? d.n, name: kind ? `${r.name} ${kind}` : r.name };
   }
-  const r = count(l); return { ...r, qty: r.qty ?? 1 };
+  const r = count(l);
+  if (r.qty == null && isHeading(l)) return { qty: 1, name: l, heading: true };
+  return { ...r, qty: r.qty ?? 1 };
 }
+// A heading over the parts in a guide's list: a line ending in a colon, or a short one of only words like these, with
+// at least one that says what follows ("Hardware Supplies", "Shopping List", "What you need"). BOM check shows it over
+// the lines after it, and doesn't look for it in the inventory.
+const SAYS = new Set('supplies supply parts part list tools tool hardware electronics shopping need needed components materials bill'.split(' '));
+const HEAD = new Set([...SAYS, ...'electronic component material of misc other and the for this build you ll your what s here required optional'.split(' ')]);
+const isHeading = l => { const w = norm(l).split(' '); return w.length <= 6 && w.some(x => SAYS.has(x)) && w.every(x => HEAD.has(x)); };
 function count(l) {
   l = l.replace(RANGE, '');
   for (const re of MEASURES) {

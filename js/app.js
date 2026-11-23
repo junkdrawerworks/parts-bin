@@ -470,13 +470,14 @@ function renderBom(m){
   ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
   function run(rows){
     localSet('sr.bom',ta.value);
-    const items=rows||parseBom(ta.value).map(r=>({...r, m:matchPart(r.name,S.parts.values())}));
+    const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
     if(!items.length){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
     const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
     const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
     let have=0, short=0, missing=0;
     const trs=items.map(r=>{
+      if(r.heading) return `<tr class="sect"><th colspan="5" scope="colgroup">${esc(r.name)}</th></tr>`; // a heading in the list, over the lines after it
       let st, cls, where='', note='';
       if(!r.m){ st='missing'; cls='bad'; missing++; }
       else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
@@ -486,12 +487,12 @@ function renderBom(m){
     out.innerHTML=`<div class="bom-summary"><span class="chip ok">${have} have</span><span class="chip warn">${short} short</span><span class="chip bad">${missing} missing</span></div><div class="tablewrap"><table class="bom-table"><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
-    const shopping=items.filter(lacks).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
+    const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
     out.querySelector('#copy')?.addEventListener('click',()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
   }
   ui.querySelector('#check').onclick=()=>run();
   ui.querySelector('#smart')?.addEventListener('click', async()=>{
-    const rows=parseBom(ta.value); if(!rows.length) return run();
+    const all=parseBom(ta.value), rows=all.filter(r=>!r.heading); if(!rows.length) return run(); // headings aren't asked about
     out.innerHTML='<div class="think">Matching against your inventory…</div>';
     const inv=[...S.parts.values()].map(p=>({id:p.id,name:p.name,mpn:p.mpn||'',tags:p.tags||[],category:p.category||''}));
     try{
@@ -500,7 +501,7 @@ INVENTORY (JSON): ${JSON.stringify(inv)}
 BOM lines (JSON): ${JSON.stringify(rows)}
 Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<inventory id or null>", "confidence": 0-1}]`, {modelTier:'quick'});
       const items=rows.map((r,i)=>{ const hit=Array.isArray(res)&&res[i]&&res[i].id&&S.parts.get(res[i].id); return {...r, m: hit?{p:hit, conf:Number(res[i].confidence||0.7)}:matchPart(r.name,S.parts.values())}; });
-      run(items);
+      run(all.map(r=>r.heading?{...r, m:null}:items[rows.indexOf(r)]));
     }catch(e){ if(e.code==='not_granted') toast(e.message+' Used plain matching.',4000); else toast('Smart matching unavailable, used plain matching'); run(); }
   });
   ui.querySelector('#save')?.addEventListener('click', async()=>{

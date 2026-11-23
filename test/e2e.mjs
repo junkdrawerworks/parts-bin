@@ -324,6 +324,13 @@ assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-chil
 assert.match(await page.textContent('.bom-summary'), /1 have.*2 short.*0 missing/);
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × BME280');
+// a guide's headings are rows over the lines after them, not missing parts in the summary or the shopping list
+await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts\nFor this build you’ll need:'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody tr.sect th', ts => ts.map(t => [t.textContent, t.colSpan, t.scope])), [['Electronics', 5, 'colgroup'], ['Hardware Supplies', 5, 'colgroup'], ['For this build you’ll need', 5, 'colgroup']]);
+assert.equal(await page.$$eval('.bom-table tbody tr:not(.sect)', rs => rs.length), 3);
+assert.match(await page.textContent('.bom-summary'), /^2 have0 short1 missing$/);
+await page.click('#out #copy');
+await page.waitForFunction(() => window.__shared === '1 × SGP30');
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card

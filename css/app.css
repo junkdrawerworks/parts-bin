@@ -169,6 +169,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .bom-table th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
 .bom-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 .bom-table td.n{font-family:"JetBrains Mono",monospace;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bom-table tr.sect th{padding:18px 8px 6px;color:var(--ink2)} /* a heading from the pasted list */
+.bom-table tbody tr.sect:first-child th{padding-top:10px}
 .bom-summary{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 

@@ -320,3 +320,16 @@ test('a line in another unit of the same kind is counted in its part’s', () =>
   const n = needs([{ qty: 0.5, unit: 'm', m: { p: heat } }, { qty: 30, unit: 'cm', m: { p: heat } }, { qty: 2, unit: 'ft', m: { p: heat } }]);
   assert.deepEqual(n.get('heat'), { qty: 1.41, lines: 3 });
 });
+
+test('a heading in a pasted list is read as one, not as a part', () => {
+  // from the Adafruit headlight guide, an Instructables list, a forum post and a Fritzing export
+  assert.deepEqual(parseBom('Hardware Supplies\nSupplies\nFor this build you\'ll need:\nShopping List\nParts list:\nElectronics\nTools and supplies\nWhat you need'), [
+    { qty: 1, name: 'Hardware Supplies', heading: true }, { qty: 1, name: 'Supplies', heading: true }, { qty: 1, name: 'For this build you\'ll need', heading: true },
+    { qty: 1, name: 'Shopping List', heading: true }, { qty: 1, name: 'Parts list', heading: true }, { qty: 1, name: 'Electronics', heading: true },
+    { qty: 1, name: 'Tools and supplies', heading: true }, { qty: 1, name: 'What you need', heading: true },
+  ]);
+  // a line with a count, or with a word no heading has, is a part
+  assert.deepEqual(parseBom('2 Hardware Supplies\nM3 hardware kit\nParts bin labels\nTools x2'), [
+    { qty: 2, name: 'Hardware Supplies' }, { qty: 1, name: 'M3 hardware kit' }, { qty: 1, name: 'Parts bin labels' }, { qty: 2, name: 'Tools' },
+  ]);
+});

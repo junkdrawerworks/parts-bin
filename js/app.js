@@ -1387,7 +1387,7 @@ function renderSettings(m){
   bk.querySelector('#exp').onclick=exportJson; bk.querySelector('#imp').onclick=importJson;
   if(OLD_HOME){
     const oc=h(`<section class="card"><h3>From the old address</h3><p class="muted">Parts Bin used to be at junkdrawer.works/parts-bin. The first time it opened here it brought over what this browser had saved there, but with a poor connection that can miss. This fetches it again and adds whatever isn’t here; nothing here is written over.</p>
-      <div class="row"><button class="btn" id="old">Bring over the inventory from junkdrawer.works/parts-bin</button></div></section>`);
+      <div class="row"><button class="btn" id="old" style="white-space:normal;text-align:left">Bring over the inventory from junkdrawer.works/parts-bin</button></div></section>`);
     m.append(oc);
     const ob=oc.querySelector('#old');
     ob.onclick=async()=>{ ob.disabled=true;

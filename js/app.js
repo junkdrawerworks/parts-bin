@@ -1344,10 +1344,12 @@ function onTag(ev){
     // (Not for what's open behind it already: the old tag that opened "Update this tag?", read again as it's held.)
     if(open){ const hit=findTarget(t), here=['bag','bin','part'].includes(S.route.view) && findTarget(S.route);
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
-    if(unpackByTag(t)) return;
+    // An old Stockroom tag is offered its rewrite (or rewritten) however it's taken: opening its bag, or out of a box.
+    const old=()=>{ if(!t.old) return; const hit=findTarget(t); if(hit) setTimeout(()=>rewriteOld()?tagSheet(hit.item,hit.kind,{auto:true,overwrite:true,always:true}):offerRewrite(hit),150); };
+    if(unpackByTag(t)){ old(); return; }
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg, {tag:true});
-    if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>rewriteOld()?tagSheet(hit.item,hit.kind,{auto:true,overwrite:true,always:true}):offerRewrite(hit),150); }
+    old();
     return;
   }
   if(!open && !tagWait) toast('That tag isn’t one of yours');

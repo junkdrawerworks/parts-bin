@@ -2281,6 +2281,7 @@ await desk.goto(base);
       'p-ina': { name: 'INA219', binId: 'box-u', qty: 2, unit: 'pcs', tags: [], bag: 10, from: 'PWR', tagWritten: true, t: 1 },
       'p-vl5': { name: 'VL53L1X', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 7, from: 'ENV', tagWritten: true, t: 1 },
       'p-zet': { name: 'Zeta', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 12, tagWritten: true, t: 1 },
+      'p-old': { name: 'Old sticker', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 14, from: 'PWR', tagWritten: true, t: 1 },
       'p-out': { name: 'Elsewhere', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 20, tagWritten: true, t: 1 },
     } } });
   const uCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
@@ -2314,6 +2315,11 @@ await desk.goto(base);
   await up.selectOption('#unpack-to', '');
   await hold('012'); await up.waitForSelector('#toast:has-text("#012 has no bin to go back to: choose one under Unpack into")');
   assert.equal((await got('p-zet')).binId, 'box-u'); assert.equal(await up.evaluate(() => location.hash), '#bin/box-u');
+  // an old Stockroom tag of a bag in the box takes it out too, and still offers to rewrite it (it offered nothing)
+  await up.evaluate(() => window.__read('https://claude.ai/artifact/x#bag/014')); await until('p-old', 'b-pwr');
+  await up.waitForSelector('.sheet h3:text("Update this tag?")');
+  assert.equal(await up.evaluate(() => location.hash), '#bin/box-u');
+  await up.click('.sheet #later'); await up.waitForFunction(() => !document.querySelector('.sheet'));
   // a bag that isn't in this box opens, as a tag does anywhere else
   await hold('020'); await up.waitForFunction(() => location.hash === '#bag/020');
   await up.waitForSelector('.binhead h2:text("Elsewhere")');

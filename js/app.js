@@ -724,11 +724,11 @@ function zoomMine(p, src){
 function aName(n){ n=String(n||'').trim(); const w=n.split(/\s/)[0]||'';
   const an=/^[aeiou]/i.test(w) && !/^(?:uni|use|usb|eu|one)/i.test(w) || /^8|^1[18](?:\D|$|\d{2})/.test(w) || /^[FHLMNRS](?:[A-Z0-9]|$)/.test(w) || /^X[0-9]/.test(w);
   return (an?'an ':'a ')+n; }
-// Where a part kept in more than one entry is: each bag, after its bin's code where that changes ("ENV #001 #007"), each
-// bin with its bags kept on one line, so on a phone the second bin goes under the first rather than out of sight.
+// Where a part kept in more than one entry is: each bin's code once, with its bags after it ("ENV #001 #012 BOX 02 #007"),
+// each bin with its bags kept on one line, so on a phone the second bin goes under the first rather than out of sight.
 function entriesAt(all){ const at=[];
-  for(const p of all){ const b=binOf(p), k=b?b.id:'', bag=p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:'<span class="tiny">no bag</span>';
-    if(at.length && at[at.length-1].k===k) at[at.length-1].h+=' '+bag;
+  for(const p of all){ const b=binOf(p), k=b?b.id:'', bag=p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:'<span class="tiny">no bag</span>', had=at.find(x=>x.k===k);
+    if(had) had.h+=' '+bag;
     else at.push({k, h:(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+' '+bag}); }
   return `<span class="entries">${at.map(x=>`<span class="at">${x.h}</span>`).join(' ')}</span>`; }
 let bomOnly=''; // the lines shown, by status (have, check, short, missing), or '' for all of them: a tap on a count above the results

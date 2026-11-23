@@ -572,6 +572,13 @@ assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-bme2'), await qtyOf('p
 await page.click('#toast button:has-text("Undo")');
 await page.waitForSelector('#toast:has-text("2 parts put back in stock")');
 assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-bme2'), await qtyOf('p-scd41')], [bme0, 4, scd0]);
+// Where names each bin once, with its bags after it, though the entries in bag order go from one bin to another and back
+await inject('p-bme3', { name: 'BME280 (Adafruit)', qty: 1, unit: 'pcs' }); await inject('p-bme4', { name: 'BME280 (Adafruit)', qty: 1, unit: 'pcs', binId: 'bin-env' });
+for (let i = 0, at = ''; at !== 'ENV #001 #007 no bag no bin no bag'; i++) {
+  if (i === 20) assert.fail('Where: ' + at);
+  await page.click('#check'); await page.waitForTimeout(100); at = await page.textContent('.bom-table tbody tr:first-child td:nth-child(4)');
+}
+await inject('p-bme3', null); await inject('p-bme4', null);
 await inject('p-bme2', null);
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 

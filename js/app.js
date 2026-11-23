@@ -5,6 +5,7 @@ import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
 import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece } from './bom.js';
 import * as BG from './bags.js';
+import { partsCsv } from './csv.js';
 import { LONG, gone } from './model.js';
 // ------------------------------------------------------------------ state
 const S = {
@@ -1701,9 +1702,11 @@ function renderSettings(m){
   aic.querySelector('#ai-save').onclick=()=>{ ai.save({key:keyIn.value, model:modelIn.value}); toast(ai.key?'Saved':'No key saved'); kept(); };
   aic.querySelector('#ai-clear')?.addEventListener('click',()=>{ ai.save({key:'',model:ai.model}); toast('Key removed'); kept(); });
   const bk=h(`<section class="card"><h3>Backup</h3><p class="muted">A file with every bin, part and saved BOM. Loading a file merges it with what’s here, item by item, so nothing is lost. This is also how the Stockroom artifact’s export comes in.</p>
-    <div class="row"><button class="btn" id="exp">Save a backup file</button><button class="btn" id="imp">Load a file</button></div></section>`);
+    <div class="row"><button class="btn" id="exp">Save a backup file</button><button class="btn" id="imp">Load a file</button></div>
+    <p class="muted" style="margin-top:12px">A spreadsheet has one row a part, by bin and bag, with every detail: for a move, an insurance list or sharing with a club. Only the backup file loads back in.</p>
+    <div class="row"><button class="btn" id="csv">Save as a spreadsheet (CSV)</button></div></section>`);
   m.append(bk);
-  bk.querySelector('#exp').onclick=exportJson; bk.querySelector('#imp').onclick=importJson;
+  bk.querySelector('#exp').onclick=exportJson; bk.querySelector('#imp').onclick=importJson; bk.querySelector('#csv').onclick=exportCsv;
   if(OLD_HOME){
     const oc=h(`<section class="card"><h3>From the old address</h3><p class="muted">Parts Bin used to be at junkdrawer.works/parts-bin. The first time it opened here it brought over what this browser had saved there, but with a poor connection that can miss. This fetches it again and adds whatever isn’t here; nothing here is written over.</p>
       <div class="row"><button class="btn" id="old" style="white-space:normal;text-align:left">Bring over the inventory from junkdrawer.works/parts-bin</button></div></section>`);
@@ -1738,13 +1741,16 @@ function fromOldAddress(){
 }
 
 // ------------------------------------------------------------------ export
-function exportJson(){
-  const blob=new Blob([store.backup()],{type:'application/json'});
-  const d=new Date(), two=n=>String(n).padStart(2,'0'); // today where you are (toISOString is the date in UTC)
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`parts-bin-${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}.json`;
+// A file named for today where you are (toISOString is the date in UTC), handed to the browser to save.
+function download(text, type, ext){
+  const d=new Date(), two=n=>String(n).padStart(2,'0');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=`parts-bin-${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}.${ext}`;
   document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  toast('Backup saved: '+a.download, 3500); // a phone's download can go by unseen
+  return a.download;
 }
+function exportJson(){ toast('Backup saved: '+download(store.backup(),'application/json','json'), 3500); } // a phone's download can go by unseen
+// The spreadsheet (csv.js): nothing leaves the page, as with the backup.
+function exportCsv(){ const n=S.parts.size; toast(`Spreadsheet saved: ${download(partsCsv(S.parts.values(), S.bins),'text/csv;charset=utf-8','csv')}, ${n} part${n===1?'':'s'}`, 3500); }
 function importJson(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='application/json,.json';
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;

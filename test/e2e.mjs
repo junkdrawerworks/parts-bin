@@ -2647,6 +2647,35 @@ await desk.goto(base);
   await rCtx.close();
 }
 
+// ---- Settings saves the inventory as a spreadsheet: one row a part, by bin and bag, opening in Excel with Ω as typed and
+// a formula shown as text (the only way out was the backup file's JSON)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'b-pas': { code: 'PAS', name: 'Passives', t: 1 } },
+    parts: {
+      'p-a': { name: 'Resistor 4.7kΩ', binId: 'b-pas', qty: 100, unit: 'pcs', bag: 3, tags: [], t: 1 },
+      'p-b': { name: 'SCD41 CO₂ sensor', binId: 'b-env', qty: 2, unit: 'pcs', bag: 9, tags: ['i2c'], notes: '=1+1', t: 1 },
+      'p-c': { name: 'BME280', binId: 'b-env', qty: 4, unit: 'pcs', bag: 1, tags: [], t: 1 },
+    } } });
+  const cCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true, serviceWorkers: 'block' });
+  await cCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const cp = await cCtx.newPage();
+  await cp.goto(base + '#settings'); await cp.waitForSelector('#csv');
+  assert.equal(await cp.textContent('#csv'), 'Save as a spreadsheet (CSV)');
+  assert.match(await cp.textContent('#csv'), /CSV/); assert.match(await cp.locator('section:has(#csv)').textContent(), /Only the backup file loads back in\./);
+  const [dl] = await Promise.all([cp.waitForEvent('download'), cp.click('#csv')]);
+  assert.match(dl.suggestedFilename(), /^parts-bin-\d{4}-\d\d-\d\d\.csv$/);
+  await cp.waitForSelector(`#toast:has-text("Spreadsheet saved: ${dl.suggestedFilename()}, 3 parts")`);
+  const text = await readFile(await dl.path(), 'utf8');
+  assert.ok(text.startsWith('﻿"Bin","Bin name","Bag","Name"'));
+  const lines = text.slice(1).trim().split('\r\n');
+  assert.deepEqual(lines.slice(1).map(l => l.split('","')[3]), ['BME280', 'SCD41 CO₂ sensor', 'Resistor 4.7kΩ'], 'ENV before PAS, then bag order');
+  assert.ok(lines[2].includes('"\'=1+1"'), 'the note is text, not a formula');
+  // the page itself is unchanged by it
+  assert.equal(await cp.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('parts-bin')).items.parts).length), 3);
+  await cCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

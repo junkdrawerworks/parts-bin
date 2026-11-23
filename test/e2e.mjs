@@ -843,6 +843,16 @@ await desk.goto(base);
   await pg.click('.sheet #save'); await pg.waitForSelector('#tz.wait'); await pg.evaluate(() => window.__tap()); await gone();
   assert.equal((await got('p-sgp')).bag, 3); assert.equal((await got('p-sgp')).tagWritten, true);
 
+  // the bag box says what a new number does to the old bag, and saving one leaves no tag claimed for it
+  await pg.goto(base + '#part/p-scd'); await pg.click('#edit'); await pg.waitForSelector('.sheet #p-bag');
+  assert.equal(await pg.textContent('.bt-head'), 'Rewrite this bag’s tag when I save'); assert.equal(await pg.textContent('#p-bagnote'), '');
+  await pg.fill('#p-bag', '9');
+  assert.equal(await pg.textContent('.bt-head'), 'Put it in bag #009 and tag it when I save');
+  assert.equal(await pg.textContent('#p-bagnote'), 'Bag #002’s tag will stop opening this part; write #009 on the new bag.');
+  assert.equal(await pg.textContent('#p-bagshow'), '#009');
+  await pg.click('.sheet #save'); await gone();
+  assert.equal((await got('p-scd')).bag, 9); assert.equal((await got('p-scd')).tagWritten, false, 'no tag carries #009 yet');
+
   assert.deepEqual(pg.problems, [], 'problems while packing bagged parts');
   await bagCtx.close();
 }

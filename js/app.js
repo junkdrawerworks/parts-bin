@@ -531,7 +531,7 @@ function editPart(p, opts={}){
     <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="Seeed XIAO ESP32-S3"></div>
     <label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>
       <span class="bt-num" id="p-bagshow">${esc(bagStr(p.bag||nextBag()))}</span>
-      <span class="bt-text">${p.bag?'Rewrite this bag’s tag when I save':'Put it in a new bag and tag it when I save'}<small>${NFC_OK&&!FRAMED?'Have a blank sticker ready; hold it to the top of the phone after you tap Save.':'Tags need Chrome on Android; the bag number is still saved.'}</small></span></label>
+      <span class="bt-text"><span class="bt-head"></span><small>${NFC_OK&&!FRAMED?'Have a blank sticker ready; hold it to the top of the phone after you tap Save.':'Write the number on the bag. Tags need Chrome on Android.'}</small><small id="p-bagnote"></small></span></label>
     <div class="grid2">
       <div class="field"><label for="p-bin">Bin</label><select id="p-bin"><option value="">— no bin —</option>${bins.map(b=>`<option value="${b.id}" ${b.id===p.binId?'selected':''}>${esc(b.code)} · ${esc(b.name||'')}</option>`).join('')}</select></div>
       <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="MCU boards"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
@@ -561,7 +561,17 @@ function editPart(p, opts={}){
   // Ticking the box fills in the next bag number; unticking it takes back a number it filled in, so the part is saved
   // without a bag. A number typed in, or the part's own bag, stays.
   let filled='';
-  const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&NFC_OK&&!FRAMED?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked); };
+  // What the box says follows the number in it: the part's own bag (whose tag can be written again), or a new one, and
+  // what a new number means for the bag it was in.
+  const native=NFC_OK&&!FRAMED, was=S.parts.get(p.id), wasBag=BG.bagOf(was);
+  const bagText=()=>{
+    const n=BG.bagOf({bag:bagIn.value}), shown=bagStr(n||nextBag());
+    el.querySelector('.bt-head').textContent = n && n===wasBag ? (native ? (was.tagWritten ? 'Rewrite this bag’s tag when I save' : `Tag bag ${shown} when I save`) : `Keep it in bag ${shown}`)
+      : native ? `Put it in bag ${shown} and tag it when I save` : `Put it in bag ${shown}`;
+    el.querySelector('#p-bagnote').textContent = !wasBag || n===wasBag ? ''
+      : (was.tagWritten ? `Bag ${bagStr(wasBag)}’s tag will stop opening this part` : `It leaves bag ${bagStr(wasBag)}`)+(n ? `; write ${bagStr(n)} on the new bag.` : '.');
+  };
+  const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked); bagText(); };
   dotag.onchange=syncTag; bagIn.oninput=syncTag; syncTag();
   el.querySelector('#del')?.addEventListener('click', async()=>{ if(!confirm('Delete this part?')) return; try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
@@ -579,6 +589,7 @@ function editPart(p, opts={}){
       iface:IN.ifaces(el.querySelector('#p-iface').value), addr:el.querySelector('#p-addr').value.trim(), volts:el.querySelector('#p-volts').value.trim(), logic:el.querySelector('#p-logic').value.trim(), img, check:el.querySelector('#p-check').value.trim()};
     const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     delete doc.id;
+    if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(S.parts.get(p.id))) doc.tagWritten=false; // no tag carries the new number until one is written
     const tagNow = dotag.checked && bag!=='';
     if(isNew) localSet('pb.lastbin', newBin);
     try{ await S.db.doc('parts/'+p.id).set(doc); close(); if(!tagNow) toast(isNew?'Part added':'Saved'); opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }

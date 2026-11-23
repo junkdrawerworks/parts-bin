@@ -33,11 +33,15 @@ const NAV = [['bins','Bins'],['parts','Parts'],['bom','BOM check'],['scan','Pack
 function parseHash(){ const h=location.hash.replace(/^#\/?/,''); const [view,...rest]=h.split('/'); return {view:view||'bins', arg:rest.join('/')||''}; }
 // A page opened as a sheet closes (a new bin's, or Parts after Delete) takes the sheet's step in the history, so Back from
 // it goes to the page the sheet was on. While Parts Bin is stepping back off a closed sheet, the page opens once that lands.
+// Each page keeps its place in its own step of the history, so Back to a long list lands where it was (see render()).
 function go(view,arg){
   const u = arg ? `#${view}/${arg}` : `#${view}`;
   if(toastFresh) toastCarry=true; // "Deleted …", then Parts: the message goes with it
-  if(isStepping()) nextPage=u; else if(!openSheet && history.state?.sheet) location.replace(u); else location.hash=u;
+  if(isStepping()){ nextPage=u; return; } // the place is kept once the step back has landed
+  keepPlace();
+  if(!openSheet && history.state?.sheet) location.replace(u); else location.hash=u;
 }
+function keepPlace(){ try{ history.replaceState({...history.state, y:window.scrollY},''); }catch{} } // with a sheet's step, kept with it
 // Whether there's a page of Parts Bin's to go back to. A sheet that has closed leaves its step ahead of this one, and
 // history.length counts that too, so it's only the fallback.
 function canGoBack(){ return window.navigation ? navigation.canGoBack : history.length>1; }
@@ -94,11 +98,13 @@ function searchBins(q){
 // ------------------------------------------------------------------ render
 // The screen last drawn: drawing the same one again (after a save, a sync or a change in another tab) keeps the place
 // on the page, what's being typed and where the keyboard is, and a new screen starts at the top.
+// Back or Forward to another screen (back) goes to the place kept in that step, if go() kept one when it left.
 let shown='';
-function render(){
+function render(back=false){
   S.route = parseHash();
   renderNav();
-  const key=S.route.view+'/'+S.route.arg, same=key===shown, y=same?window.scrollY:0;
+  const key=S.route.view+'/'+S.route.arg, same=key===shown, kept=history.state?.y;
+  const y=same?window.scrollY:back && typeof kept==='number' && !isStepping() ? kept : 0;
   const m=document.getElementById('main'), was=same?typing(m):null; m.innerHTML='';
   if(!S.loaded){ m.append(h('<div class="empty"><p>Loading inventory…</p></div>')); return; }
   const v=S.route.view;
@@ -502,7 +508,7 @@ function keepStep(){
   try{ if(history.state?.sheet) history.replaceState(s,''); else history.pushState(s,''); }catch{} // a frame that can't: no step, as before
 }
 window.addEventListener('popstate',()=>{
-  if(isStepping()){ stepping=0; keepStep(); if(nextPage){ const u=nextPage; nextPage=''; location.hash=u; } return; } // the step back has landed
+  if(isStepping()){ stepping=0; keepStep(); if(nextPage){ const u=nextPage; nextPage=''; keepPlace(); location.hash=u; } return; } // the step back has landed
   if(openSheet && history.state?.sheet!==openSheet.id) openSheet.close(); // Back, or another page opened over it
 });
 function sheet(html, onClose){
@@ -1059,7 +1065,7 @@ function importJson(){
 }
 
 // ------------------------------------------------------------------ boot
-window.addEventListener('hashchange',()=>{ if(linkCode()) takeLink(); else render(); });
+window.addEventListener('hashchange',()=>{ if(linkCode()) takeLink(); else render(true); });
 if(history.state?.sheet) stepOff(); // reloaded on a sheet's step (a phone reopening a tab it put away), with no sheet now
 S.db=localDb; S.user=null; S.canWrite=true;
 S.sample=makeSample(); S.imgOk=!!S.sample; S.assets=null; S.downloads=null;

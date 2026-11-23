@@ -1184,6 +1184,35 @@ await desk.goto(base);
   await nCtx.close();
 }
 
+// ---- a long inventory on a phone
+{
+  const seed = { app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-a': { code: 'A1', name: 'Resistor drawer', location: 'Workroom', t: 1 } }, parts: {} } };
+  for (let i = 1; i <= 300; i++) seed.items.parts['p' + i] = { name: 'Resistor ' + String(i).padStart(3, '0') + ' ohm', binId: 'bin-a', category: 'Passives', qty: i, unit: 'pcs', tags: [], t: 1 };
+  const lCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await lCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, JSON.stringify(seed));
+  const lp = await lCtx.newPage();
+  lp.problems = []; lp.on('pageerror', e => lp.problems.push(e.message)); lp.on('console', m => { if (m.type() === 'error') lp.problems.push(m.text()); });
+  await lp.goto(base + '#parts'); await lp.waitForSelector('.list .item');
+  // Back from a part lands where the list was (it went to the top, with up to 1,500 rows to scroll past again), from
+  // the page's Back and the phone's; a part opened from it starts at the top
+  const openRow = () => lp.evaluate(() => { const r = [...document.querySelectorAll('.list .item')].find(e => e.getBoundingClientRect().top > 200); const n = r.querySelector('.t').textContent; r.click(); return n; });
+  for (const back of [() => lp.click('#back'), () => lp.goBack()]) {
+    await lp.evaluate(() => scrollTo(0, 9000)); const y0 = await lp.evaluate(() => scrollY); assert.ok(y0 > 8000);
+    const name = await openRow();
+    await lp.waitForSelector(`#main h2:has-text("${name}")`);
+    assert.equal(await lp.evaluate(() => scrollY), 0, 'a part opens at the top');
+    await back(); await lp.waitForFunction(() => location.hash === '#parts');
+    const y1 = await lp.evaluate(() => scrollY);
+    assert.ok(Math.abs(y1 - y0) < 64, `Back to Parts landed at ${y1}, not where the list was (${y0})`);
+  }
+  // a tab opens its screen at the top, though
+  await lp.click('#tabbar [data-go="bins"]'); await lp.waitForSelector('.bin');
+  await lp.click('#tabbar [data-go="parts"]'); await lp.waitForSelector('.list .item');
+  assert.equal(await lp.evaluate(() => scrollY), 0, 'Parts from the tab bar opens at the top');
+  assert.deepEqual(lp.problems, [], 'problems with a long inventory');
+  await lCtx.close();
+}
+
 // ---- works offline once it has been opened: every screen, the inventory and the fonts, with no network at all. The
 // server goes down as well as the browser: in some Chromium builds the browser's offline switch alone doesn't stop the
 // service worker's own requests, and this passed with no copy at all.

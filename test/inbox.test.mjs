@@ -76,6 +76,20 @@ test('a finished batch is remembered, so its link can’t add it twice', () => {
   assert.equal(IN.addBatch(IN.clean(null), IN.cleanBatch({ partsbin: 1, batch: { id: '__proto__', items: [{ name: 'x' }] } })), 'added');
 });
 
+test('a batch cleaned twice is the same as cleaned once, and no id is a name every object has', () => {
+  // a field cut at its limit right after a space ended in that space, and the next read took it off
+  const raw = batch([{ name: 'n'.repeat(119) + ' tail', unit: 'https://exa mple', notes: 'word '.repeat(100), check: 'c'.repeat(299) + '  d', tags: ['t'.repeat(29) + ' x'] }]);
+  const once = IN.cleanBatch(raw), twice = IN.cleanBatch({ partsbin: 1, batch: once });
+  assert.deepEqual(twice, once);
+  const x = once.items[0];
+  for (const k of ['name', 'unit', 'notes', 'check']) assert.equal(x[k], x[k].trim(), k + ' ends in a space');
+  assert.equal(x.unit, 'https://exa'); assert.equal(x.tags[0], 't'.repeat(29));
+  for (const id of ['__proto__', 'constructor', 'prototype']) {
+    const b = IN.cleanBatch({ partsbin: 1, batch: { id, items: [{ id, match: id, name: 'x' }] } });
+    assert.notEqual(b.id, id); assert.ok(!('id' in b.items[0]) && !('match' in b.items[0]), id);
+  }
+});
+
 test('an interface named like something every object has stays plain text', () => {
   assert.deepEqual(IN.ifaces('constructor, toString, iic, __proto__'), ['constructor', 'toString', 'I2C', '__proto__']);
   const x = IN.cleanItem({ name: 'Odd', iface: ['constructor', 'hasOwnProperty'] });

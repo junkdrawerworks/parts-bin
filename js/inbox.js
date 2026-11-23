@@ -24,8 +24,10 @@ const IFACE = {
   pwm: 'PWM', usb: 'USB', can: 'CAN', 'rs-485': 'RS-485', rs485: 'RS-485', 'rs-232': 'RS-232', rs232: 'RS-232', pdm: 'PDM',
 };
 
-const idOk = v => typeof v === 'string' && /^[\w.:@+~-]{1,80}$/.test(v);
-const str = (v, n) => (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, n) : '');
+// As in model.js: a name every object already has ('__proto__', 'constructor') is no id.
+const idOk = v => typeof v === 'string' && /^[\w.:@+~-]{1,80}$/.test(v) && !['__proto__', 'constructor', 'prototype'].includes(v);
+// Trimmed again once it's cut, so a text cut just after a space doesn't end in one (and reads back the same).
+const str = (v, n) => (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) ? String(v).replace(/\s+/g, ' ').trim().slice(0, n).trim() : '');
 const list = v => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,;/]/) : []);
 // Links and photos are only ever https to a named site, so a batch can't hand the page a script, a file, or an
 // address on the home network.

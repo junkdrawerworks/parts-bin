@@ -1494,6 +1494,19 @@ await desk.goto(base);
   assert.deepEqual(await page.locator('.item .t').allTextContents(), [tp.name, 'Buzzer module'], 'the part with the tag first');
   assert.equal(await page.locator('.item .chip:has-text("bag used twice")').count(), 2);
   assert.match(await page.textContent('.gapnote'), new RegExp(`On no part: #${pad(maxBag + 1)}\\.`));
+  // numbers on no part are runs, not every number one by one (a bag numbered #1001 listed #001, #002 … #030 and 970 more),
+  // on one line on a phone, with Show all
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-high'] = { name: 'High bag', bag: 1001, qty: 1, unit: 'pcs', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await page.waitForSelector('.gapnote .runs:has-text("–#1000")');
+  assert.equal(await page.textContent('.gapnote .runs'), `On no part: #${pad(maxBag + 1)}, #${pad(maxBag + 3)}–#1000.`);
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); for (let i = 0; i < 40; i++) d.items.parts['p-odd' + i] = { name: 'Odd ' + i, bag: 1003 + 2 * i, qty: 1, unit: 'pcs', tags: [], t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await page.waitForSelector('.gapnote button:not([hidden]):text-is("Show all")');
+  const lineH = () => page.$eval('.gapnote .runs', e => e.getBoundingClientRect().height);
+  assert.ok(await lineH() < 25, 'the numbers on no part are more than a line on a phone');
+  await page.click('.gapnote button'); assert.ok(await lineH() > 40, 'Show all showed no more');
+  assert.equal(await page.getAttribute('.gapnote button', 'aria-expanded'), 'true');
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')), t = Date.now() + 1000; for (const k of Object.keys(d.items.parts)) if (k === 'p-high' || k.startsWith('p-odd')) d.items.parts[k].del = t; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await page.waitForFunction(() => !document.querySelector('.gapnote .runs')?.textContent.includes('1000'));
   // the tag for that number opens the bag that has the tag, which names the other part
   await page.goto(base + '#bag/' + pad(n)); await page.waitForSelector('.clash');
   assert.equal(await page.textContent('.binhead h2'), tp.name);

@@ -373,6 +373,12 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
   .packhead{grid-template-columns:minmax(0,1fr)} /* Next bag under what it's packing into, not over its buttons */
   .packhead>div:last-child{text-align:left!important}
 }
+/* Parts › Bag numbers to sort out: the numbers on no part, one line on a phone until Show all */
+.gapnote{margin:-4px 0 12px}
+.gapnote p{margin:0}
+.gapnote .run{white-space:nowrap} /* a run isn't split at its dash */
+.linkbtn{background:none;border:0;padding:6px 0;color:var(--accent-ink);font-weight:600;text-decoration:underline;cursor:pointer}
+@media(max-width:760px){ .gapnote:not(.open) .runs{white-space:nowrap;overflow:hidden;text-overflow:ellipsis} }
 details.more{border:1px solid var(--line);border-radius:var(--r);padding:0 12px;margin-bottom:12px}
 details.more summary{cursor:pointer;padding:10px 0;font-weight:600;font-size:14px;color:var(--ink2)}
 details.more[open] summary{margin-bottom:6px}

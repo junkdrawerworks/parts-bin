@@ -315,10 +315,17 @@ function clashBar(m, short=false){
   el.querySelector('#showclash').onclick=e=>{ e.preventDefault(); const here=S.route.view==='parts'; localSet('sr.cat','__clash'); S.q=''; if(here) render(); else go('parts'); };
   m.append(el);
 }
+// The numbers no part has, run by run (#001–#1000, #1004, #1008): an inventory numbered from 1001 listed every number
+// from #001 one by one. On a phone it's one line, with Show all.
 function gapNote(m){
   const g=BG.gaps(S.parts.values()); if(!g.length) return;
-  const list=g.slice(0,30).map(bagStr).join(', ')+(g.length>30?` and ${g.length-30} more`:'');
-  m.append(h(`<p class="tiny gapnote" style="margin:-4px 0 12px">On no part: ${list}. A bag with one of these numbers isn’t logged yet, or the number was skipped or its part deleted.</p>`));
+  const runs=[]; for(const n of g){ const r=runs[runs.length-1]; if(r && n===r[1]+1) r[1]=n; else runs.push([n,n]); }
+  const list=runs.slice(0,200).map(([a,b])=>a===b?bagStr(a):`<span class="run">${bagStr(a)}–${bagStr(b)}</span>`).join(', ')+(runs.length>200?` and ${runs.length-200} more`:'');
+  const el=h(`<div class="gapnote"><p class="tiny runs">On no part: ${list}.</p><button type="button" class="linkbtn tiny" aria-expanded="false" hidden>Show all</button><p class="tiny">A bag with one of these numbers isn’t logged yet, or the number was skipped or its part deleted.</p></div>`);
+  const btn=el.querySelector('button'), line=el.querySelector('.runs');
+  btn.onclick=()=>{ const open=el.classList.toggle('open'); btn.setAttribute('aria-expanded',String(open)); btn.textContent=open?'Show fewer':'Show all'; };
+  requestAnimationFrame(()=>{ if(line.scrollWidth>line.clientWidth+1) btn.hidden=false; }); // only when it doesn't fit
+  m.append(el);
 }
 // ---- one label code on two bins or boxes (two devices each made BOX 01 before they synced): each can still be edited,
 // and this says which to rename

@@ -200,3 +200,13 @@ test('loading a backup lists the parts it has as deleted that are still here and
   assert.deepEqual(r, { changed: 0, back: 0, there: [{ id: 'a', del: 20 }] });
   for (const id of ['a', 'b', 'c']) assert.ok(!M.gone(store.doc.items.parts[id]), id + ' is still here: a file never deletes anything by itself');
 });
+test('a part put back by Undo after its deletion has synced stays, whichever copy a merge starts from', () => {
+  const before = M.putItem(M.blankDoc(), 'parts', 'x', { name: 'BME280 (Adafruit)', qty: 5, bag: 3, tagWritten: true });
+  const deleted = M.removeItem(before, 'parts', 'x'); // the deletion, as Drive and another device now have it
+  const { t, ...was } = before.items.parts.x;
+  const back = M.putItem(deleted, 'parts', 'x', was); // Undo: the part as it was, saved again
+  for (const other of [deleted, before]) for (const m of [M.mergeDocs(back, other), M.mergeDocs(other, back)]) {
+    assert.ok(!M.gone(m.items.parts.x));
+    assert.deepEqual({ ...m.items.parts.x, t: 0 }, { ...was, t: 0 }, 'exactly as it was');
+  }
+});

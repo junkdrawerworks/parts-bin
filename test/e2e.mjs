@@ -2676,6 +2676,58 @@ await desk.goto(base);
   await cCtx.close();
 }
 
+// ---- Undo after deleting a part or a bin: the part comes back exactly as it was (its bag's tag opens it again), and a bin
+// comes back with its parts in it, except one moved somewhere else since (a mis-tapped delete could only be got back from
+// a backup file)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', location: 'Workroom', tagWritten: true, t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 } },
+    parts: {
+      'p-a': { name: 'BME280 (Adafruit)', binId: 'b-env', category: 'Sensors', qty: 5, minQty: 2, unit: 'pcs', bag: 3, tagWritten: true, tags: ['i2c'], iface: ['I2C'], addr: '0x77', notes: 'Two have bent pins', t: 1 },
+      'p-b': { name: 'SCD41', binId: 'b-env', qty: 3, unit: 'pcs', tags: [], bag: 4, t: 1 },
+      'p-c': { name: 'Buck converter', binId: 'b-pwr', qty: 2, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const uCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await uCtx.addInitScript(fakeNfc);
+  await uCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const up = await uCtx.newPage();
+  up.problems = []; up.on('pageerror', e => up.problems.push(e.message)); up.on('console', m => { if (m.type() === 'error') up.problems.push(m.text()); });
+  up.on('dialog', d => d.accept());
+  const items = () => up.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items);
+  const body = x => { const { t, ...rest } = x; return rest; };
+  const before = (await (async () => { await up.goto(base + '#bins'); await up.waitForSelector('.bin'); return items(); })());
+  // a part
+  await up.goto(base + '#part/p-a'); await up.click('#edit'); await up.click('.sheet #del');
+  await up.waitForSelector('#toast:has-text("Deleted BME280 (Adafruit)") button:has-text("Undo")'); await up.waitForFunction(() => location.hash === '#parts');
+  assert.ok((await items()).parts['p-a'].del, 'deleted');
+  await up.click('#toast button'); await up.waitForSelector('#toast:has-text("BME280 (Adafruit) is back")');
+  const back = (await items()).parts['p-a'];
+  assert.deepEqual(body(back), body(before.parts['p-a']), 'exactly as it was');
+  assert.ok(back.t > before.parts['p-a'].t, 'saved as a change, so it wins over the deletion on every device');
+  await up.waitForSelector('.item:has-text("BME280 (Adafruit)")');
+  await up.evaluate(() => window.__read(location.origin + '/#bag/003')); await up.waitForSelector('.binhead h2:has-text("BME280 (Adafruit)")');
+  // a bin: its parts come back in it, but not one moved to another bin in the meantime
+  await up.goto(base + '#bin/b-env'); await up.click('#edit'); await up.click('.sheet #del');
+  await up.waitForSelector('#toast:has-text("Deleted bin ENV") button:has-text("Undo")'); await up.waitForFunction(() => location.hash === '#bins');
+  assert.deepEqual([(await items()).parts['p-a'].binId, (await items()).parts['p-b'].binId], ['', '']);
+  await up.evaluate(async () => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-b'].binId = 'b-pwr'; d.items.parts['p-b'].t += 1; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await up.waitForFunction(() => document.querySelector('.bin:has(.label:not(.box))')?.textContent.includes('PWR') && document.querySelector('.bins').textContent.includes('2 parts'));
+  await up.click('#toast button'); await up.waitForSelector('#toast:has-text("Bin ENV is back, with its part")');
+  const after = await items();
+  assert.deepEqual(body(after.bins['b-env']), body(before.bins['b-env']), 'the bin as it was, tag and all');
+  assert.equal(after.parts['p-a'].binId, 'b-env'); assert.equal(after.parts['p-b'].binId, 'b-pwr', 'moved since: left where it went');
+  await up.waitForSelector('.bin:has-text("ENV")');
+  // Undo on a part that's back already (a sync brought it) leaves it as it is
+  await up.goto(base + '#part/p-c'); await up.click('#edit'); await up.click('.sheet #del');
+  await up.waitForSelector('#toast:has-text("Deleted Buck converter") button');
+  await up.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-c'] = { name: 'Buck converter', binId: 'b-pwr', qty: 9, unit: 'pcs', t: d.items.parts['p-c'].del + 1 }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await up.waitForSelector('.item:has-text("Buck converter")');
+  await up.click('#toast button'); await up.waitForSelector('#toast:has-text("Buck converter is back already")');
+  assert.equal((await items()).parts['p-c'].qty, 9);
+  assert.deepEqual(up.problems, []);
+  await uCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

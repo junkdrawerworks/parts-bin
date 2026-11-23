@@ -479,11 +479,32 @@ function moveSheet(p){
   };
   moveCatch=catcher;
 }
+// A bin or box deleted says so with Undo, which puts it back as it was and its parts back in it: each part still in no
+// bin, that is, not one moved somewhere else since.
 function deleteBin(b, then){
   const n=partsInBin(b.id).length, box=isBox(b), word=box?'box':'bin';
   const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
   if(!confirm(`Delete ${word} ${b.code}?${left}`)) return;
-  (async()=>{ try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } then?.(); toast(`Deleted ${word} ${b.code}`); go('bins'); })();
+  const was=S.bins.get(b.id)||b, ids=partsInBin(b.id).map(p=>p.id);
+  (async()=>{ try{ await S.db.doc('bins/'+b.id).delete(); for(const id of ids) await S.db.doc('parts/'+id).update({binId:''}); }catch(e){ writeFail(e); return; } then?.();
+    toast(`Deleted ${word} ${b.code}`, 5000, {label:'Undo', run:()=>undeleteBin(was, ids)}); go('bins'); })();
+}
+async function undeleteBin(was, ids){
+  const {id, updatedAt, ...d}=was, word=isBox(was)?'box':'bin';
+  if(S.bins.has(id)){ toast(`${was.code} is back already`); return; } // brought back meanwhile (a sync): left as it is
+  let n=0;
+  try{ await S.db.doc('bins/'+id).set(d);
+    for(const pid of ids){ const cur=S.parts.get(pid); if(!cur || cur.binId) continue; await S.db.doc('parts/'+pid).update({binId:id}); n++; } }
+  catch(e){ writeFail(e); return; }
+  toast(`${word==='box'?'Box':'Bin'} ${was.code} is back${n?`, with ${n===1?'its':`its ${n}`} ${word==='box'?'bag':'part'}${n===1?'':'s'}`:''}`);
+}
+// A part deleted says so with Undo, which saves it again exactly as it was (it syncs like any other change, and wins over
+// the deletion everywhere: model.js). From the copy held here, not the saved file, which keeps only when it was deleted.
+async function undeletePart(was){
+  const {id, updatedAt, ...d}=was;
+  if(S.parts.has(id)){ toast(`${was.name} is back already`); return; }
+  try{ await S.db.doc('parts/'+id).set(d); }catch(e){ writeFail(e); return; }
+  toast(`${was.name} is back`);
 }
 function renderBin(m, binId){
   const b=S.bins.get(binId);
@@ -1219,7 +1240,9 @@ function editPart(p, opts={}){
   if(opts.copyOf){ const f=el.querySelector('#p-name'); f.focus(); f.select(); }
   el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);
     if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
-    try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
+    const kept=S.parts.get(p.id);
+    try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close();
+    toast('Deleted '+name, 5000, kept && {label:'Undo', run:()=>undeletePart(kept)}); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
     const raw=k=>el.querySelector(PART_FORM[k][0]).value, val=k=>PART_FORM[k][2](raw(k));
     const name=val('name'); if(!name){ refuse(el,'#p-name','Name is required'); return; }

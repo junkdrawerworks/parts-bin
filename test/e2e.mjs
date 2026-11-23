@@ -1670,6 +1670,99 @@ await aiCtx.close();
   await sCtx.close();
 }
 
+// ---- your own photo of a part: identifying a photo in Pack cuts a small picture of each part on it from the box Claude
+// gives round it, and a part saved from it with no reference photo keeps that picture, in this browser only (not in the
+// inventory, so not in Drive or a backup). A part with no box gets no picture rather than the whole bench; a part with a
+// reference photo shows that instead. A part's page has Use my photo and Remove my photo.
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts: {
+    'p-bme': { name: 'BME280 (Adafruit)', category: 'Sensors', qty: 5, unit: 'pcs', tags: [], t: 1 },
+    'p-ref': { name: 'SSD1306 OLED', category: 'Displays', qty: 2, unit: 'pcs', tags: [], img: 'https://img.test/oled.png', t: 1 },
+    'p-gone': { name: 'HC-SR04', category: 'Sensors', qty: 1, unit: 'pcs', tags: [], img: 'https://img.test/missing.png', t: 1 } } } });
+  const fCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await fCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('parts-bin.ai', JSON.stringify({ key: 'sk-ant-not-a-real-key', model: '' })); } }, seed);
+  await fCtx.route('https://img.test/**', async r => (r.request().url().includes('missing') ? r.fulfill({ status: 404, body: '' }) : r.fulfill({ contentType: 'image/png', body: await readFile(join(root, 'icon-192.png')) })));
+  let says = null, asked = null;
+  await fCtx.route('https://api.anthropic.com/**', async r => {
+    if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' } });
+    asked = r.request().postDataJSON();
+    return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: asked.model, stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(says) }] }) });
+  });
+  const fp = await fCtx.newPage();
+  fp.problems = []; fp.on('pageerror', e => fp.problems.push(e.message)); fp.on('console', m => { if (m.type() === 'error' && !m.location().url.startsWith('https://img.test/')) fp.problems.push(m.text()); });
+  await fp.goto(base + '#scan'); await fp.waitForSelector('#file', { state: 'attached' });
+  // a bench photo: a red board on the left, a blue one on the right, on grey
+  const bench = Buffer.from(await fp.evaluate(() => { const c = document.createElement('canvas'); c.width = 800; c.height = 400; const g = c.getContext('2d');
+    g.fillStyle = '#888'; g.fillRect(0, 0, 800, 400); g.fillStyle = '#d00'; g.fillRect(60, 60, 260, 280); g.fillStyle = '#00d'; g.fillRect(480, 60, 260, 280);
+    return c.toDataURL('image/png').split(',')[1]; }), 'base64');
+  says = { items: [
+    { matchId: null, matchConfidence: 0, name: 'Red driver board', category: 'Modules', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: [0.075, 0.15, 0.4, 0.85] },
+    { matchId: 'p-bme', matchConfidence: 0.9, name: 'BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 2, unit: 'pcs', tags: [], notes: '', box: [0.6, 0.15, 0.925, 0.85] },
+    { matchId: null, matchConfidence: 0, name: 'Mystery cable', category: 'Cables', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: null }] };
+  await fp.setInputFiles('#file', { name: 'bench.png', mimeType: 'image/png', buffer: bench });
+  await fp.waitForSelector('#status:has-text("3 parts in this photo")');
+  assert.match(asked.messages[0].content.at(-1).text, /"box": \[left, top, right, bottom\]/, 'a box is asked for each part');
+  assert.deepEqual(await fp.locator('.shotstrip button').evaluateAll(bs => bs.map(b => [b.textContent, !!b.querySelector('img'), b.getAttribute('aria-pressed')])),
+    [['Red driver board', true, 'true'], ['BME280 breakout', true, 'false'], ['Mystery cable', false, 'false']]);
+  // each picture is cut from its own box, with a margin: the red one is red, the blue one blue
+  const colour = sel => fp.locator(sel).evaluate(async img => { await img.decode(); const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(c.width / 2 - 5, c.height / 2 - 5, 10, 10).data; const e = g.getImageData(1, 1, 1, 1).data; return { mid: [d[0], d[1], d[2]].map(v => v > 128), edge: [e[0], e[1], e[2]].map(v => Math.abs(v - 136) < 30), w: c.width, h: c.height }; });
+  const red = await colour('.shotstrip button:nth-child(1) img'), blue = await colour('.shotstrip button:nth-child(2) img');
+  assert.deepEqual(red.mid, [true, false, false]); assert.deepEqual(blue.mid, [false, false, true]);
+  assert.deepEqual(red.edge, [true, true, true], 'a margin of the bench round it');
+  assert.ok(Math.max(red.w, red.h) <= 256 && red.h > red.w, `small, and the shape of the board (${red.w}×${red.h})`);
+  assert.equal(await fp.locator('.shotmine img').count(), 1, 'the picture of the one picked is shown with what it is for');
+  // the red board is saved as a new part with its picture; the photo's other two stay
+  await fp.click('.matchlist [data-id=""]'); await fp.waitForSelector('.sheet #p-name');
+  assert.equal(await fp.inputValue('#p-name'), 'Red driver board');
+  await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  await fp.waitForSelector('#status:has-text("2 parts in this photo")');
+  assert.deepEqual(await fp.locator('.shotstrip button').allTextContents(), ['BME280 breakout', 'Mystery cable']);
+  // the BME280 is matched to the part already listed, which has no reference photo: it takes its picture
+  await fp.click('.matchlist .pick'); await fp.waitForSelector('.sheet #p-name');
+  await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  await fp.waitForSelector('#status:has-text("New: Mystery cable")');
+  assert.equal(await fp.locator('.shotstrip').count(), 0); assert.equal(await fp.locator('.shotmine').count(), 0, 'no box, no picture');
+  await fp.click('.matchlist [data-id=""]'); await fp.waitForSelector('.sheet #p-name'); await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  await fp.waitForFunction(() => !document.querySelector('.matchlist') && !document.querySelector('#status').textContent, null, { timeout: 3000 });
+  // a photo of the SSD1306, which has a reference photo: that stays its picture, and no picture is kept for it
+  says = { items: [{ matchId: 'p-ref', matchConfidence: 0.9, name: 'SSD1306', category: 'Displays', qty: 1, unit: 'pcs', box: [0.6, 0.15, 0.925, 0.85] }] };
+  await fp.setInputFiles('#file', { name: 'oled.png', mimeType: 'image/png', buffer: bench });
+  await fp.waitForSelector('#status:has-text("Looks like: SSD1306 OLED")');
+  await fp.click('.matchlist .pick'); await fp.waitForSelector('.sheet #p-name'); await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
+  const kept = () => fp.evaluate(() => new Promise(res => { const r = indexedDB.open('parts-bin.photos'); r.onsuccess = () => { const q = r.result.transaction('photos').objectStore('photos').getAllKeys(); q.onsuccess = () => res(q.result.sort()); }; }));
+  const doc = await fp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')));
+  const redId = Object.entries(doc.items.parts).find(([, x]) => x.name === 'Red driver board')[0], cableId = Object.entries(doc.items.parts).find(([, x]) => x.name === 'Mystery cable')[0];
+  assert.deepEqual(await kept(), [redId, 'p-bme'].sort(), 'pictures for the red board and the BME280 only');
+  assert.ok(!JSON.stringify(doc).includes('data:image'), 'no picture in the inventory, so none in Drive or a backup');
+  // a part's page shows its picture where a reference photo would be, marked as yours, and enlarges it
+  await fp.goto(base + '#part/' + redId); await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  assert.equal(await fp.locator('.binhead .photo').getAttribute('aria-label'), 'Your photo, tap to enlarge');
+  await fp.click('.binhead .photo'); await fp.waitForSelector('.sheet .refbig.mine img'); await fp.click('.sheet #done');
+  assert.equal(await fp.locator('#myphoto-file').count(), 1); assert.equal(await fp.locator('#rmphoto').count(), 1);
+  // the SSD1306 shows its reference photo and offers no photo of yours
+  await fp.goto(base + '#part/p-ref'); await fp.waitForSelector('.binhead .photo.refphoto img.ref');
+  assert.equal(await fp.locator('#myphoto').count(), 0);
+  // the cable has none: Use my photo puts one on (the whole picture chosen), Remove my photo takes it off, with Undo
+  await fp.goto(base + '#part/' + cableId); await fp.waitForSelector('#myphoto-file', { state: 'attached' });
+  assert.equal(await fp.locator('.binhead .photo img').count(), 0); assert.equal(await fp.locator('#rmphoto').count(), 0);
+  await fp.setInputFiles('#myphoto-file', { name: 'cable.png', mimeType: 'image/png', buffer: bench });
+  await fp.waitForSelector('#toast:has-text("Your photo is on Mystery cable")'); await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  const whole = await colour('.binhead .photo img.mine'); assert.deepEqual([whole.w, whole.h], [256, 128], 'the whole picture, 256 px on its long side');
+  await fp.click('#rmphoto'); await fp.waitForSelector('#toast:has-text("Removed your photo")');
+  assert.equal(await fp.locator('.binhead .photo img').count(), 0);
+  await fp.click('#toast button'); await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  // a part whose reference photo has gone shows yours instead
+  await fp.evaluate(src => new Promise(res => { const r = indexedDB.open('parts-bin.photos'); r.onsuccess = () => { const t = r.result.transaction('photos', 'readwrite'); t.objectStore('photos').put({ src, t: 1 }, 'p-gone'); t.oncomplete = res; }; }), await fp.locator('.binhead .photo img.mine').getAttribute('src'));
+  await fp.goto(base + '#part/p-gone'); await fp.reload();
+  await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  assert.equal(await fp.locator('.binhead .photo img.ref').count(), 0);
+  // a reload keeps them (and a part with one still reads as having no details, for Claude to fill in)
+  await fp.goto(base + '#part/p-bme'); await fp.reload(); await fp.waitForSelector('.binhead .photo.minephoto img.mine');
+  assert.deepEqual(fp.problems, []);
+  await fCtx.close();
+}
+
 // ---- in a browser that can't write tags, a bag's tag sheet says tags need Chrome on Android and offers the link to copy.
 // (It used to offer Tag Along, which needs NFC too and didn't read the link it was given, and opening it took the number.)
 const noNfcCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });

@@ -364,6 +364,20 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .binhead .photo.refphoto{cursor:zoom-in}
 .binhead .photo.refphoto img{object-fit:contain}
 .binhead .photo.refphoto::after{content:"typical";position:absolute;left:0;right:0;bottom:0;font:600 10px/1.7 "Barlow",sans-serif;letter-spacing:.08em;text-transform:uppercase;text-align:center;background:rgba(20,22,18,.62);color:#fff}
+/* your own photo of a part (kept in this browser), where a reference photo would be */
+.binhead .photo.minephoto{cursor:zoom-in;position:relative}
+.binhead .photo.minephoto img{object-fit:contain}
+.binhead .photo.minephoto::after{content:"yours";position:absolute;left:0;right:0;bottom:0;font:600 10px/1.7 "Barlow",sans-serif;letter-spacing:.08em;text-transform:uppercase;text-align:center;background:rgba(20,22,18,.62);color:#fff}
+.refbig.mine{background:var(--panel2)}
+.refbig.mine img{width:min(100%,384px);height:auto;image-rendering:auto}
+/* the parts on one photo in Pack, each with the picture cut for it */
+.shotstrip{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 8px;margin:10px 0 0}
+.shotstrip button{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:8px;max-width:100%;min-height:48px;padding:4px 10px 4px 4px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);color:var(--ink);font:inherit;font-size:14px;text-align:left}
+.shotstrip button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shotstrip button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+.shotstrip img{width:40px;height:40px;object-fit:contain;background:var(--panel2);border-radius:4px;flex:none}
+.shotmine{display:flex;align-items:center;gap:10px;margin:0 0 8px}
+.shotmine img{width:56px;height:56px;object-fit:contain;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);flex:none}
 .thumb{width:56px;height:56px;flex:none;border-radius:var(--r);border:1px solid var(--line);background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--ink3);overflow:hidden}
 .thumb svg{width:26px;height:26px;opacity:.5}
 .thumb img{width:100%;height:100%;object-fit:contain}

@@ -7,6 +7,7 @@ import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece } from './bo
 import * as BG from './bags.js';
 import { partsCsv } from './csv.js';
 import { LONG, gone } from './model.js';
+import { photos, thumb } from './photos.js';
 // ------------------------------------------------------------------ state
 const S = {
   db: null, sample: null,
@@ -644,12 +645,12 @@ function renderPartPage(m, pid){
   head.querySelector('#edit').addEventListener('click',()=>editPart(p));
   const tg=h(`<button class="btn sm" id="bagtag">${ICONS.nfc} ${p.tagWritten?'Rewrite tag':'Bag tag'}</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg);
   const mv=h('<button class="btn sm" id="move">Move</button>'); mv.onclick=()=>moveSheet(p); tg.before(mv);
-  const ref=!!p.img;
+  const ref=!!p.img, mine=!ref && photos.has(p.id); // a reference photo comes first; your own shows when there's none
   // the bag number sits under the photo, big enough to match against the bag across the bench
   // and says when its sticker has been written, as a bin's page does; where tags can be written, a bag with none yet says
   // so (a tag that failed and was skipped, say), and Parts › Bag tag not written lists them all
   const bagTag=p.bag?`<div class="bagbadge${clashOf(p)?' twice':''}"${p.tagWritten?` role="img" aria-label="Bag ${bagStr(p.bag)}, tag written"`:''}><small>Bag</small><span class="bagno">${bagStr(p.bag)}</span>${p.tagWritten?`<span class="tagged">${ICONS.nfc}tagged</span>`:''}</div>`:'';
-  m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
+  m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':mine?' minephoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':mine?' role="button" tabindex="0" aria-label="Your photo, tap to enlarge"':''}>${ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
     <h2>${esc(p.name)}</h2>
     <div class="row" style="gap:6px;margin:4px 0 8px">${p.category?`<span class="chip">${esc(p.category)}</span>`:''}${specChips(p)}${(p.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${isLow(p)?'<span class="chip warn">low stock</span>':''}</div>
     <div class="muted">${b?`In <a href="#bin/${b.id}"><span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span></a> ${esc(b.name||'')}${b.location?` · ${esc(b.location)}`:''}`:'Not in a bin'}${p.from&&isBox(b)?` <span class="tiny">· was in ${esc(p.from)}</span>`:''}</div>
@@ -685,10 +686,37 @@ function renderPartPage(m, pid){
     m.append(c);
   }
   if(p.notes) m.append(h(`<div class="note">${esc(p.notes)}</div>`));
+  // A picture of your own for a part with no reference photo, kept in this browser (photos.js)
+  if(!ref || photos.has(p.id)){
+    const r=h(`<div class="row" id="myphoto" style="margin-top:14px">${ref?'':'<label class="btn sm" for="myphoto-file">Use my photo<input id="myphoto-file" type="file" accept="image/*" class="sr"></label>'}${photos.has(p.id)?'<button class="btn sm" id="rmphoto">Remove my photo</button>':''}<span class="tiny">${ref?'Your photo shows if the reference photo goes.':'Your own picture of it, kept in this browser'}</span></div>`);
+    const f=r.querySelector('#myphoto-file');
+    if(f) f.onchange=async()=>{ const file=f.files[0]; if(!file) return; let src=null;
+      try{ src=await thumb(file, null, true); }catch{} if(!src){ toast('That photo couldn’t be read'); return; }
+      try{ await photos.put(p.id, src); }catch{ toast('This browser couldn’t keep the photo.'); return; }
+      toast(`Your photo is on ${p.name}`); render(); };
+    r.querySelector('#rmphoto')?.addEventListener('click',async()=>{ const src=await photos.get(p.id);
+      try{ await photos.remove(p.id); }catch{ toast('That couldn’t be removed. Try again.'); return; }
+      render(); toast('Removed your photo', 4000, src?{label:'Undo', run:async()=>{ try{ await photos.put(p.id, src); render(); toast('Your photo is back'); }catch{ toast('This browser couldn’t keep the photo.'); } }}:undefined); });
+    m.append(r);
+  }
   if(lacksDetails(p)){ const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask">Ask Claude for details</button><span class="tiny">Interface, voltages, a part number, a reference photo</span></div>`); ask.querySelector('#ask').onclick=()=>sendToClaude([p]); m.append(ask); }
   if(changedAt(p)) m.append(h(`<p class="tiny" id="changed" style="margin-top:16px">Last changed ${esc(dayOf(changedAt(p)))}</p>`)); // any edit, on any device
   const rp=m.querySelector('.refphoto'); if(rp){ rp.onclick=()=>zoomRef(p); rp.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoomRef(p); } }; }
   wireRefs(m);
+  // your own photo, from this browser's store: in the box straight away, or once a reference photo that's gone has failed
+  const box=m.querySelector('.binhead .photo');
+  const showMine=async()=>{ const src=await photos.get(p.id); if(!src || !box.isConnected || box.querySelector('img')) return;
+    box.classList.add('minephoto'); box.setAttribute('role','button'); box.tabIndex=0; box.setAttribute('aria-label','Your photo, tap to enlarge');
+    box.insertAdjacentHTML('beforeend',`<img class="mine" src="${esc(src)}" alt="">`);
+    box.onclick=()=>zoomMine(p, src); box.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoomMine(p, src); } }; };
+  if(mine) showMine();
+  else if(ref && photos.has(p.id)) box.querySelector('img.ref')?.addEventListener('error',()=>setTimeout(showMine));
+}
+function zoomMine(p, src){
+  const {el,close}=sheet(`<h3>${esc(p.name)}</h3><div class="refbig mine"><img src="${esc(src)}" alt="Your photo of ${esc(p.name)}"></div>
+    <p class="tiny" style="margin-top:8px">Your photo, kept in this browser only. A reference photo, if the part gets one, shows instead.</p>
+    <div class="actions"><button class="btn" id="done">Close</button></div>`);
+  el.querySelector('#done').onclick=close;
 }
 
 // ---- BOM check (reading the list and matching it: bom.js)
@@ -924,6 +952,7 @@ function staleNote(){
 // The bags saved in Pack on this visit, newest last, and what's typed in its field: a trip to a bag and back (Back) finds
 // it as it was left.
 const PACKED=[]; let packDraft=''; let identBusy=false; // a photo being identified, through a redraw of Pack
+let SHOT=null; // the last photo identified in Pack, {file, desc, items, at}: its parts not yet saved, and the one picked
 // How a box or bin reads in Pack's picker: how full it is, too (BOX 01 · Bench · 23 bags).
 function packLabel(c){
   const n=partsInBin(c.id).length, twins=codeTwins(c), where=twins.length && c.location && twins.some(x=>(x.location||'')!==c.location) ? c.location : '';
@@ -973,29 +1002,35 @@ function renderScan(m){
   let file=null; const st=ui.querySelector('#status'), res=ui.querySelector('#result');
   const drop=ui.querySelector('#drop'); const fi=ui.querySelector('#file');
   if(drop){
-    fi.onchange=()=>{ file=fi.files[0]||null; showPreview(); if(file) identify(); };
-    const fi2=ui.querySelector('#file2'); fi2.onchange=()=>{ file=fi2.files[0]||null; showPreview(); if(file) identify(); };
+    fi.onchange=()=>{ if(identBusy){ fi.value=''; toast('Still identifying the last one'); return; } file=fi.files[0]||null; SHOT=null; showPreview(); if(file) identify(); };
+    const fi2=ui.querySelector('#file2'); fi2.onchange=()=>{ if(identBusy){ fi2.value=''; toast('Still identifying the last one'); return; } file=fi2.files[0]||null; SHOT=null; showPreview(); if(file) identify(); };
     drop.ondragover=e=>{e.preventDefault();drop.classList.add('over');}; drop.ondragleave=()=>drop.classList.remove('over');
-    drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over'); file=e.dataTransfer.files[0]||null; showPreview();};
+    drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over'); file=e.dataTransfer.files[0]||null; SHOT=null; showPreview();};
   }
   function showPreview(){ res.innerHTML=''; if(file){ const img=new Image(); img.className='preview'; img.src=URL.createObjectURL(file); res.append(img); } if(done) res.append(done); }
   // After a save. Saving has drawn the screen again already, keeping the description (render), so it's emptied there too.
   function reset(){ file=null; packDraft=''; if(fi) fi.value=''; for(const d of [ui.querySelector('#desc'), document.getElementById('desc')]) if(d) d.value=''; res.innerHTML=''; st.textContent=''; }
-  const packed=p=>{ PACKED.push(p.id); if(PACKED.length>50) PACKED.shift(); localSet('pb.packed',true); reset(); render(); };
+  // A part saved from what a photo was identified as takes its picture cut from the photo, when it has no reference photo
+  // or picture of its own yet, and leaves the photo's other parts for the next bag.
+  const packed=(p,seed)=>{ PACKED.push(p.id); if(PACKED.length>50) PACKED.shift(); localSet('pb.packed',true);
+    const i=SHOT?SHOT.items.indexOf(seed):-1;
+    if(i>=0){ if(seed.thumb && !p.img && !photos.has(p.id)) photos.put(p.id, seed.thumb).catch(()=>toast('This browser couldn’t keep the photo.'));
+      SHOT.items.splice(i,1); SHOT.at=0; if(!SHOT.items.length) SHOT=null; }
+    reset(); render(); };
   function openEditor(seed, matched, again=null){
     const destId=head.querySelector('#dest').value;
     // Another bag of a part already in one: a second entry with its name and details, and the next bag number, so each
     // bag has its own sticker and count.
     if(again){ const base={qty:Number(seed.qty)||1, bag:'', binId:destId||again.binId||''};
       for(const k of AGAIN) if(again[k]!=null) base[k]=Array.isArray(again[k])?[...again[k]]:again[k];
-      editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:packed}); return; }
+      editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:p=>packed(p,seed)}); return; }
     const base = matched ? {...matched} : {name:seed.name||'', category:seed.category||'', mpn:seed.mpn||'', unit:seed.unit||'pcs', tags:Array.isArray(seed.tags)?seed.tags.map(String):[], notes:seed.notes||''};
     if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · '); }
     else base.qty=Number(seed.qty)||1;
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
-    editPart(base, {stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:packed});
+    editPart(base, {stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:p=>packed(p,seed)});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -1004,25 +1039,44 @@ function renderScan(m){
     st.innerHTML='<span class="think">Identifying…</span>';
     const inv=[...S.parts.values()].map(p=>({id:p.id,name:p.name,cat:p.category||'',qty:p.qty??0}));
     const cats=[...new Set(inv.map(p=>p.cat).filter(Boolean))];
-    const prompt=`You are helping pack a maker's workroom into bags. Identify the item for an inventory entry, and say whether it is ALREADY in the inventory list below (same physical part, e.g. a photo of three BME280 breakouts matches "BME280 (Adafruit)"). ${file?'The image shows the bagged item, its label, packaging, or silkscreen. ':''}${desc?`Description from the user: "${desc}". `:''}
+    // A photo often has several parts on it: each comes back with the box round it, and its picture is cut from that.
+    const prompt=`You are helping pack a maker's workroom into bags. Identify the item for an inventory entry, and say whether it is ALREADY in the inventory list below (same physical part, e.g. a photo of three BME280 breakouts matches "BME280 (Adafruit)"). ${file?'The image shows the bagged item, its label, packaging, or silkscreen. It may show several different parts: list each different part once, the largest or most central first (several of one part are one entry, with their count as qty). ':''}${desc?`Description from the user: "${desc}". `:''}
 INVENTORY (JSON, id + name + category + current qty): ${JSON.stringify(inv)}
 Categories in use (reuse one if it fits, else a short new one; tools go in "Tools", spools in "Filament", partial builds in "Projects"): ${JSON.stringify(cats)}.
-Reply with only a JSON object: {"matchId": "<inventory id if this is the same part, else null>", "matchConfidence": 0-1, "name": "<short specific name, brand + part>", "category": "<category>", "mpn": "<manufacturer part number or ''>", "qty": <count visible/stated, else 1>, "unit": "pcs", "tags": ["<up to 4 lowercase tags>"], "notes": "<one line: key specs or what it's for>"}`;
+Reply with only a JSON object: {"items": [{"matchId": "<inventory id if this is the same part, else null>", "matchConfidence": 0-1, "name": "<short specific name, brand + part>", "category": "<category>", "mpn": "<manufacturer part number or ''>", "qty": <count visible/stated, else 1>, "unit": "pcs", "tags": ["<up to 4 lowercase tags>"], "notes": "<one line: key specs or what it's for>", "box": ${file?`[left, top, right, bottom], the smallest rectangle round this part (all its pieces), as fractions of the image's width and height from its top left corner, 0 to 1; null if you can't place it`:'null'}}]}`;
     try{
       const j=await S.sample.json(prompt, file?{images:file}:{});
-      const matched = j.matchId && S.parts.get(j.matchId) ? S.parts.get(j.matchId) : null;
-      st.textContent = matched ? `Looks like: ${matched.name}` : (j.name ? `New: ${j.name}` : '');
-      // candidates list: model's match first, then local text matches on the name
-      const local=searchParts(j.name||desc).slice(0,4).filter(p=>!matched||p.id!==matched.id);
-      const box=h(`<div><div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${subLine(matched)}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
-        ${matched?againRow(matched):''}${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
-        <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
-        <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
-      res.querySelector('.matchlist')?.parentElement?.remove(); res.insertBefore(box, res.querySelector('.packed')); listedFor=desc||null;
-      box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
-      wireAgain(box, j);
+      // an answer in the old shape, one part without "items", is read as that one part
+      const items=(Array.isArray(j?.items)&&j.items.length?j.items:[j]).filter(x=>x && typeof x==='object' && !Array.isArray(x)).slice(0,12);
+      if(!items.length) throw {code:'invalid_json'};
+      if(file) for(const x of items) x.thumb=await thumb(file, x.box).catch(()=>null);
+      SHOT={file, desc, items, at:0}; listedFor=desc||null;
+      showShot();
     }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : e.code==='invalid_json' ? 'The answer couldn’t be read. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
     finally{ identBusy=false; const b=document.getElementById('identify'); if(b) b.disabled=false; }
+  }
+  // What the last photo (or description) was identified as: with several parts on it, a row of them to pick from, then the
+  // rows for the one picked. It stays, less each part saved from it, until the last is saved or it's put away.
+  function showShot(){
+    res.querySelector('.matchlist')?.parentElement?.remove();
+    if(!SHOT) return;
+    const {items}=SHOT, j=items[SHOT.at]||items[0], many=items.length>1, desc=SHOT.desc||'';
+    const matched = j.matchId && S.parts.get(j.matchId) ? S.parts.get(j.matchId) : null;
+    st.textContent = many ? `${items.length} parts in this photo` : matched ? `Looks like: ${matched.name}` : (j.name ? `New: ${j.name}` : '');
+    // candidates list: model's match first, then local text matches on the name
+    const local=searchParts(j.name||desc).slice(0,4).filter(p=>!matched||p.id!==matched.id);
+    const mineNote=j.thumb?`<div class="shotmine"><img src="${esc(j.thumb)}" alt=""><span class="tiny">Cut from your photo. It’s kept as the part’s picture, in this browser, if the part has no reference photo.</span></div>`:'';
+    const box=h(`<div>${many?`<div class="shotstrip" role="group" aria-label="Parts in this photo">${items.map((x,i)=>`<button type="button" data-shot="${i}" aria-pressed="${x===j}">${x.thumb?`<img src="${esc(x.thumb)}" alt="">`:''}<span>${esc(x.name||'Part '+(i+1))}</span></button>`).join('')}</div>
+        <div class="row" style="margin:-2px 0 4px"><span class="tiny grow">Pick one, save it, and the rest stay here for the next bag.</span><button type="button" class="btn sm" id="shotdone">Done with this photo</button></div>`:''}
+      <div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${subLine(matched)}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
+      ${matched?againRow(matched):''}${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
+      <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
+      ${mineNote}<div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
+    res.insertBefore(box, res.querySelector('.packed'));
+    box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{ SHOT.at=Number(b.dataset.shot); showShot(); res.querySelector(`[data-shot="${SHOT.at}"]`)?.focus(); });
+    box.querySelector('#shotdone')?.addEventListener('click',()=>{ SHOT=null; reset(); render(); });
+    box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
+    wireAgain(box, j);
   }
   ui.querySelector('#identify')?.addEventListener('click', identify);
   // type-ahead over the inventory, no AI needed
@@ -1062,6 +1116,7 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
     wireAgain(box, {name:q});
   }
   if(packDraft){ desc.value=packDraft; localList(packDraft.trim()); } // back from a bag: what was typed, and its matches
+  else if(SHOT){ file=SHOT.file; showPreview(); showShot(); } // or the rest of the parts on the last photo
 }
 
 // ------------------------------------------------------------------ sheets
@@ -1762,7 +1817,7 @@ function renderSettings(m){
   const dc=h('<section class="card" id="drivecard"></section>'); m.append(dc);
   if(drive.ready) drive.card(dc); else dc.innerHTML='<h3>Save across devices</h3><p class="muted">Google Drive saving works at parts-bin.junkdrawer.works. Here the inventory stays in this browser.</p>';
   const aic=h(`<section class="card"><h3>Photo identification <span class="tiny">optional</span></h3>
-    <p class="muted">With your own Anthropic API key, the camera button in Pack identifies a part from a photo and BOM check can match loosely worded lists. The key is kept in this browser only and sent only to Anthropic; calls are billed to your API account, not a Claude plan. Each device needs it entered once.</p>
+    <p class="muted">With your own Anthropic API key, the camera button in Pack identifies the parts on a photo, and keeps a small picture of each in this browser, and BOM check can match loosely worded lists. The key is kept in this browser only and sent only to Anthropic; calls are billed to your API account, not a Claude plan. Each device needs it entered once.</p>
     <div class="grid2"><div class="field"><label for="ai-key">API key</label><input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" value="${esc(ai.key)}"></div>
     <div class="field"><label for="ai-model">Model</label><input id="ai-model" class="mono" spellcheck="false" value="${esc(ai.model)}"></div></div>
     <div class="row"><button class="btn primary" id="ai-save">Save</button>${ai.key?'<button class="btn" id="ai-clear">Remove key</button>':''}</div></section>`);
@@ -1865,6 +1920,10 @@ localDb.collection('parts').onSnapshot(snap=>{ S.parts=new Map(snap.docs.map(d=>
 localDb.collection('projects').onSnapshot(snap=>{ S.projects=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}])); if(S.loaded&&S.route.view==='bom') inventoryChanged=true; });
 store.onDelivered(()=>{ if(!inventoryChanged) return; inventoryChanged=false; if(parseHash().view==='settings') renderNav(); else render(); });
 render();
+// Your own photos (photos.js): which parts have one, then the part page again if it should show one. A photo of a part
+// deleted three months ago or more is let go; one deleted lately is kept, as a sync can bring the part back.
+photos.load().then(()=>{ const keep=id=>{ const x=store.doc.items.parts[id]; return !x || !gone(x) || Date.now()-x.del<90*864e5; };
+  photos.prune(keep); if(S.loaded && S.route.view==='part' && photos.has(S.route.arg)) render(); });
 store.onSave(()=>drive.changed()); // a change that couldn't be kept is refused where it was made (writeFail)
 drive.onUpdate(({back})=>{ store.reload(); if(back.length) toast(cameBack(back),6000); });
 // A sync brought back parts deleted here, because another device changed them after: the merge keeps the newer change.

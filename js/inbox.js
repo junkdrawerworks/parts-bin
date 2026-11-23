@@ -42,7 +42,8 @@ export function ifaces(v) {
   for (const x of list(v)) { const s = str(x, 14); if (!s) continue; const l = s.toLowerCase(), k = Object.hasOwn(IFACE, l) ? IFACE[l] : s; if (!out.includes(k)) out.push(k); }
   return out.slice(0, 6);
 }
-const tags = v => [...new Set(list(v).map(x => str(x, 30).toLowerCase()).filter(Boolean))].slice(0, 8);
+// lower-cased before they're cut, as a letter can lower-case to two (İ is i and a dot)
+const tags = v => [...new Set(list(v).map(x => str(typeof x === 'string' ? x.toLowerCase() : x, 30)).filter(Boolean))].slice(0, 8);
 
 // Keeps what a batch handed us to the fields above, each cut to size. Anything else is dropped.
 export function cleanItem(x) {

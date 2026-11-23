@@ -92,7 +92,7 @@ test('a finished batch is remembered, so its link can’t add it twice', () => {
 
 test('a batch cleaned twice is the same as cleaned once, and no id is a name every object has', () => {
   // a field cut at its limit right after a space ended in that space, and the next read took it off
-  const raw = batch([{ name: 'n'.repeat(119) + ' tail', unit: 'https://exa mple', notes: 'word '.repeat(100), check: 'c'.repeat(299) + '  d', tags: ['t'.repeat(29) + ' x'] }]);
+  const raw = batch([{ name: 'n'.repeat(119) + ' tail', unit: 'https://exa mple', notes: 'word '.repeat(100), check: 'c'.repeat(299) + '  d', tags: ['t'.repeat(29) + ' x', 'İ'.repeat(20)] }]);
   const once = IN.cleanBatch(raw), twice = IN.cleanBatch({ partsbin: 1, batch: once });
   assert.deepEqual(twice, once);
   const x = once.items[0];

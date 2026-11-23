@@ -370,6 +370,25 @@ assert.match(shared, /^Parts Bin: fill in details for this part/);
 assert.deepEqual(JSON.parse(shared.slice(shared.indexOf('{'))).parts.map(x => x.id), [iron.id]);
 await page.goto(base + '#part/p-scd41'); assert.equal(await page.locator('#ask').count(), 0, 'a part with details doesn’t ask');
 
+// ---- a field unticked on one card stays unticked when another card is applied, and Apply all leaves it out (it applied
+// everything, and drawing the Inbox again ticked it again)
+await page.goto(base + '#inbox');
+await page.fill('#inb-paste', await IN.encode({ partsbin: 1, batch: { id: 'ptest-untick', source: 'details', items: [
+  { id: 'p-bme280', name: 'BME280 breakout (renamed)', link: 'https://www.adafruit.com/product/2652' },
+  { id: tca.id, link: 'https://www.adafruit.com/product/2717' },
+  { id: iron.id, notes: 'Pinecil' },
+] } }));
+await page.click('#inb-go'); await page.waitForSelector('[data-a="all"]:has-text("Apply all 3")');
+await page.uncheck('.card.inb[data-k="i0"] .diff input[data-k="name"]');
+await page.click('.card.inb[data-k="i1"] [data-a="apply"]');
+await page.waitForSelector('[data-a="all"]:has-text("Apply all 2")');
+assert.equal(await page.isChecked('.card.inb[data-k="i0"] .diff input[data-k="name"]'), false, 'drawn again, the box stays unticked');
+assert.equal(await page.isChecked('.card.inb[data-k="i0"] .diff input[data-k="link"]'), true);
+await page.click('[data-a="all"]'); await page.waitForSelector('text=Nothing waiting');
+const bmeU = await part('p-bme280');
+assert.equal(bmeU.name, 'BME280 (Adafruit)', 'the unticked name was left alone'); assert.equal(bmeU.link, 'https://www.adafruit.com/product/2652');
+assert.equal((await part(tca.id)).link, 'https://www.adafruit.com/product/2717'); assert.equal((await part(iron.id)).notes, 'Pinecil');
+
 // ---- Drive: turn it on here, then a laptop picks the inventory up
 await page.goto(base + '#settings');
 await page.click('[data-a="on"]');

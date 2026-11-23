@@ -809,6 +809,12 @@ function lacksDetails(p){ return !(p.iface||[]).length && !p.volts && !p.img && 
 let INBOX = IN.loadInbox(), usedAgain = null;
 function inboxCount(){ return IN.count(INBOX); }
 function keepInbox(){ if(!IN.saveInbox(INBOX)) toast('This browser’s storage is full',4000); }
+// The fields unticked on each suggestion's card, by batch and item, so drawing the Inbox again (after a save, a sync, a
+// change in another tab) leaves them unticked, and Apply all leaves them out. Forgotten once the suggestion is dealt with.
+const UNTICKED=new Map();
+const untickedOf=(b,x)=>{ const k=b.id+' '+x.k; if(!UNTICKED.has(k)) UNTICKED.set(k,new Set()); return UNTICKED.get(k); };
+const ticked=(b,x)=>new Set(IN.FIELDS.filter(k=>!untickedOf(b,x).has(k)));
+function settled(b,keys){ for(const x of b.items) if(!keys||keys.includes(x.k)) UNTICKED.delete(b.id+' '+x.k); }
 function linkCode(){ const m=new RegExp('^#('+IN.PREFIX+'.{8,})$').exec(location.hash); return m && m[1]; }
 async function takeLink(){
   const c=linkCode(); if(!c) return false;
@@ -831,7 +837,7 @@ function pruneInbox(){
   if(!S.loaded) return; let changed=false;
   for(const b of [...INBOX.batches]){
     const done=b.items.filter(x=>isUpdate(x) && !IN.diff(S.parts.get(x.id),x).length).map(x=>x.k);
-    if(done.length){ IN.resolve(INBOX,b.id,done); changed=true; }
+    if(done.length){ settled(b,done); IN.resolve(INBOX,b.id,done); changed=true; }
   }
   if(changed) keepInbox();
 }
@@ -865,8 +871,8 @@ function batchSection(b){
   const ups=b.items.filter(isUpdate), news=b.items.filter(x=>!isUpdate(x)&&x.name);
   const sec=h(`<section class="batch" data-batch="${esc(b.id)}"><div class="section-h"><h3>${esc(b.name||SOURCES[b.source])}</h3><span class="tiny">${b.name?esc(SOURCES[b.source])+' · ':''}${b.items.length} left</span></div>
     <div class="row batchbar">${ups.length>1?`<button class="btn primary" data-a="all">Apply all ${ups.length}</button>`:''}<span class="grow"></span><button class="btn sm" data-a="drop">Dismiss the rest</button></div></section>`);
-  sec.querySelector('[data-a="all"]')?.addEventListener('click',()=>applyUpdates(b, ups.map(x=>({x,keys:null}))));
-  sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; IN.resolve(INBOX,b.id,null); keepInbox(); render(); };
+  sec.querySelector('[data-a="all"]')?.addEventListener('click',()=>applyUpdates(b, ups.map(x=>({x,keys:ticked(b,x)}))));
+  sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; settled(b,null); IN.resolve(INBOX,b.id,null); keepInbox(); render(); };
   for(const x of news) sec.append(newCard(b,x));
   for(const x of ups) sec.append(updateCard(b,x));
   // Suggestions for parts this browser doesn't have. They stay until dismissed: the parts may be on another device
@@ -940,27 +946,28 @@ function updateCard(b,x){
   };
   const el=h(`<div class="card inb" data-k="${esc(x.k)}">
     ${itemHead({img:x.img||p.img}, `<a href="#part/${esc(p.id)}">${esc(p.name)}</a>`, `<div class="tiny">${p.bag?esc(bagStr(p.bag))+' · ':''}${bin?esc(bin.code):'no bin'}</div>`)}
-    <div class="diff">${d.map(r=>`<label><input type="checkbox" data-k="${r.k}" checked><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'?' warn':''}">${to(r)}</span></label>`).join('')}</div>
+    <div class="diff">${d.map(r=>`<label><input type="checkbox" data-k="${r.k}"${untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'?' warn':''}">${to(r)}</span></label>`).join('')}</div>
     <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip">Skip</button><button class="btn primary sm" data-a="apply">Apply</button></div></div>`);
-  el.querySelector('[data-a="skip"]').onclick=()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); };
-  el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:new Set([...el.querySelectorAll('.diff input:checked')].map(i=>i.dataset.k))}]);
+  el.querySelectorAll('.diff input').forEach(i=>i.onchange=()=>{ const u=untickedOf(b,x); if(i.checked) u.delete(i.dataset.k); else u.add(i.dataset.k); });
+  el.querySelector('[data-a="skip"]').onclick=()=>{ settled(b,[x.k]); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); };
+  el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:ticked(b,x)}]);
   return el;
 }
-// keys: which fields to take from a suggestion; null takes them all. Two suggestions for one part build on each
+// keys: which fields to take from a suggestion. Two suggestions for one part build on each
 // other, and each part is written once. The suggestions leave the Inbox once they're saved; a save refused (storage
 // full) leaves them waiting.
 async function applyUpdates(b, list){
   const now=new Map(), changes=new Map();
   for(const {x,keys} of list){
     const p=now.get(x.id)||S.parts.get(x.id); if(!p) continue;
-    const data={}; for(const r of IN.diff(p,x)) if(!keys||keys.has(r.k)) data[r.k]=r.to;
+    const data={}; for(const r of IN.diff(p,x)) if(keys.has(r.k)) data[r.k]=r.to;
     if(!Object.keys(data).length) continue;
     now.set(x.id,{...p,...data}); changes.set(x.id,{...changes.get(x.id),...data});
   }
   try{ for(const [pid,data] of changes) await S.db.doc('parts/'+pid).update(data); }
   catch(e){ writeFail(e); render(); return; }
   const parts=changes.size;
-  IN.resolve(INBOX,b.id,list.map(q=>q.x.k)); keepInbox();
+  settled(b,list.map(q=>q.x.k)); IN.resolve(INBOX,b.id,list.map(q=>q.x.k)); keepInbox();
   toast(parts?`Updated ${parts} part${parts===1?'':'s'}`:'Nothing applied');
   render();
 }

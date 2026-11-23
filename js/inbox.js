@@ -6,6 +6,8 @@
 // An item with an `id` that's in the inventory suggests changes to that part. Any other item is something to bag:
 // a new part, or (with `match`) one that's already listed.
 
+import { LONG, MAX_LIST } from './model.js';
+
 export const PREFIX = 'p1z';
 export const KEY = 'parts-bin.inbox';
 const MAX_ITEMS = 400, MAX_BATCHES = 20, MAX_BYTES = 2_000_000;
@@ -107,11 +109,15 @@ export const isCode = text => new RegExp('^#?' + PREFIX + '[A-Za-z0-9_-]{8,}$').
 
 // ---- what an item would change on a part
 const same = (a, b) => (Array.isArray(a) || Array.isArray(b) ? (a || []).join('|') === (b || []).join('|') : String(a ?? '') === String(b ?? ''));
-// Notes and tags are added to, never replaced: the notes hold the person's own ideas for the part.
+// Notes and tags are added to, never replaced: the notes hold the person's own ideas for the part. Nothing of theirs is
+// cut to make room: notes that would pass what a part can hold with the suggestion stay as they are (notesFull), and a
+// part's own tags come first, up to as many as it can have.
+const joined = (part, v) => String(part.notes || '') + ' · ' + v;
+const notesFull = (part, v) => !!part.notes && !String(part.notes).toLowerCase().includes(String(v).toLowerCase()) && joined(part, v).length > LONG.notes;
 export function proposed(part, item, k) {
   const v = item[k];
-  if (k === 'notes') { const old = String(part.notes || ''); return !old ? v : old.toLowerCase().includes(String(v).toLowerCase()) ? old : (old + ' · ' + v).slice(0, 4000); }
-  if (k === 'tags') return [...new Set([...(part.tags || []), ...v])];
+  if (k === 'notes') { const old = String(part.notes || ''); return !old ? v : old.toLowerCase().includes(String(v).toLowerCase()) || notesFull(part, v) ? old : joined(part, v); }
+  if (k === 'tags') return [...new Set([...(part.tags || []), ...v])].slice(0, MAX_LIST);
   return v;
 }
 export function diff(part, item) {
@@ -121,6 +127,7 @@ export function diff(part, item) {
     const to = proposed(part, item, k);
     if ((k === 'link' || k === 'img') && httpsUrl(part[k]) === to) continue; // the same address, written slightly differently
     if (!same(part[k], to)) out.push({ k, label: LABELS[k], from: part[k] ?? '', to });
+    else if (k === 'notes' && notesFull(part, item[k])) out.push({ k, label: LABELS[k], from: part[k], to, full: true }); // shown, not offered
   }
   return out;
 }

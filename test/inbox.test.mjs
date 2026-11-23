@@ -54,6 +54,20 @@ test('a suggestion shows only what would change, and adds to notes and tags inst
   assert.deepEqual(IN.diff({ link: 'https://adafruit.com' }, { id: 'p', link: IN.httpsUrl('https://adafruit.com') }), [], 'the same address with a slash added isn’t a change');
 });
 
+test('a notes suggestion is added to long notes whole, and never cuts the person’s own', () => {
+  const mine = 'Tested on the bench. '.repeat(250).trim(), add = 'Needs 20 s warm-up after power on';
+  assert.ok(mine.length > 5000);
+  const d = IN.diff({ notes: mine }, { id: 'p', notes: add });
+  assert.equal(d.length, 1); assert.equal(d[0].to, mine + ' · ' + add, 'kept all of them and added it (cut to 4,000)');
+  // notes that would pass the limit with it are left as they are, and the card says so instead of offering it
+  const full = 'x'.repeat(19990), f = IN.diff({ notes: full }, { id: 'p', notes: add });
+  assert.deepEqual(f.map(r => [r.k, r.full, r.to]), [['notes', true, full]]);
+  assert.equal(IN.proposed({ notes: full }, { notes: add }, 'notes'), full);
+  // tags keep the part's own first, up to the 40 a part can have
+  const own = Array.from({ length: 38 }, (_, i) => 't' + i), t = IN.proposed({ tags: own }, { tags: ['a', 'b', 'c', 't1'] }, 'tags');
+  assert.deepEqual(t, [...own, 'a', 'b']);
+});
+
 test('a finished batch is remembered, so its link can’t add it twice', () => {
   const st = IN.clean(null), b = IN.cleanBatch(batch([{ name: 'A' }, { name: 'B' }]));
   assert.equal(IN.addBatch(st, b), 'added');

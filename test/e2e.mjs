@@ -514,6 +514,25 @@ const bmeU = await part('p-bme280');
 assert.equal(bmeU.name, 'BME280 (Adafruit)', 'the unticked name was left alone'); assert.equal(bmeU.link, 'https://www.adafruit.com/product/2652');
 assert.equal((await part(tca.id)).link, 'https://www.adafruit.com/product/2717'); assert.equal((await part(iron.id)).notes, 'Pinecil');
 
+// ---- a notes suggestion is added to long notes whole (they were cut to 4,000 characters, mid-word, and the suggestion
+// lost), and notes too full to take it are left alone, the card saying so
+const notesTo = async n => { await page.goto(base + '#part/' + iron.id); await page.click('#edit'); await page.fill('#p-notes', n); await page.click('#save'); await page.waitForFunction(([id, l]) => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].notes?.length === l, [iron.id, n.length]); };
+const longNotes = 'Tip T12-K, holds 350 C fine. '.repeat(180).trim();
+await notesTo(longNotes);
+await page.goto(base + '#inbox');
+await page.fill('#inb-paste', await IN.encode({ partsbin: 1, batch: { id: 'ptest-longnotes', source: 'details', items: [{ id: iron.id, notes: 'Needs 20 s warm-up after power on' }] } }));
+await page.click('#inb-go'); await page.click('.card.inb [data-a="apply"]'); await page.waitForSelector('text=Nothing waiting');
+assert.equal((await part(iron.id)).notes, longNotes + ' · Needs 20 s warm-up after power on');
+await notesTo('n'.repeat(19990));
+await page.goto(base + '#inbox');
+await page.fill('#inb-paste', await IN.encode({ partsbin: 1, batch: { id: 'ptest-fullnotes', source: 'details', items: [{ id: iron.id, notes: 'Needs 20 s warm-up after power on', mpn: 'TS101' }] } }));
+await page.click('#inb-go'); await page.waitForSelector('.card.inb .diff input[data-k="notes"]');
+assert.ok(await page.isDisabled('.card.inb .diff input[data-k="notes"]') && !(await page.isChecked('.card.inb .diff input[data-k="notes"]')), 'notes too full to take it aren’t offered');
+assert.match(await page.textContent('.card.inb .diff label.off'), /The notes are full \(20,000 characters\), so this can’t be added: Needs 20 s warm-up/);
+await page.click('.card.inb [data-a="apply"]'); await page.waitForSelector('text=Nothing waiting');
+assert.equal((await part(iron.id)).notes, 'n'.repeat(19990), 'the notes were left as they were'); assert.equal((await part(iron.id)).mpn, 'TS101');
+await notesTo('Pinecil');
+
 // ---- Drive: turn it on here, then a laptop picks the inventory up
 await page.goto(base + '#settings');
 await page.click('[data-a="on"]');

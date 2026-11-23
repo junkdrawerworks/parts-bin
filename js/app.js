@@ -5,6 +5,7 @@ import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
 import { norm, parseBom, matchPart, shortBy, needs, unitOf } from './bom.js';
 import * as BG from './bags.js';
+import { LONG } from './model.js';
 // ------------------------------------------------------------------ state
 const S = {
   db: null, user: null, sample: null, assets: null, downloads: null,
@@ -1156,7 +1157,7 @@ function openFromInbox(b,x,matched){
   if(matched){
     base={...matched};
     for(const k of ['category','mpn','link','iface','addr','volts','logic','img']) if(!empty(x[k]) && empty(base[k])) base[k]=x[k];
-    if(x.check) base.check = !matched.check ? x.check : matched.check.includes(x.check) ? matched.check : (matched.check+' · '+x.check).slice(0,300);
+    if(x.check) base.check = !matched.check ? x.check : matched.check.includes(x.check) ? matched.check : (matched.check+' · '+x.check).slice(0,4000); // a part's To check holds 4,000 characters
     if(x.notes) base.notes=IN.proposed(matched,x,'notes');
     if(x.tags) base.tags=IN.proposed(matched,x,'tags');
     if(x.qty!=null) base.qty = (x.add ?? b.source==='receipt') ? Number(matched.qty||0)+x.qty : x.qty;
@@ -1172,6 +1173,7 @@ function openFromInbox(b,x,matched){
 function updateCard(b,x){
   const p=S.parts.get(x.id), d=IN.diff(p,x), bin=binOf(p);
   const to=r=>{
+    if(r.full) return `The notes are full (${LONG.notes.toLocaleString('en')} characters), so this can’t be added: ${esc(x.notes)}`;
     if(r.k==='notes' && r.from) return '+ '+esc(x.notes);
     if(r.k==='tags'){ const add=x.tags.filter(t=>!(p.tags||[]).includes(t)); return '+ '+esc(add.join(', ')); }
     // what it says now, struck out, and what it would say: read out as "was …" and "now …", as a strike isn't
@@ -1181,7 +1183,7 @@ function updateCard(b,x){
   };
   const el=h(`<div class="card inb" data-k="${esc(x.k)}">
     ${itemHead({img:x.img||p.img}, `<a href="#part/${esc(p.id)}">${esc(p.name)}</a>`, `<div class="tiny">${p.bag?esc(bagStr(p.bag))+' · ':''}${bin?esc(bin.code):'no bin'}</div>`)}
-    <div class="diff">${d.map(r=>`<label><input type="checkbox" data-k="${r.k}"${untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'?' warn':''}">${to(r)}</span></label>`).join('')}</div>
+    <div class="diff">${d.map(r=>`<label${r.full?' class="off"':''}><input type="checkbox" data-k="${r.k}"${r.full?' disabled':untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'||r.full?' warn':''}">${to(r)}</span></label>`).join('')}</div>
     <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(p.name)}">Skip</button><button class="btn primary sm" data-a="apply" aria-label="Apply to ${esc(p.name)}">Apply</button></div></div>`);
   el.querySelectorAll('.diff input').forEach(i=>i.onchange=()=>{ const u=untickedOf(b,x); if(i.checked) u.delete(i.dataset.k); else u.add(i.dataset.k); });
   el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); settled(b,[x.k]); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); said('Skipped '+p.name); toCard(next); };
@@ -1195,7 +1197,7 @@ async function applyUpdates(b, list, next=null){
   const now=new Map(), changes=new Map();
   for(const {x,keys} of list){
     const p=now.get(x.id)||S.parts.get(x.id); if(!p) continue;
-    const data={}; for(const r of IN.diff(p,x)) if(keys.has(r.k)) data[r.k]=r.to;
+    const data={}; for(const r of IN.diff(p,x)) if(keys.has(r.k) && !r.full) data[r.k]=r.to;
     if(!Object.keys(data).length) continue;
     now.set(x.id,{...p,...data}); changes.set(x.id,{...changes.get(x.id),...data});
   }

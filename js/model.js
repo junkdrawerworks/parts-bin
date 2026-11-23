@@ -27,10 +27,11 @@ export function newId() {
 // Fields the page reads as lists. A file can hold one as text ("sensor, i2c"): that's split the way the edit form splits
 // it, tags lower-cased as the form does, and anything else that isn't a list is dropped, so one part can't break every screen.
 const LISTS = { tags: s => s.toLowerCase(), iface: s => s };
-const strings = v => v.filter(s => typeof s === 'string').slice(0, 40).map(s => s.slice(0, 80));
+export const MAX_LIST = 40; // items in a list (tags, interfaces)
+const strings = v => v.filter(s => typeof s === 'string').slice(0, MAX_LIST).map(s => s.slice(0, 80));
 // How long a text can be. A saved BOM is a whole pasted parts list (a KiCad export with footprints and datasheet links
 // runs past 4,000 characters for one board), and a part's notes can be long too; every other field is short.
-const LONG = { text: 200000, notes: 20000 };
+export const LONG = { text: 200000, notes: 20000 };
 
 // Keeps what a page or a file handed us to plain JSON fields, and drops anything malformed. Every load runs it, so a
 // copy saved before a rule here was added is brought into line as it's read.

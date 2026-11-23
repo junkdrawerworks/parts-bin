@@ -481,6 +481,13 @@ await page.waitForSelector('#again');
 assert.equal(await page.locator('.card.inb').count(), 0);
 await page.click('#again'); await page.waitForSelector('.card.inb');
 assert.equal(await page.locator('.card.inb').count(), 3);
+// a batch loaded again is counted afresh: skip one, dismiss the rest, load it again and go through it
+await page.click('.card.inb[data-k="i2"] [data-a="skip"]'); await page.waitForFunction(() => document.querySelectorAll('.card.inb').length === 2);
+page.once('dialog', d => d.accept()); await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');
+await page.fill('#inb-paste', photoLink); await page.click('#inb-go'); await page.click('#again'); await page.waitForSelector('.card.inb'); // on the same visit
+for (const k of ['i0', 'i1', 'i2']) await page.click(`.card.inb[data-k="${k}"] [data-a="skip"]`);
+await page.waitForSelector('#toast:has-text("“Bench photo” done: 3 skipped")');
+await page.goto('about:blank'); await page.goto(photoLink); await page.click('#again'); await page.waitForSelector('.card.inb');
 assert.ok(await page.$(`.card.inb[data-k="i1"] [data-id="${tca.id}"]`), 'the part added a moment ago is offered as an existing one');
 page.once('dialog', d => d.accept());
 await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');

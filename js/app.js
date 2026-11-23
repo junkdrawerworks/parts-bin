@@ -1174,7 +1174,7 @@ async function takeLink(){
 async function takeBatch(text, {again=false}={}){
   let b=null; try{ b=IN.cleanBatch(await IN.read(text)); }catch{}
   if(!b){ toast('That isn’t a batch Parts Bin can read. Ask Claude for the link again, or load the file.',4500); return false; }
-  const r=IN.addBatch(INBOX,b,{again}); usedAgain=null;
+  const r=IN.addBatch(INBOX,b,{again}); usedAgain=null; if(r==='added') TALLY.delete(b.id); // loaded again: counted afresh
   if(r==='added' && !IN.saveInbox(INBOX)){ INBOX=IN.loadInbox(); toast('This browser’s storage is full, so that batch wasn’t kept. Dismiss a batch or free some room, then open the link again.',5000); return false; }
   if(r==='used'){ usedAgain={text, name:b.name||'that batch'}; toast('You’ve been through that batch already',3000); }
   else if(r==='open') toast('That batch is already waiting here');
@@ -1228,7 +1228,7 @@ function batchSection(b){
   const sec=h(`<section class="batch" data-batch="${esc(b.id)}"><div class="section-h"><h3>${esc(b.name||SOURCES[b.source])}</h3><span class="tiny">${[b.name?SOURCES[b.source]:'', day, b.items.length+' left'].filter(Boolean).map(esc).join(' · ')}</span></div>
     <div class="row batchbar">${ups.length>1?`<button class="btn primary" data-a="all">Apply all ${ups.length}</button>`:''}<span class="grow"></span><button class="btn sm" data-a="drop">Dismiss the rest</button></div></section>`);
   sec.querySelector('[data-a="all"]')?.addEventListener('click',()=>applyUpdates(b, ups.map(x=>({x,keys:ticked(b,x)}))));
-  sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; settled(b,null); IN.resolve(INBOX,b.id,null); keepInbox(); render(); };
+  sec.querySelector('[data-a="drop"]').onclick=()=>{ if(!confirm(`Dismiss the ${b.items.length} left in this batch? Nothing already saved changes.`)) return; settled(b,null); IN.resolve(INBOX,b.id,null); TALLY.delete(b.id); keepInbox(); render(); };
   for(const x of news) sec.append(newCard(b,x));
   for(const x of ups) sec.append(updateCard(b,x));
   // Suggestions for parts this browser doesn't have, each named, with its own Skip. They stay until skipped: the parts

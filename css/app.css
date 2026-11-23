@@ -179,6 +179,36 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .bom-summary.allhave{background:var(--ok-soft);border-left:3px solid var(--ok);border-radius:var(--r);padding:9px 12px;font-size:14px;line-height:1.9}
 .bom-summary.allhave b{color:var(--ok)}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.bom-summary{align-items:center}
+.bom-summary .grow{flex:1 1 auto}
+/* On a phone each line of the results is a card of two lines, from the same table (a screen reader still reads a table):
+   need × item and its status, then what it matched, the stock, and its bin, bag and bin name, cut short to fit. */
+@media(max-width:480px){
+  .bom-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .bom-table tbody tr{display:grid;grid-template-columns:auto fit-content(34%) auto minmax(0,1fr) auto;gap:3px 6px;align-items:start;padding:9px 10px;border-bottom:1px solid var(--line)}
+  .bom-table tbody tr:last-child{border-bottom:0}
+  .bom-table td{padding:0;border:0;min-width:0}
+  .bom-table td:nth-child(1){grid-area:1/1;text-align:left}
+  .bom-table td.x::after{content:" ×"/""}
+  .bom-table td:nth-child(2){display:contents}
+  .bom-table td:nth-child(2) .it{grid-area:1/2/2/5;font-weight:600;overflow-wrap:anywhere}
+  .bom-table td:nth-child(2)>div:nth-of-type(1),.bom-table td:nth-child(4){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bom-table td:nth-child(2)>div:nth-of-type(1){grid-area:2/2/3/3}
+  .bom-table td:nth-child(2)>div:nth-of-type(2){grid-area:3/2/4/6}
+  .bom-table td:nth-child(3){grid-area:2/3;font-family:inherit;font-size:12.5px;color:var(--ink2);text-align:left}
+  .bom-table td:nth-child(3)::before,.bom-table td:nth-child(4)::before{content:"· "/"";color:var(--ink3)}
+  .bom-table td:nth-child(3)::after{content:" in stock"/""}
+  .bom-table td:nth-child(4){grid-area:2/4/3/6;font-size:12.5px;line-height:1.5}
+  .bom-table td:nth-child(4) .label{font-size:11.5px;padding:0 5px}
+  .bom-table td:nth-child(4) .bagno{font-size:11.5px}
+  .bom-table td:nth-child(4) .tiny{display:inline;margin-left:3px}
+  .bom-table td:nth-child(5){grid-area:1/5;justify-self:end}
+  /* missing: no second line (the cells stay, out of sight, so a screen reader's columns still line up) */
+  .bom-table tbody tr{position:relative}
+  .bom-table tr:has(.chip.bad) td:nth-child(3),.bom-table td:nth-child(4):empty{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .bom-table tr.sect{display:block;padding:0;border-bottom:1px solid var(--line)}
+  .bom-table tr.sect th{display:block;padding:14px 10px 6px}
+}
 
 /* ---- scan ---- */
 .drop{border:2px dashed var(--line);border-radius:var(--r);padding:26px 16px;text-align:center;color:var(--ink2);background:var(--panel)}

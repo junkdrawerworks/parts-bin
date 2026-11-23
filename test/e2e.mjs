@@ -388,18 +388,31 @@ const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('part
 await page.fill('#bom', `${bmeStock - 1} BME280\nBME280 x2\n1 SCD41`); await page.click('#check');
 assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['short 1', 'short 1', 'have']);
 assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-child(2) .tiny:last-child'), `${bmeStock + 1} needed across 2 lines`);
-assert.equal(await page.textContent('.bom-summary'), '1 have2 short'); // a count of none isn't shown
+assert.deepEqual(await page.locator('.bom-summary .chip').allTextContents(), ['1 have', '2 short']); // a count of none isn't shown
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × BME280');
 // a guide's headings are rows over the lines after them, not missing parts in the summary or the shopping list
 await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts\nFor this build you’ll need:'); await page.click('#check');
 assert.deepEqual(await page.$$eval('.bom-table tbody tr.sect th', ts => ts.map(t => [t.textContent, t.colSpan, t.scope])), [['Electronics', 5, 'colgroup'], ['Hardware Supplies', 5, 'colgroup'], ['For this build you’ll need', 5, 'colgroup']]);
 assert.equal(await page.$$eval('.bom-table tbody tr:not(.sect)', rs => rs.length), 3);
-assert.equal(await page.textContent('.bom-summary'), '2 have1 missing');
+assert.deepEqual(await page.locator('.bom-summary .chip').allTextContents(), ['2 have', '1 missing']);
 // and the summary is said, as the table is drawn out of hearing below the button
 await page.waitForFunction(() => document.getElementById('say').textContent === '2 have, 1 missing', null, { timeout: 2000 }).catch(() => assert.fail('BOM check said nothing'));
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × SGP30');
+// on a phone the shopping list can be copied from the top too, not only after every line (it was 4,400 px down a 40-line
+// list), and each line is a card of two lines from the same table: need × item and its status, then what it matched, the
+// stock and where it is, cut to fit (a five-column table wrapped a name over four lines)
+await page.evaluate(() => { window.__shared = ''; });
+await page.click('.bom-summary #copytop');
+await page.waitForFunction(() => window.__shared === '1 × SGP30');
+await page.fill('#bom', '1 SCD41 with a long description of the board it goes on, far wider than a phone\n1 SGP30'); await page.click('#check');
+const card = await page.evaluate(() => { const r = document.querySelector('.bom-table tbody tr'), line = parseFloat(getComputedStyle(r.querySelector('td:nth-child(4)')).lineHeight) || 20, box = r.getBoundingClientRect(), chip = r.querySelector('.chip').getBoundingClientRect();
+  return { grid: getComputedStyle(r).display, h: box.height, chipIn: chip.right <= box.right, where: r.querySelector('td:nth-child(4)').getBoundingClientRect().height, line, cells: r.cells.length, wide: document.documentElement.scrollWidth };});
+assert.equal(card.grid, 'grid'); assert.ok(card.chipIn, 'the status is cut off'); assert.equal(card.cells, 5, 'a cell went'); assert.equal(card.wide, 390);
+assert.ok(card.where <= card.line + 1, `where it is takes ${card.where} px, more than a line`);
+assert.equal(await page.getByRole('cell', { name: 'missing' }).count(), 1, 'a missing line lost its status cell');
+await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts\nFor this build you’ll need:'); await page.click('#check');
 // everything on hand says so, and which bins it's in, with no red "0 missing" (it showed three chips, two of them 0)
 await page.fill('#bom', '1 BME280\n1 SCD41\nSCD41 x1'); await page.click('#check');
 assert.equal(await page.textContent('.bom-summary'), 'You have everything for this. 2 parts, in ENV');

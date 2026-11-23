@@ -29,9 +29,103 @@ const COUNTS = [ // [pattern, the count's group, the name's group, unless(match)
   [new RegExp(`^${N}\\s+(.+)$`), 1, 2, m => (/^\d{3,}$/.test(m[1]) && !/\s/.test(m[2])) || VALUE.test(m[2])], // 3 name; not 555 timer or 220 ohm
 ];
 export function parseBom(text) {
-  // A run of spaces reads as one, and a run with a tab in it as one tab (a spreadsheet's column, read below), so a line
-  // padded out to a width doesn't take the patterns below seconds to try.
-  return String(text || '').split(/\n|;/).map(l => l.replace(/\s{2,}/g, w => (w.includes('\t') ? '\t' : ' ')).trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
+  // An export from a tool (a KiCad BOM, a shop's cart, Fritzing's shopping list) is read by its columns (exports, below);
+  // every other line as one or more parts.
+  const raw = String(text || '').split(/\r?\n/), heads = raw.map(header), counted = heads.some(t => t && !t.uncounted);
+  const out = [];
+  let table = null;
+  raw.forEach((line, i) => {
+    if (!line.trim()) { table = null; return; }
+    if (heads[i]) { table = heads[i]; return; }
+    if (table) {
+      const cells = splitRow(line, table.d);
+      // a list with counts and one without (Fritzing's page has both) is read from the one with counts
+      if (cells.length >= 2) { if (!(table.uncounted && counted)) { const r = tableRow(cells, table.cols); if (r) out.push(r); } return; }
+      table = null;
+    }
+    const tagged = labelled(line); if (tagged) { out.push(tagged); return; }
+    if (counted && /^\s*"[^"]*:"\s*[,;\t]/.test(line)) return; // an export's lines about itself before its header ("Source:","board.sch")
+    out.push(...lines(line));
+  });
+  return out;
+}
+// A run of spaces reads as one, and a run with a tab in it as one tab (a spreadsheet's column, read below), so a line
+// padded out to a width doesn't take the patterns below seconds to try.
+const lines = text => text.split(';').map(l => l.replace(/\s{2,}/g, w => (w.includes('\t') ? '\t' : ' ')).trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(readLine);
+
+// Exports: a parts list straight from the tool it was made in, told by its header row. KiCad's BOM ("Reference","Value",
+// "Footprint","Qty", or the older "Ref","Qnty","Value","Cmp name"), a Digi-Key or Mouser cart (Quantity or Order Qty.,
+// Manufacturer Part Number or Mfr. #, Description) and Fritzing's shopping list pasted from its page (Amount, Part Type,
+// Properties), by commas, tabs or semicolons. Each row's count and name come from their columns, so a KiCad row's
+// designators aren't its name ("C1,…,C8","2.2uF",…,"8" is 8 × 2.2uF capacitor), a cart's price isn't its count, and
+// Fritzing's "package THT; tolerance ±5%" isn't split into rows at its semicolons. A row not fitted (DNP) is left out.
+const head = c => c.toLowerCase().replace(/#/g, ' no ').replace(/[^a-z0-9]+/g, ' ').trim();
+const COL = {
+  qty: /^(?:qty|qnty|quantity|amount|count|order qty|qty ordered|quantity ordered|order quantity)$/,
+  ref: /^(?:ref|refs|reference|references|designator|designators|ref des|refdes|label)$/,
+  value: /^value$/,
+  type: /^part type$/,
+  mpn: /^(?:manufacturer part number|manufacturer part no|mfr part number|mfr part no|mfr no|mpn)$/,
+  pn: /^(?:part number|part no|digi key part number|mouser no|mouser part number|supplier part number|lcsc part number)$/,
+  desc: /^(?:description|desc|name|part|item|component|part name)$/,
+  dnp: /^(?:dnp|do not populate|do not place)$/,
+};
+const named = cols => ['value', 'type', 'mpn', 'pn', 'desc'].some(k => cols[k] != null);
+// A row's cells by d, with "quoted, cells" and "" for a quote in one.
+function splitRow(line, d) {
+  const out = []; let cur = '', q = false, quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c !== '"') cur += c; else if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+    else if (c === '"' && !quoted && !cur.trim()) { q = quoted = true; cur = ''; }
+    else if (c === d) { out.push(cur.trim()); cur = ''; quoted = false; }
+    else cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+// The columns of a header row, or null: a count and a name, or (Fritzing's assembly list) designators and a name.
+function header(line) {
+  for (const d of ['\t', ',', ';']) {
+    if (!line.includes(d)) continue;
+    const cols = {};
+    splitRow(line, d).map(head).forEach((c, i) => { for (const k in COL) if (cols[k] == null && COL[k].test(c)) cols[k] = i; });
+    if (cols.qty != null && named(cols)) return { d, cols };
+    if (cols.ref != null && cols.type != null) return { d, cols, uncounted: true };
+  }
+  return null;
+}
+// A pasted cart line whose cells say what they are ("Mfr. #: NE555P", "Qty: 5"), by tabs.
+function labelled(line) {
+  const cells = line.split('\t').map(c => /^\s*([^:]{1,30}):\s*(.*)$/.exec(c));
+  if (cells.length < 2 || !cells.every(Boolean)) return null;
+  const cols = {}, row = cells.map(m => m[2].trim());
+  cells.forEach((m, i) => { const c = head(m[1]); for (const k in COL) if (cols[k] == null && COL[k].test(c)) cols[k] = i; });
+  return cols.qty != null && named(cols) ? tableRow(row, cols) : null;
+}
+// KiCad writes a value's decimal point as its unit (4k7 is 4.7k, 100n is 100nF), and a capacitor's without the F.
+const VALUES = { capacitor: [/^(\d+)([pnu])(\d*)$/i, (m, a, u, b) => `${a}${b ? '.' + b : ''}${u.toLowerCase()}F`], resistor: [/^(\d+)([RkK])(\d*)$/, (m, a, u, b) => `${a}${b ? '.' + b : ''}${u === 'R' ? '' : 'k'}`] };
+function tableRow(cells, cols) {
+  const at = k => (cols[k] != null ? String(cells[cols[k]] ?? '').trim() : '');
+  if (at('dnp') && !/^(?:no?|false|0|-)$/i.test(at('dnp'))) return null;
+  const n = Number(at('qty').replace(/^(\d{1,3}(?:,\d{3})+)$/, m => m.replace(/,/g, '')));
+  const qty = Number.isFinite(n) && n > 0 ? n : 1;
+  let name = '', alt = null;
+  if (at('value')) {
+    // the designators' letter names the kind a bare value needs: "C1,C2" and 2.2uF are 2.2uF capacitors
+    const letters = new Set([...at('ref').matchAll(/([A-Z]+)\d+/g)].map(m => m[1])), kind = letters.size === 1 && KINDS[[...letters][0]] || '';
+    const [re, to] = VALUES[kind] || [];
+    const v = re ? at('value').replace(re, to) : at('value');
+    name = kind && /^\d[\w.]*(?:\s*(?:ohms?|Ω))?$/i.test(v) ? `${v} ${kind}` : v;
+  } else if (at('type')) name = at('type');
+  else if (at('mpn') || at('pn')) {
+    // a part number, with what the shop calls it after it; each is tried alone too, as either can be how it was saved
+    const pn = at('mpn') || at('pn'), d = at('desc');
+    name = d ? `${pn}, ${d}` : pn;
+    if (d) alt = [pn, d];
+  } else name = at('desc');
+  if (!name) return null;
+  return alt ? { qty, name, alt } : { qty, name };
 }
 function readLine(l) {
   if (/:$/.test(l)) return { qty: 1, name: l.slice(0, -1).trim(), heading: true };
@@ -50,7 +144,7 @@ function readLine(l) {
 // at least one that says what follows ("Hardware Supplies", "Shopping List", "What you need"). BOM check shows it over
 // the lines after it, and doesn't look for it in the inventory.
 const SAYS = new Set('supplies supply parts part list tools tool hardware electronics shopping need needed components materials bill'.split(' '));
-const HEAD = new Set([...SAYS, ...'electronic component material of misc other and the for this build you ll your what s here required optional'.split(' ')]);
+const HEAD = new Set([...SAYS, ...'electronic component material of misc other and the for this build you ll your what s here required optional assembly'.split(' ')]);
 const isHeading = l => { const w = norm(l).split(' '); return w.length <= 6 && w.some(x => SAYS.has(x)) && w.every(x => HEAD.has(x)); };
 function count(l) {
   if (!THREAD.test(l)) l = l.replace(RANGE, '');
@@ -174,6 +268,13 @@ export function matchPart(name, parts) {
   if (!d || (d.n === 1 && /^\s*[A-Z]\d{3,}(?![A-Za-z0-9])/.test(String(name)))) return all;
   const past = bestPart(d.rest, parts);
   return !all || (past && past.conf > all.conf) ? past : all;
+}
+// A line's part: its name's, or one of its other names' (an export's part number and description) if that's surer.
+export function matchLine(r, parts) {
+  parts = [...parts];
+  let best = matchPart(r.name, parts);
+  for (const a of r.alt || []) { const m = matchPart(a, parts); if (m && (!best || m.conf > best.conf + 1e-9 || (m.conf > best.conf - 1e-9 && best.near && !m.near))) best = m; }
+  return best;
 }
 function bestPart(name, parts) {
   const t = words(name); if (!t.length) return null;

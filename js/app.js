@@ -3,7 +3,7 @@ import { db as localDb, store } from './store.js';
 import { drive } from './sync.js';
 import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
-import { norm, parseBom, matchPart, shortBy, needs, unitOf, asPiece } from './bom.js';
+import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece } from './bom.js';
 import * as BG from './bags.js';
 import { LONG, gone } from './model.js';
 // ------------------------------------------------------------------ state
@@ -568,7 +568,7 @@ function renderBom(m){
   ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); pickBom(p?p.id:''); bomOnly=''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); bomSay=true; } render(); };
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
-    const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
+    const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchLine(r,S.parts.values())}));
     if(!items.some(r=>!r.heading)){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
     const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
@@ -648,7 +648,7 @@ function renderBom(m){
 INVENTORY (JSON): ${JSON.stringify(inv)}
 BOM lines (JSON): ${JSON.stringify(rows)}
 Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<inventory id or null>", "confidence": 0-1}]`, {modelTier:'quick'});
-      const items=rows.map((r,i)=>{ const hit=Array.isArray(res)&&res[i]&&res[i].id&&S.parts.get(res[i].id); return {...r, m: hit?{p:hit, conf:Number(res[i].confidence||0.7)}:matchPart(r.name,S.parts.values())}; });
+      const items=rows.map((r,i)=>{ const hit=Array.isArray(res)&&res[i]&&res[i].id&&S.parts.get(res[i].id); return {...r, m: hit?{p:hit, conf:Number(res[i].confidence||0.7)}:matchLine(r,S.parts.values())}; });
       run(all.map(r=>r.heading?{...r, m:null}:items[rows.indexOf(r)]));
     }catch(e){ if(['not_granted','cut_off','refused'].includes(e.code)) toast(e.message+' Used plain matching.',4000); else toast('Smart matching unavailable, used plain matching'); run(); }
   });

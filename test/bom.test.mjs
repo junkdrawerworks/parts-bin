@@ -1,7 +1,7 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf, asPiece } from '../js/bom.js';
+import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf, asPiece, matchLine } from '../js/bom.js';
 
 test('norm folds the ways a name can be typed', () => {
   // search, bags and BOM check all read names through it
@@ -395,4 +395,103 @@ test('a line padded with a long run of spaces or tabs is read at once, the same 
   assert.deepEqual(parseBom('2      x     SCD41\nSCD41\t\t\t3\nBME280 ,    5\nPin header     1x40'), [
     { qty: 2, name: 'SCD41' }, { qty: 3, name: 'SCD41' }, { qty: 5, name: 'BME280' }, { qty: 1, name: 'Pin header 1x40' },
   ]);
+});
+
+test('a KiCad BOM is read by its columns', () => {
+  // excerpts of real exports: KiCad 7/8's (fossasia/badgemagic-hardware, tjko/fanpico) and the older grouped one
+  // (octosavvi/ESPKey). A KiCad export read as 22 missing parts, its header row among them.
+  const badge = `"Reference","Value","Datasheet","Footprint","Qty"
+"BT1","3.7v 280mAh","~","BadgeMagic:Battery cell","1"
+"C1,C2,C3,C4,C5,C6,C7,C8","2.2uF","~","Capacitor_SMD:C_0402_1005Metric","8"
+"D1,D2,D3,D4,D5,D6","LED","~","BadgeMagic:LED_0603","484"
+"KEY1,KEY2,KEY3,KEY4","button","https://www.lcsc.com/product-detail/Tactile-Switches_HYP-Hongyuan-Precision-1TS003A-1800-3500A-CT_C255806.html","BadgeMagic:1TS003A-1800-3500A-CT","4"
+"Q1","MMBT3904","https://www.onsemi.com/pdf/datasheet/pzt3904-d.pdf","Package_TO_SOT_SMD:SOT-23","1"
+"R4,R5","5.1k","~","Resistor_SMD:R_0402_1005Metric","2"
+"R7","3k92","~","Resistor_SMD:R_0402_1005Metric","1"
+"Y1","32 MHz","~","Crystal:Crystal_SMD_2016-4Pin_2.0x1.6mm","1"`;
+  assert.deepEqual(parseBom(badge), [
+    { qty: 1, name: '3.7v 280mAh' }, { qty: 8, name: '2.2uF capacitor' }, { qty: 484, name: 'LED' }, { qty: 4, name: 'button' },
+    { qty: 1, name: 'MMBT3904' }, { qty: 2, name: '5.1k resistor' }, { qty: 1, name: '3.92k resistor' }, { qty: 1, name: '32 MHz' },
+  ]);
+  // a part not fitted (DNP) is left out
+  const fan = `"Reference","Value","Datasheet","Footprint","Qty","DNP","LCSC Part Number","Mouser Part Number"
+"D1","LED","~","Diode_SMD:D_0805_2012Metric_Pad1.15x1.40mm_HandSolder","1","","C434432","710-150080GS75000"
+"F1","Polyfuse 10A","~","Fuse:Fuse_2920_7451Metric_Pad2.10x5.45mm_HandSolder","1","","C22446882",""
+"J5","FAN1","~","Connector:FanPinHeader_1x04_P2.54mm_Vertical","1","DNP","C240840","538-47053-1000"
+"R1","49.9K","~","Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder","1","","C114624",""`;
+  assert.deepEqual(parseBom(fan), [{ qty: 1, name: 'LED' }, { qty: 1, name: 'Polyfuse 10A' }, { qty: 1, name: '49.9K resistor' }]);
+  // the older one says what it is before its header, and writes 100n for 100nF
+  const esp = `"Source:","ESPKey.sch"
+"Date:","Thu 18 Aug 2016 11:03:30 PM PDT"
+"Tool:","Eeschema 4.1.0-alpha+201607281303+6996~46~ubuntu16.04.1-product"
+"Generator:","/usr/share/doc/kicad/scripts/bom-in-python/bom_csv_grouped_by_value_with_fp.py"
+"Component Count:","32"
+"Ref","Qnty","Value","Cmp name","Footprint","Description","Vendor"
+"C4, C1, ","2","22u","C","Capacitors_SMD:C_0805","Unpolarized capacitor",""
+"C5, C2, ","2","100n","C","Capacitors_SMD:C_0603","Unpolarized capacitor",""
+"Q1, Q2, Q3, ","3","2N7002","Q_NMOS_GSD","TO_SOT_Packages_SMD:SOT-23","Transistor N-MOSFET (general)",""
+"R2, R1, ","2","75k","R","Resistors_SMD:R_0402","Resistor",""
+"U2, ","1","ESP-12","ESP-12","ESP8266:ESP-12-SMD","ESP8622 ESP-12 module, 16 pins, 2mm, PCB antenna",""`;
+  assert.deepEqual(parseBom(esp), [{ qty: 2, name: '22uF capacitor' }, { qty: 2, name: '100nF capacitor' }, { qty: 3, name: '2N7002' }, { qty: 2, name: '75k resistor' }, { qty: 1, name: 'ESP-12' }]);
+  // by semicolons too, as a spreadsheet saves it where a comma is the decimal point
+  assert.deepEqual(parseBom('"Reference";"Value";"Qty"\n"C1;C2";"100n";"2"'), [{ qty: 2, name: '100nF capacitor' }]);
+  // and what it reads finds the parts: 8 × 2.2uF capacitor is the 2.2uF capacitor
+  const caps = [{ id: 'c22', name: '2.2uF ceramic capacitor 0402' }, { id: 'c100', name: '100nF capacitor' }];
+  assert.equal(matchPart(parseBom(badge)[1].name, caps).p.id, 'c22');
+  assert.equal(matchPart(parseBom(esp)[1].name, caps).p.id, 'c100');
+});
+
+test('a Digi-Key or Mouser cart is read by its columns', () => {
+  // a Digi-Key cart's CSV, in its published layout: the line's price was read as its count (1.00 for ten diodes)
+  const dk = `Index,Quantity,Part Number,Manufacturer Part Number,Description,Customer Reference,Available,Backorder,Unit Price,Extended Price
+1,10,1N4148FS-ND,1N4148,DIODE STANDARD 100V 200MA DO35,,10,0,0.10000,1.00
+2,5,296-1411-5-ND,NE555P,IC OSC SINGLE TIMER 100KHZ 8-DIP,,5,0,0.48000,2.40
+4,25,CF14JT10K0CT-ND,CF14JT10K0,"RES 10K OHM 5% 1/4W AXIAL",,25,0,0.10000,2.50`;
+  assert.deepEqual(parseBom(dk), [
+    { qty: 10, name: '1N4148, DIODE STANDARD 100V 200MA DO35', alt: ['1N4148', 'DIODE STANDARD 100V 200MA DO35'] },
+    { qty: 5, name: 'NE555P, IC OSC SINGLE TIMER 100KHZ 8-DIP', alt: ['NE555P', 'IC OSC SINGLE TIMER 100KHZ 8-DIP'] },
+    { qty: 25, name: 'CF14JT10K0, RES 10K OHM 5% 1/4W AXIAL', alt: ['CF14JT10K0', 'RES 10K OHM 5% 1/4W AXIAL'] },
+  ]);
+  // the part number alone finds the part, as surely as the line names it
+  const diode = { id: 'd', name: '1N4148 diode' }, [line] = parseBom(dk);
+  assert.equal(matchLine(line, [diode]).conf, 1);
+  assert.equal(matchLine(line, [diode]).near, false);
+  assert.equal(matchLine({ qty: 1, name: '1N4148' }, [diode]).conf, 1, 'a line with no other names is matched by its name');
+  // Mouser's columns (Mfr. # is the part number, Mfr. the maker), from a CSV or from cart lines pasted with their labels
+  assert.deepEqual(parseBom('Mouser #,Mfr. #,Manufacturer,Description,Order Qty.,Price (USD)\n595-NE555P,NE555P,Texas Instruments,Timers & Support Products Single Precision Timer,5,0.48'),
+    [{ qty: 5, name: 'NE555P, Timers & Support Products Single Precision Timer', alt: ['NE555P', 'Timers & Support Products Single Precision Timer'] }]);
+  assert.deepEqual(parseBom('Mouser #: 595-NE555P\tMfr. #: NE555P\tMfr.: Texas Instruments\tDesc.: Timers & Support Products Single Precision Timer\tQty: 5\nMouser #: 815-ABL-16-B2\tMfr. #: ABL-16.000MHZ-B2\tMfr.: ABRACON\tDesc.: Crystals 16MHz 18pF\tQty: 2'), [
+    { qty: 5, name: 'NE555P, Timers & Support Products Single Precision Timer', alt: ['NE555P', 'Timers & Support Products Single Precision Timer'] },
+    { qty: 2, name: 'ABL-16.000MHZ-B2, Crystals 16MHz 18pF', alt: ['ABL-16.000MHZ-B2', 'Crystals 16MHz 18pF'] },
+  ]);
+});
+
+test('Fritzing’s shopping list is read by its columns', () => {
+  // pasted from its parts list page: its properties were split into rows at their semicolons
+  const fz = `Assembly List
+Label\tPart Type\tProperties
+Part1\tArduino Nano (Rev3.0)\ttype Arduino Nano (3.0)
+R1\t220Ω Resistor\tpackage THT; tolerance ±5%; bands 4; resistance 220Ω; pin spacing 400 mil
+
+Shopping List
+Amount\tPart Type\tProperties
+1\tArduino Nano (Rev3.0)\ttype Arduino Nano (3.0)
+2\tRed (633nm) LED\tpackage 5 mm [THT]; color Red (633nm)
+3\t220Ω Resistor\tpackage THT; tolerance ±5%; bands 4; resistance 220Ω; pin spacing 400 mil
+1\tPiezo Speaker\t`;
+  // the assembly list is left out where the shopping list has the counts
+  assert.deepEqual(parseBom(fz), [
+    { qty: 1, name: 'Assembly List', heading: true }, { qty: 1, name: 'Shopping List', heading: true },
+    { qty: 1, name: 'Arduino Nano (Rev3.0)' }, { qty: 2, name: 'Red (633nm) LED' }, { qty: 3, name: '220Ω Resistor' }, { qty: 1, name: 'Piezo Speaker' },
+  ]);
+  // but read a part a row on its own
+  assert.deepEqual(parseBom(fz.split('\n\n')[0]), [{ qty: 1, name: 'Assembly List', heading: true }, { qty: 1, name: 'Arduino Nano (Rev3.0)' }, { qty: 1, name: '220Ω Resistor' }]);
+});
+
+test('a list that only looks like an export is read as before', () => {
+  // no header row: a count after a comma or a tab is still a count, and ; still parts two lines
+  assert.deepEqual(parseBom('LED strip, 3\nProto board\t2\n2 BME280; 1 SGP30'), [{ qty: 3, name: 'LED strip' }, { qty: 2, name: 'Proto board' }, { qty: 2, name: 'BME280' }, { qty: 1, name: 'SGP30' }]);
+  assert.deepEqual(parseBom('Note: these come from Adafruit\n2 BME280'), [{ qty: 1, name: 'Note: these come from Adafruit' }, { qty: 2, name: 'BME280' }]);
+  // a blank line ends a table: what follows is read line by line
+  assert.deepEqual(parseBom('Qty,Description\n2,BME280 breakout\n\n1 SCD41'), [{ qty: 2, name: 'BME280 breakout' }, { qty: 1, name: 'SCD41' }]);
 });

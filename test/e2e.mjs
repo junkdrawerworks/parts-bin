@@ -522,6 +522,14 @@ await page.fill('#bom', '1 BME280\n1 SCD41\nSGP30\n50cm hookup wire\n0.1 m heat 
 await page.click('#out #pick');
 await page.waitForFunction(() => window.__shared === 'ENV: 1× BME280 (Adafruit) #001, 2× SCD41\nNo bin: 0.5 m Hookup wire');
 await inject('p-loose2', null);
+// a parts list exported from KiCad or a shop's cart is read by its columns: no header row among the parts, the count from
+// the count's column (a Digi-Key line's price was its count), and a KiCad value with its designators' kind
+await page.fill('#bom', '"Reference","Value","Datasheet","Footprint","Qty"\n"U1,U2","BME280","~","Package_LGA:Bosch_LGA-8","2"\n"U3","SCD41","~","Sensor:Sensirion_SCD4x","1"\n"U4","SGP30","~","Sensor:Sensirion_DFN-6","1"'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody tr', rs => rs.map(r => [r.cells[0].textContent, r.querySelector('.it').textContent, r.cells[4].textContent])), [['2', 'BME280', 'have'], ['1', 'SCD41', 'have'], ['1', 'SGP30', 'missing']]);
+await page.fill('#bom', 'Index,Quantity,Part Number,Manufacturer Part Number,Description,Customer Reference,Available,Backorder,Unit Price,Extended Price\n1,2,1528-SCD41-ND,SCD41,"SENSOR CO2 I2C",,2,0,49.50000,99.00'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td.n:first-child', ts => ts.map(t => t.textContent)), ['2']);
+assert.equal(await page.textContent('.bom-table tbody .it'), 'SCD41, SENSOR CO2 I2C');
+assert.equal(await page.textContent('.bom-table tbody td:last-child .chip'), 'have');
 // Built it takes a checked list's parts out of stock in one go: a part a row with its count before and after, a short line
 // takes what's there, a near match starts unticked, each part is written once, and Undo puts it all back
 const qtyOf = id => page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].qty, id);

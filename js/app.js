@@ -70,7 +70,10 @@ function keepToast(){ if(!document.getElementById('toast').hidden) toastCarry=tr
 function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; }
 function fmtQty(p){ return (p.qty ?? 0) + (p.unit && p.unit!=='pcs' ? ' '+p.unit : ''); }
 function binOf(p){ return p.binId ? S.bins.get(p.binId) : null; }
-function partsInBin(binId){ return [...S.parts.values()].filter(p=>p.binId===binId).sort((a,b)=>a.name.localeCompare(b.name)); }
+// Names in the order a person reads them: numbers by their value, so Spacer #120 comes before Spacer #1000 and M3 x 6
+// before M3 x 10, and capitals or accents don't split a list.
+const byName=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'}).compare;
+function partsInBin(binId){ return [...S.parts.values()].filter(p=>p.binId===binId).sort((a,b)=>byName(a.name,b.name)); }
 function binCodeSort(a,b){ return a.code.localeCompare(b.code, undefined, {numeric:true}); }
 // Photos taken in the Stockroom artifact are kept in its own store on claude.ai, which this page can't reach (S.assets is
 // that store, and there isn't one here). Their ids stay in the data, and the icon or a reference photo shows instead.
@@ -114,7 +117,7 @@ function searchParts(q){
       else return null;
     }
     return {p,score};
-  }).filter(Boolean).sort((a,b)=>b.score-a.score||a.p.name.localeCompare(b.p.name)).map(x=>x.p);
+  }).filter(Boolean).sort((a,b)=>b.score-a.score||byName(a.p.name,b.p.name)).map(x=>x.p);
   return [...bag, ...hits];
 }
 // Whether every word typed is in a part's name or part number, which Pack's Enter needs before it opens that part instead
@@ -259,7 +262,7 @@ function renderBins(m){
 // Parts in no bin (packed with none picked, or their bin deleted), last on Bins so nothing is out of sight; the row opens
 // them in Parts.
 function noBinSection(m){
-  const ps=[...S.parts.values()].filter(p=>!binOf(p)).sort((a,b)=>a.name.localeCompare(b.name)); if(!ps.length) return;
+  const ps=[...S.parts.values()].filter(p=>!binOf(p)).sort((a,b)=>byName(a.name,b.name)); if(!ps.length) return;
   m.append(h(`<div class="section-h"><h3>Not in a bin</h3><span class="tiny">${ps.length} part${ps.length===1?'':'s'}</span></div>`));
   const r=h(`<div class="list"><button type="button" class="item" id="nobin"><div><div class="t">${ps.slice(0,3).map(p=>esc(p.name)).join(', ')}${ps.length>3?', …':''}</div><div class="s">Show ${ps.length===1?'it':'them'} in Parts</div></div><div class="q">${ps.length}<small>part${ps.length===1?'':'s'}</small></div></button></div>`);
   r.querySelector('#nobin').onclick=()=>{ localSet('sr.cat','__nobin'); S.q=''; go('parts'); };
@@ -337,7 +340,7 @@ function fromBin(p){ const k=String(p.from||'').toLowerCase(); return k ? [...S.
 // Bags taken out of a box on this visit to Parts Bin, with where each came from, which taking it out forgets: Undo puts
 // that back, and so does putting the bag back in the box (a mis-tap noticed later), rather than the bin it went to.
 const UNPACKED=new Map(); // part id → {box, to, from}
-const byBag=(a,c)=>(a.bag||1e9)-(c.bag||1e9) || a.name.localeCompare(c.name);
+const byBag=(a,c)=>(a.bag||1e9)-(c.bag||1e9) || byName(a.name,c.name);
 async function unpack(list){
   const done=[];
   for(const [p,to] of list){ if(await writePart({...p, binId:to, from:''})){ done.push(p); UNPACKED.set(p.id,{box:p.binId, to, from:p.from||''}); } else break; }
@@ -411,7 +414,7 @@ function renderBin(m, binId){
 function printList(b, ps){
   const root=document.getElementById('print-root');
   root.innerHTML=`<h1>${esc(b.code)} — ${esc(b.name||'')}</h1><div class="sub">${esc(b.location||'')} · ${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'} · Parts Bin, ${new Date().toLocaleDateString()}</div>
-    <table><thead><tr><th>Bag</th><th>Item</th><th>Qty</th><th>From</th><th>Notes</th></tr></thead><tbody>${ps.slice().sort((a,c)=>(a.bag||9999)-(c.bag||9999)).map(p=>`<tr><td class="n">${esc(bagStr(p.bag))}</td><td>${esc(p.name)}${p.mpn?` <small>${esc(p.mpn)}</small>`:''}</td><td class="n">${esc(fmtQty(p))}</td><td>${esc(p.from||'')}</td><td>${esc((p.notes||'').split(' · ')[0])}</td></tr>`).join('')}</tbody></table>`;
+    <table><thead><tr><th>Bag</th><th>Item</th><th>Qty</th><th>From</th><th>Notes</th></tr></thead><tbody>${ps.slice().sort((a,c)=>(a.bag||9999)-(c.bag||9999)||byName(a.name,c.name)).map(p=>`<tr><td class="n">${esc(bagStr(p.bag))}</td><td>${esc(p.name)}${p.mpn?` <small>${esc(p.mpn)}</small>`:''}</td><td class="n">${esc(fmtQty(p))}</td><td>${esc(p.from||'')}</td><td>${esc((p.notes||'').split(' · ')[0])}</td></tr>`).join('')}</tbody></table>`;
   window.print();
 }
 
@@ -427,7 +430,7 @@ function renderParts(m){
   if(cur==='__clash') parts=bagClashes().size ? [...bagClashes().values()].flat().filter(p=>parts.includes(p)) : [];
   else if(cur==='__low') parts=parts.filter(isLow); else if(cur==='__unbagged') parts=parts.filter(p=>!p.bag); else if(cur==='__bagged') parts=parts.filter(p=>p.bag); else if(cur==='__nobin') parts=parts.filter(p=>!binOf(p)); else if(cur==='__check') parts=parts.filter(p=>p.check); else if(cur) parts=parts.filter(p=>p.category===cur);
   if(cur==='__bagged') parts.sort((a,b)=>Number(a.bag)-Number(b.bag));
-  else if(!S.q && cur!=='__clash') parts.sort((a,b)=>a.name.localeCompare(b.name));
+  else if(!S.q && cur!=='__clash') parts.sort((a,b)=>byName(a.name,b.name));
   found=many(parts.length,'part');
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
   if(!parts.length){ m.append(h(`<div class="empty"><p>${S.parts.size?'No parts match.':'No parts here yet. Add one, or use Pack to bag and tag them as you go.'}</p></div>`)); return; }

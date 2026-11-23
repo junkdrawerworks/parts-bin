@@ -911,6 +911,18 @@ assert.deepEqual(await attrs('#p-mpn', ['autocorrect', 'autocapitalize', 'spellc
 assert.deepEqual(await attrs('#p-addr', ['autocorrect', 'autocapitalize', 'spellcheck']), { ...plain, autocapitalize: 'none' });
 assert.deepEqual([await page.getAttribute('#p-bag', 'inputmode'), await page.getAttribute('#p-qty', 'inputmode'), await page.getAttribute('#p-min', 'inputmode')], ['numeric', 'decimal', 'decimal']);
 await page.click('.sheet #cancel');
+// names go by their numbers' value, in a bin's list and in what a search finds: #120 before #1000, M3 x 6 before M3 x 10
+const sortParts = { 'p-s1000': 'Spacer #1000', 'p-s120': 'Spacer #120', 'p-m10': 'M3 x 10', 'p-m6': 'M3 x 6' };
+const putSort = on => page.evaluate(([ps, on]) => { const d = JSON.parse(localStorage.getItem('parts-bin')), t = Date.now();
+  if (on) { d.items.bins['bin-sort'] = { code: 'SRT', name: 'Sorting', t }; for (const [id, name] of Object.entries(ps)) d.items.parts[id] = { name, qty: 1, unit: 'pcs', binId: 'bin-sort', tags: [], t }; }
+  else { delete d.items.bins['bin-sort']; for (const id in ps) delete d.items.parts[id]; }
+  localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, [sortParts, on]);
+await putSort(true);
+await page.goto(base + '#bin/bin-sort'); await page.waitForSelector('.list .item');
+assert.deepEqual(await page.$$eval('.list .item .t', e => e.map(x => x.textContent)), ['M3 x 6', 'M3 x 10', 'Spacer #120', 'Spacer #1000']);
+await page.goto(base + '#bins'); await page.fill('#q', 'spacer'); await page.waitForSelector('.list .item:has-text("Spacer")');
+assert.deepEqual(await page.$$eval('.list .item .t', e => e.map(x => x.textContent)), ['Spacer #120', 'Spacer #1000']);
+await page.fill('#q', ''); await putSort(false); await page.waitForTimeout(300);
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));

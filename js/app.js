@@ -97,7 +97,7 @@ function render(){
   if(linkCode()){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
   shown=key;
   if(v==='inbox') renderInbox(m);
-  else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else m.append(h(`<div class="empty"><h3>No bag ${esc(bagStr(n))}</h3><p>Nothing in the inventory has that bag number yet.</p></div>`)); }
+  else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else noBag(m, n); }
   else if(v==='settings') renderSettings(m);
   else if(v==='bin') renderBin(m, S.route.arg);
   else if(v==='part') renderPartPage(m, S.route.arg);
@@ -107,6 +107,15 @@ function render(){
   else renderBins(m);
   window.scrollTo(0,y);
   if(was) retype(m,was);
+  if(wantSearch){ wantSearch=false; document.getElementById('q')?.focus(); }
+}
+// A sticker whose number no part has now (renumbered, or its part deleted): where to look instead.
+let wantSearch=false;
+function noBag(m, n){
+  const e=h(`<div class="empty"><h3>No bag ${esc(bagStr(n))}</h3><p>No part has bag ${esc(bagStr(n))} now. It may have been renumbered or deleted.</p><div class="row" style="justify-content:center"><button class="btn primary" id="find">${ICONS.search} Search parts</button><button class="btn" id="bk">All bins</button></div></div>`);
+  e.querySelector('#find').onclick=()=>{ S.q=''; wantSearch=true; go('parts'); };
+  e.querySelector('#bk').onclick=()=>go('bins');
+  m.append(e);
 }
 // What's being typed on a screen (the fields that differ from what was drawn, so a count a sync has just changed isn't
 // put back the way it was) and which field or button has the keyboard, with the caret.

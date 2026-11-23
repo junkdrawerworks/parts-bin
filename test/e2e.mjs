@@ -872,6 +872,12 @@ await desk.goto(base);
   await pg.click('.sheet #save'); await gone();
   assert.equal((await got('p-scd')).bag, 9); assert.equal((await got('p-scd')).tagWritten, false, 'no tag carries #009 yet');
 
+  // a sticker whose number no part has now says what may have happened, and where to go from there (it was a dead end)
+  await pg.goto(base + '#bag/042'); await pg.waitForSelector('#main .empty');
+  assert.equal(await pg.textContent('#main .empty p'), 'No part has bag #042 now. It may have been renumbered or deleted.');
+  await pg.click('#main .empty >> text=Search parts'); await pg.waitForFunction(() => location.hash === '#parts' && document.activeElement?.id === 'q');
+  await pg.goto(base + '#bag/042'); await pg.click('#main .empty >> text=All bins'); await pg.waitForFunction(() => location.hash === '#bins');
+
   assert.deepEqual(pg.problems, [], 'problems while packing bagged parts');
   await bagCtx.close();
 }

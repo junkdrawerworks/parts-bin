@@ -6,7 +6,15 @@ import * as M from './model.js';
 export const KEY = 'parts-bin';
 const get = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 
-let doc = M.cleanDoc(get(KEY));
+// A copy saved before a rule in model.js's cleanItem (a deleted part kept with all its details) is saved again as it's read.
+function load() {
+  let text = null, raw = null;
+  try { text = localStorage.getItem(KEY); raw = JSON.parse(text); } catch { /* blocked, or not JSON */ }
+  const d = M.cleanDoc(raw);
+  if (raw?.app === M.APP) { const now = M.canon(d); if (now !== text) try { localStorage.setItem(KEY, now); } catch { /* storage full: cleaned again next time */ } }
+  return d;
+}
+let doc = load();
 const subs = { bins: [], parts: [], projects: [] };
 const saved = [];
 const delivered = [];
@@ -70,7 +78,7 @@ export const store = {
   get doc() { return doc; },
   onSave(f) { saved.push(f); }, // after each change that was kept
   onDelivered(f) { delivered.push(f); }, // after every collection has been told of a change, so a page draws once
-  reload() { doc = M.cleanDoc(get(KEY)); notify(); },
+  reload() { doc = load(); notify(); },
   backup: () => JSON.stringify({ ...JSON.parse(M.canon(doc)), saved: new Date().toISOString() }, null, 1),
   // Merges a file in item by item, so nothing here is lost. Returns how many items it added or changed, and how many of
   // those were deleted here and come back from the file. Those get a new time: the deletion is still on Drive and on other

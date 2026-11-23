@@ -131,7 +131,7 @@ test('a long saved BOM and long notes keep every character, through saving, load
 test('an old document with short fields loads exactly as it was saved', () => {
   const old = { app: M.APP, v: 1, items: {
     bins: { b: { code: 'ENV', name: 'Environmental', location: 'Workroom', t: 5 } },
-    parts: { p: { name: 'SCD41', qty: 3, unit: 'pcs', binId: 'b', tags: ['generic'], notes: 'on the shelf', bag: 2, tagWritten: true, t: 7 }, q: { name: 'Gone', t: 3, del: 9 } },
+    parts: { p: { name: 'SCD41', qty: 3, unit: 'pcs', binId: 'b', tags: ['generic'], notes: 'on the shelf', bag: 2, tagWritten: true, t: 7 }, q: { t: 3, del: 9 } },
     projects: { pr: { name: 'Test BOM', text: '2 BME280\n1 SCD41', t: 8 } } } };
   assert.equal(M.canon(M.cleanDoc(JSON.parse(JSON.stringify(old)))), M.canon(old));
 });
@@ -161,4 +161,30 @@ test('loading a backup counts only the parts and bins it adds or changes, not de
   assert.equal(store.doc.items.parts.d1.del, 30); assert.equal(store.doc.items.parts.b.t, 15);
   // a changed part counts, and so does one back from a deletion here
   assert.deepEqual(store.importText(JSON.stringify(doc({ a: { name: 'SCD41', qty: 4, t: 40 }, d1: { name: 'Old 1', t: 50 } }))), { changed: 1, back: 1 });
+});
+test('a deleted part keeps only its two times, and an old copy’s deleted parts are cut down to them as it loads', async () => {
+  const d = M.removeItem(M.putItem(M.blankDoc(), 'parts', 'x', { name: 'SCD41', qty: 3, notes: 'n'.repeat(5000) }), 'parts', 'x');
+  assert.deepEqual(Object.keys(d.items.parts.x).sort(), ['del', 't']);
+  // a copy saved before: its deleted part has every detail; the parts still here keep theirs
+  const old = { app: M.APP, v: 1, items: { bins: { b: { code: 'OLD', name: 'Gone bin', t: 2, del: 4 } }, projects: {},
+    parts: { q: { name: 'Gone', qty: 2, notes: 'long', tags: ['x'], t: 3, del: 9 }, p: { name: 'BME280', qty: 5, t: 7 }, r: { name: 'Back', t: 12, del: 10 } } } };
+  for (const c of [M.cleanDoc(old), M.fromImport(old)]) {
+    assert.deepEqual(c.items.parts.q, { t: 3, del: 9 });
+    assert.deepEqual(c.items.bins.b, { t: 2, del: 4 });
+    assert.deepEqual(c.items.parts.p, { name: 'BME280', qty: 5, t: 7 });
+    assert.deepEqual(c.items.parts.r, { name: 'Back', t: 12, del: 10 }, 'changed after it was deleted: it’s here, so it keeps its details');
+  }
+  // the deletion still reaches a copy that has the part, either way round, and a later change still brings it back
+  const there = doc({ q: { name: 'Gone', qty: 2, t: 5 } }), trimmed = M.cleanDoc(old);
+  assert.ok(M.gone(M.mergeDocs(trimmed, there).items.parts.q)); assert.ok(M.gone(M.mergeDocs(there, trimmed).items.parts.q));
+  assert.equal(M.mergeDocs(trimmed, doc({ q: { name: 'Gone', qty: 1, t: 20 } })).items.parts.q.qty, 1);
+  // a copy whose deletions weren't cut down yet merges with one whose were, and they come out the same
+  assert.equal(M.canon(M.mergeDocs(old, trimmed)), M.canon(M.mergeDocs(trimmed, old)));
+  // this browser's saved copy is cut down the first time it's read, with nothing else in it changed
+  const mem = { 'parts-bin': JSON.stringify(old) };
+  globalThis.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+  const { store } = await import('../js/store.js?trim');
+  assert.doesNotMatch(mem['parts-bin'], /Gone/);
+  assert.equal(mem['parts-bin'], M.canon(trimmed));
+  assert.equal(store.doc.items.parts.p.qty, 5);
 });

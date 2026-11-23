@@ -1,8 +1,8 @@
 // The inventory as one document, and how two copies of it merge. No page code, so tests run it in Node.
 //
 // { app: 'parts-bin', v: 1, items: { bins: {id: bin}, parts: {id: part}, projects: {id: project} } }
-// Every item carries t (when it last changed, ms) and, once deleted, del (when). Deleted items keep their
-// details so a deletion on one device reaches the others instead of the item coming back from their copy.
+// Every item carries t (when it last changed, ms) and, once deleted, del (when). A deleted item keeps only those two
+// times, and is kept so a deletion on one device reaches the others instead of the item coming back from their copy.
 // Merging goes item by item: the newer version wins, and a deletion wins over anything older than it.
 export const APP = 'parts-bin';
 export const KINDS = ['bins', 'parts', 'projects'];
@@ -34,7 +34,8 @@ const strings = v => v.filter(s => typeof s === 'string').slice(0, MAX_LIST).map
 export const LONG = { text: 200000, notes: 20000 };
 
 // Keeps what a page or a file handed us to plain JSON fields, and drops anything malformed. Every load runs it, so a
-// copy saved before a rule here was added is brought into line as it's read.
+// copy saved before a rule here was added is brought into line as it's read: a deleted item saved with all its details
+// (as every one was until November 2026) comes back as its two times.
 export function cleanItem(x) {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
   const out = {};
@@ -50,7 +51,7 @@ export function cleanItem(x) {
   }
   out.t = tOk(x.t);
   if (tOk(x.del)) out.del = tOk(x.del); else delete out.del;
-  return out;
+  return gone(out) ? { t: out.t, del: out.del } : out;
 }
 
 export function cleanDoc(raw) {
@@ -113,7 +114,7 @@ export function putItem(doc, kind, id, fields) {
 export function removeItem(doc, kind, id) {
   const old = own(doc.items[kind], id);
   if (!old || gone(old)) return doc;
-  return { ...doc, items: { ...doc.items, [kind]: { ...doc.items[kind], [id]: { ...old, del: stamp(old) } } } };
+  return { ...doc, items: { ...doc.items, [kind]: { ...doc.items[kind], [id]: { t: old.t || 0, del: stamp(old) } } } };
 }
 
 // An export from the Stockroom artifact, or a parts-bin backup: either way, one document.

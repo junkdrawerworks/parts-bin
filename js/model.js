@@ -21,15 +21,25 @@ export function newId() {
   return [...b].map(x => (x % 36).toString(36)).join('') + Date.now().toString(36).slice(-3);
 }
 
-// Keeps what a page or a file handed us to plain JSON fields, and drops anything malformed.
+// Fields the page reads as lists. A file can hold one as text ("sensor, i2c"): that's split the way the edit form splits
+// it, tags lower-cased as the form does, and anything else that isn't a list is dropped, so one part can't break every screen.
+const LISTS = { tags: s => s.toLowerCase(), iface: s => s };
+const strings = v => v.filter(s => typeof s === 'string').slice(0, 40).map(s => s.slice(0, 80));
+
+// Keeps what a page or a file handed us to plain JSON fields, and drops anything malformed. Every load runs it, so a
+// copy saved before a rule here was added is brought into line as it's read.
 export function cleanItem(x) {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
   const out = {};
   for (const [k, v] of Object.entries(x)) {
     if (k === 'id' || typeof k !== 'string' || k.length > 40) continue;
     if (v == null) continue;
-    if (['string', 'number', 'boolean'].includes(typeof v)) out[k] = typeof v === 'string' ? v.slice(0, 4000) : v;
-    else if (Array.isArray(v)) out[k] = v.filter(s => typeof s === 'string').slice(0, 40).map(s => s.slice(0, 80));
+    if (Object.hasOwn(LISTS, k)) {
+      if (Array.isArray(v)) out[k] = strings(v);
+      else if (typeof v === 'string') out[k] = strings(v.split(/[,;/]/).map(s => LISTS[k](s.trim())).filter(Boolean));
+    } else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = v; } // NaN and Infinity would be saved as null
+    else if (typeof v === 'string' || typeof v === 'boolean') out[k] = typeof v === 'string' ? v.slice(0, 4000) : v;
+    else if (Array.isArray(v)) out[k] = strings(v);
   }
   out.t = tOk(x.t);
   if (tOk(x.del)) out.del = tOk(x.del); else delete out.del;

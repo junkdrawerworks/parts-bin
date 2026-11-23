@@ -51,3 +51,22 @@ test('a change time no date can hold is read as none, so one bad item can’t hi
   assert.equal(d.items.parts.ok.t, 10);
   for (const x of M.live(d, 'parts')) assert.doesNotThrow(() => new Date(x.t).toISOString(), x.name);
 });
+test('a copy saved with tags or an interface as text loads them as lists, and odd numbers are dropped', () => {
+  // an old document: a Stockroom or hand-made file loaded before this rule, with "tags": "sensor, i2c"
+  const old = { app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: {
+    a: { name: 'BME280', tags: 'Sensor, I2C; qwiic/ ', iface: 'I2C', qty: 5, t: 10 },
+    b: { name: 'SCD41', tags: ['generic'], iface: ['I2C'], t: 10 },
+    c: { name: 'Odd', tags: { x: 1 }, iface: 7, qty: NaN, minQty: Infinity, bag: -Infinity, t: 10 },
+  } } };
+  for (const d of [M.cleanDoc(old), M.fromImport(old), M.fromImport({ parts: [{ id: 'a', name: 'BME280', tags: 'Sensor, I2C; qwiic/ ', iface: 'I2C' }] })]) {
+    assert.deepEqual(d.items.parts.a.tags, ['sensor', 'i2c', 'qwiic']);
+    assert.deepEqual(d.items.parts.a.iface, ['I2C']);
+  }
+  const d = M.cleanDoc(old);
+  assert.deepEqual(d.items.parts.b.tags, ['generic'], 'a list stays as it is');
+  assert.deepEqual(Object.keys(d.items.parts.c).sort(), ['name', 't']);
+  assert.equal(d.items.parts.a.qty, 5);
+  // what's saved reads back the same
+  const back = M.cleanDoc(JSON.parse(M.canon(d)));
+  assert.equal(M.canon(back), M.canon(d));
+});

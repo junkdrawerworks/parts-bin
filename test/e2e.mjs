@@ -272,6 +272,15 @@ await page.click('.sheet #save'); await tapTag();
 assert.equal((await page.evaluate(() => window.__written)).at(-1), base + '#bag/006');
 const tca = await partNamed('TCA9548A I2C multiplexer');
 assert.equal(tca.bag, 6); assert.equal(tca.binId, 'bin-env'); assert.equal(tca.addr, '0x70–0x77'); assert.equal(tca.onclick, undefined);
+// a part Claude couldn't count says so on its card, and opens with the count empty: Save asks for it (it opened at 1, and
+// saving said there was 1 of something nobody counted)
+assert.equal(await page.textContent('.card.inb[data-k="i2"] .chip.warn'), 'count?');
+await page.click('.card.inb[data-k="i2"] [data-id=""]'); await page.waitForSelector('.sheet #p-qty');
+assert.equal(await page.inputValue('#p-qty'), ''); assert.equal(await page.textContent('#p-qtyhint'), 'Claude couldn’t count these. Count them before saving.');
+await page.click('.sheet #save'); await page.waitForSelector('#toast:has-text("Count them first")');
+assert.ok(await page.$('.sheet #p-qty'), 'the sheet stays open'); assert.equal(await page.evaluate(() => document.activeElement.id), 'p-qty');
+assert.equal(await partNamed('Unmarked purple board'), undefined);
+await page.click('.sheet #cancel'); await page.waitForFunction(() => !document.querySelector('.sheet'));
 // skipping takes a card out and saves nothing
 await page.click('.card.inb[data-k="i2"] [data-a="skip"]');
 await page.waitForSelector('text=Nothing waiting');

@@ -581,7 +581,7 @@ function editPart(p, opts={}){
     <div class="grid2">
       <div class="field"><label for="p-bin">Bin</label><select id="p-bin"><option value="">— no bin —</option>${bins.map(b=>`<option value="${b.id}" ${b.id===p.binId?'selected':''}>${esc(b.code)} · ${esc(b.name||'')}</option>`).join('')}</select></div>
       <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="MCU boards"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
-      <div class="field"><label for="p-qty">Quantity</label><div class="qty"><input id="p-qty" type="number" min="0" step="any" value="${esc(p.qty)}"><input id="p-unit" value="${esc(p.unit||'pcs')}" style="width:70px" aria-label="Unit"></div></div>
+      <div class="field"><label for="p-qty">Quantity</label><div class="qty"><input id="p-qty" type="number" min="0" step="any" value="${esc(p.qty)}"${opts.uncounted?' aria-describedby="p-qtyhint"':''}><input id="p-unit" value="${esc(p.unit||'pcs')}" style="width:70px" aria-label="Unit"></div>${opts.uncounted?'<div class="tiny" id="p-qtyhint" style="color:var(--warn);margin-top:4px">Claude couldn’t count these. Count them before saving.</div>':''}</div>
       <div class="field"><label for="p-min">Reorder at (optional)</label><input id="p-min" type="number" step="any" value="${esc(p.minQty??'')}"></div>
       <div class="field"><label for="p-mpn">Part number</label><input id="p-mpn" class="mono" value="${esc(p.mpn)}"></div>
       <div class="field"><label for="p-bag">Bag number</label><input id="p-bag" type="number" min="1" step="1" class="mono" value="${esc(p.bag??'')}" placeholder="${nextBag()}"></div>
@@ -631,6 +631,7 @@ function editPart(p, opts={}){
   el.querySelector('#save').onclick=async()=>{
     const raw=k=>el.querySelector(PART_FORM[k][0]).value, val=k=>PART_FORM[k][2](raw(k));
     const name=val('name'); if(!name){ toast('Name is required'); return; }
+    if(opts.uncounted && raw('qty').trim()===''){ toast('Count them first'); el.querySelector('#p-qty').focus(); return; }
     const cur=S.parts.get(p.id), base={...PART_BLANK, ...(was||{})}, same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     const shown=(x,k)=>{ const v=PART_FORM[k][1](x); return PART_FORM[k][2](v==null?'':String(v)); };
     const touched=k=>!was || raw(k)!==asDrawn[k] || !same(shown(p,k),shown(base,k));
@@ -921,7 +922,7 @@ function newCard(b,x){
   const cands=candidates(x);
   const row=c=>`<button type="button" class="${c.why==='match'?'pick':''}" data-id="${esc(c.p.id)}"><span><b>${esc(c.p.name)}</b><div class="s">${subLine(c.p)}</div></span><span class="chip ${c.why==='match'?'ok':''}">${c.why==='match'?'same part':'existing'}</span></button>`;
   const el=h(`<div class="card inb" data-k="${esc(x.k)}">
-    ${itemHead(x, `${esc(x.name)}${x.qty!=null?` <span class="mono q">×${esc(x.qty)}</span>`:''}`, x.notes?`<div class="tiny">${esc(x.notes)}</div>`:'')}
+    ${itemHead(x, `${esc(x.name)}${x.qty!=null?` <span class="mono q">×${esc(x.qty)}</span>`:' <span class="chip warn">count?</span>'}`, x.notes?`<div class="tiny">${esc(x.notes)}</div>`:'')}
     ${x.check?`<div class="checknote"><div><b>Check.</b> ${esc(x.check)}</div></div>`:''}
     <div class="matchlist">${cands.map(row).join('')}
       <button type="button" data-id=""><span><b>${cands.length?'It’s a different part':'Add it'}</b>${cands.length?'<div class="s">Not one of these</div>':''}</span><span class="chip warn">new part</span></button></div>
@@ -943,12 +944,13 @@ function openFromInbox(b,x,matched){
     if(x.tags) base.tags=IN.proposed(matched,x,'tags');
     if(x.qty!=null) base.qty = (x.add ?? b.source==='receipt') ? Number(matched.qty||0)+x.qty : x.qty;
   } else {
-    base={name:x.name, category:x.category||'', mpn:x.mpn||'', qty:x.qty??1, unit:x.unit||'pcs', tags:x.tags||[], notes:x.notes||'', link:x.link||''};
+    // a count Claude couldn't make (stacked or hidden) opens empty, to be counted: blank beats a wrong 1
+    base={name:x.name, category:x.category||'', mpn:x.mpn||'', qty:x.qty??'', unit:x.unit||'pcs', tags:x.tags||[], notes:x.notes||'', link:x.link||''};
     for(const k of ['iface','addr','volts','logic','img','check']) if(!empty(x[k])) base[k]=x[k];
     const bin=b.bin && [...S.bins.values()].find(z=>z.code.toLowerCase()===b.bin.toLowerCase()), dest=localGet('sr.packbox','');
     if(bin) base.binId=bin.id; else if(S.bins.has(dest)) base.binId=dest;
   }
-  editPart(base,{tag:!matched||!matched.bag, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); }});
+  editPart(base,{tag:!matched||!matched.bag, uncounted:!matched && x.qty==null, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); }});
 }
 function updateCard(b,x){
   const p=S.parts.get(x.id), d=IN.diff(p,x), bin=binOf(p);

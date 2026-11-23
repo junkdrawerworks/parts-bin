@@ -451,10 +451,11 @@ function renderPartPage(m, pid){
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back">${ICONS.back}</button><span class="grow"></span>${S.canWrite?`<button class="btn sm" id="edit">Edit</button>`:''}</div>`);
   m.append(head); head.querySelector('#back').onclick=()=>canGoBack()?history.back():go('parts');
   head.querySelector('#edit')?.addEventListener('click',()=>editPart(p));
-  if(S.canWrite){ const tg=h(`<button class="btn sm">${ICONS.nfc} Bag tag</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg); }
+  if(S.canWrite){ const tg=h(`<button class="btn sm" id="bagtag">${ICONS.nfc} ${p.tagWritten?'Rewrite tag':'Bag tag'}</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg); }
   const ref=!assetUrl(p.photo)&&p.img;
   // the bag number sits under the photo, big enough to match against the bag across the bench
-  const bagTag=p.bag?`<div class="bagbadge${clashOf(p)?' twice':''}"><small>Bag</small><span class="bagno">${bagStr(p.bag)}</span></div>`:'';
+  // and says when its sticker has been written, as a bin's page does
+  const bagTag=p.bag?`<div class="bagbadge${clashOf(p)?' twice':''}"${p.tagWritten?` role="img" aria-label="Bag ${bagStr(p.bag)}, tag written"`:''}><small>Bag</small><span class="bagno">${bagStr(p.bag)}</span>${p.tagWritten?`<span class="tagged">${ICONS.nfc}tagged</span>`:''}</div>`:'';
   m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${photoImg(p.photo)||ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
     <h2>${esc(p.name)}</h2>
     <div class="row" style="gap:6px;margin:4px 0 8px">${p.category?`<span class="chip">${esc(p.category)}</span>`:''}${specChips(p)}${(p.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${isLow(p)?'<span class="chip warn">low stock</span>':''}</div>

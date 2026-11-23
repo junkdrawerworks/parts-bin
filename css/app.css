@@ -195,6 +195,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .bagbadge small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);margin-bottom:2px}
 .bagbadge .bagno{display:block;background:none;padding:0;border-radius:0;color:var(--ink);font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
 @media(max-width:480px){.bagbadge .bagno{font-size:26px}}
+.bagbadge .tagged{display:flex;align-items:center;justify-content:center;gap:3px;margin-top:4px;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--ok)}
+.bagbadge .tagged svg{width:13px;height:13px;flex:none}
 .bagbadge.twice{border-color:var(--warn);background:var(--warn-soft)}
 .bagbadge.twice .bagno,.bagbadge.twice small{color:var(--warn)}
 .packhead{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center}

@@ -190,14 +190,15 @@ assert.ok(!(await page.evaluate(() => Object.values(JSON.parse(localStorage.getI
 const spareId = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(([, x]) => x.name === 'Loose spare')[0]);
 const spare = () => page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], spareId);
 await page.goto(base + '#part/' + spareId);
-await page.click('text=Bag tag');
+assert.equal((await page.textContent('#bagtag')).trim(), 'Bag tag'); assert.equal(await page.locator('.bagbadge').count(), 0);
+await page.click('#bagtag');
 assert.match(await page.textContent('.sheet h3'), /#004/);
 assert.match(await page.textContent('.sheet'), /This will be bag #004/);
 // looking at the sheet and backing out takes no number
 assert.equal(await page.textContent('.sheet #done'), 'Cancel');
 await page.click('.sheet #done');
 assert.ok(!(await spare()).bag);
-await page.click('text=Bag tag');
+await page.click('#bagtag');
 await page.click('.sheet #write');
 await page.waitForSelector('#tz.wait');
 await page.evaluate(() => window.__tap());
@@ -205,11 +206,15 @@ await page.waitForFunction(() => !document.querySelector('.sheet'));
 assert.equal((await page.evaluate(() => window.__written)).at(-1), base + '#bag/004');
 assert.equal((await spare()).bag, 4); assert.equal((await spare()).tagWritten, true);
 assert.equal(await page.textContent('.binhead .bagno'), '#004');
+// the page says the bag has its tag now (it looked the same with or without one)
+await page.waitForSelector('.bagbadge .tagged');
+assert.equal(await page.textContent('.bagbadge .tagged'), 'tagged'); assert.equal(await page.getAttribute('.bagbadge', 'aria-label'), 'Bag #004, tag written');
+assert.equal((await page.textContent('#bagtag')).trim(), 'Rewrite tag');
 // if the number is taken while the sheet is open (another tab, a sync), it stops rather than double up
 await page.goto(base + '#parts'); await page.click('#addp'); await page.fill('#p-name', 'Second spare'); await page.uncheck('#p-dotag'); await page.click('.sheet #save');
 await page.waitForFunction(() => !document.querySelector('.sheet'));
 const second = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(([, x]) => x.name === 'Second spare')[0]);
-await page.goto(base + '#part/' + second); await page.click('text=Bag tag');
+await page.goto(base + '#part/' + second); await page.click('#bagtag');
 assert.match(await page.textContent('.sheet h3'), /#005/);
 await page.evaluate(id => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts.stolen = { name: 'Took the number', bag: 5, qty: 1, t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, second);
 await page.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts.stolen);
@@ -223,7 +228,7 @@ await page.evaluate(id => { const d = JSON.parse(localStorage.getItem('parts-bin
 await page.waitForTimeout(100);
 await page.goto(base + '#part/' + spareId);
 // tagging it again keeps its number. From a part's page there's no next bag: the sheet says Close, then Done
-await page.click('text=Bag tag');
+await page.click('#bagtag');
 assert.equal(await page.textContent('.sheet #done'), 'Close');
 await page.click('.sheet #write');
 await page.waitForSelector('#tz.wait');
@@ -1164,7 +1169,7 @@ await page.goBack(); await at('#bin/bin-env');
 await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.parts['p-back'] = { name: 'Back test', qty: 1, t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
 await page.goto(base + '#part/p-back');
 for (const how of ['Back', 'Escape', 'a tap outside']) {
-  await page.click('text=Bag tag'); await page.click('.sheet #write'); await page.waitForSelector('#tz.wait');
+  await page.click('#bagtag'); await page.click('.sheet #write'); await page.waitForSelector('#tz.wait');
   if (how === 'Back') await page.goBack(); else if (how === 'Escape') await page.keyboard.press('Escape'); else await page.mouse.click(5, 5);
   await shut(page);
   assert.equal(await page.evaluate(() => location.hash), '#part/p-back', how);
@@ -1261,14 +1266,14 @@ await noNfcCtx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin 
 const noNfc = await noNfcCtx.newPage();
 await noNfc.goto(base + '#part/p-loose');
 assert.equal(await noNfc.evaluate(() => 'NDEFReader' in window), false);
-await noNfc.click('text=Bag tag');
+await noNfc.click('#bagtag');
 await noNfc.waitForSelector('.sheet #copy');
 assert.equal(await noNfc.locator('.sheet a').count(), 0, 'a link out of the tag sheet');
 assert.equal(await noNfc.textContent('.sheet #t-status'), 'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.');
 assert.match(await noNfc.textContent('.sheet p.muted'), /The number is saved once its link is copied/);
 const looseBag = () => noNfc.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-loose'].bag);
 await noNfc.click('.sheet #done'); assert.ok(!(await looseBag()), 'looking at the sheet took no number');
-await noNfc.click('text=Bag tag'); await noNfc.click('.sheet #copy');
+await noNfc.click('#bagtag'); await noNfc.click('.sheet #copy');
 await noNfc.waitForSelector('#toast:has-text("Link copied")');
 assert.equal(await noNfc.evaluate(() => navigator.clipboard.readText()), base + '#bag/001');
 assert.equal(await looseBag(), 1, 'copying the link took the number');
@@ -1642,7 +1647,7 @@ await desk.goto(base);
   const sp = await sCtx.newPage();
   sp.problems = []; sp.on('pageerror', e => sp.problems.push(e.message)); sp.on('console', m => { if (m.type() === 'error') sp.problems.push(m.text()); });
   await sp.goto(base + '#part/p-12'); await sp.waitForFunction(() => !!window.__reader);
-  await sp.click('text=Bag tag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
+  await sp.click('#bagtag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
   // bag #011's sticker held up by mistake: Chrome reads it, then refuses the write
   await sp.evaluate(url => window.__read(url), base + '#bag/011');
   assert.equal(await sp.evaluate(() => location.hash), '#part/p-12', 'reading it left the tag sheet');
@@ -1653,7 +1658,7 @@ await desk.goto(base);
   assert.equal(await sp.locator('.sheet #write svg').count(), 1, 'the button lost its icon');
   // a sticker that holds something, with no reading of it: what writing over it would do
   await sp.click('.sheet #done'); await sp.waitForFunction(() => !document.querySelector('.sheet'));
-  await sp.click('text=Bag tag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
+  await sp.click('#bagtag'); await sp.click('.sheet #write'); await sp.waitForSelector('#tz.wait');
   await sp.evaluate(() => window.__fail('NotAllowedError', 'The NFC tag already has data.'));
   await sp.waitForSelector('#tz.bad');
   assert.equal(await sp.textContent('#t-status'), 'That sticker already holds a link. If it’s on another bag, use a blank one: writing over it makes that bag’s sticker open this one.');
@@ -1684,7 +1689,7 @@ await desk.goto(base);
   const ioFail = () => rp.evaluate(() => window.__fail('NetworkError', 'Failed to write due to an IO error'));
   const listening = () => rp.waitForFunction(() => window.__waiting(), null, { timeout: 3000 });
   await rp.goto(base + '#part/p-12');
-  await rp.click('text=Bag tag'); await rp.click('.sheet #write'); await listening();
+  await rp.click('#bagtag'); await rp.click('.sheet #write'); await listening();
   await ioFail(); await rp.waitForSelector('#tz.bad');
   assert.equal(await rp.textContent('#t-status'), 'Didn’t take. Hold it flat and still: still listening.');
   // listening again with no tap, and the next hold writes it
@@ -1693,7 +1698,7 @@ await desk.goto(base);
   assert.match((await rp.evaluate(() => window.__written)).at(-1), /#bag\/012$/);
   await rp.waitForFunction(() => !document.querySelector('.sheet'));
   // it stops after five tries of its own, and says to tap
-  await rp.click('text=Bag tag'); await rp.click('.sheet #write'); await listening();
+  await rp.click('#bagtag'); await rp.click('.sheet #write'); await listening();
   for (let i = 0; i < 5; i++) { await ioFail(); await listening(); }
   await ioFail(); await rp.waitForTimeout(900);
   assert.equal(await rp.evaluate(() => window.__waiting()), false, 'it kept trying');
@@ -1750,8 +1755,8 @@ await desk.goto(base);
   await fCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
   const fp = await fCtx.newPage();
   fp.problems = []; fp.on('pageerror', e => fp.problems.push(e.message)); fp.on('console', m => { if (m.type() === 'error') fp.problems.push(m.text()); });
-  await fp.goto(base + '#part/p-12'); await fp.waitForSelector('text=Bag tag');
-  await fp.focus('text=Bag tag'); await fp.keyboard.press('Enter'); await fp.waitForSelector('.sheet #write');
+  await fp.goto(base + '#part/p-12'); await fp.waitForSelector('#bagtag');
+  await fp.focus('#bagtag'); await fp.keyboard.press('Enter'); await fp.waitForSelector('.sheet #write');
   assert.equal(await fp.evaluate(() => document.activeElement.id), 'write');
   assert.ok(await fp.evaluate(() => !!document.activeElement.closest('[role=dialog]')), 'the keyboard isn’t in the tag sheet');
   assert.equal(await fp.getAttribute('#t-status', 'role'), 'status');
@@ -1887,7 +1892,7 @@ await desk.goto(base);
   assert.equal(await np.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(x => x.name === 'OLED 0.96').binId), 'b01');
   // where there's no clipboard at all, a tag's Copy link shows the link to copy by hand (it did nothing)
   await np.goto(base + '#part/p-loose'); await np.evaluate(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined, configurable: true }));
-  await np.click('text=Bag tag'); await np.click('.sheet #copy');
+  await np.click('#bagtag'); await np.click('.sheet #copy');
   await np.waitForSelector('.sheet textarea');
   assert.equal(await np.inputValue('.sheet textarea'), base + '#bag/002'); assert.equal((await got('p-loose')).bag, 2);
   await np.click('.sheet #done');

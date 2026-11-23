@@ -1640,6 +1640,10 @@ await aiCtx.close();
   assert.equal(await sp.locator('.bom-table tbody tr').nth(0).getAttribute('data-st'), 'missing', 'Claude’s no match is kept');
   assert.equal(await sp.locator('.bom-table tbody tr').nth(1).getAttribute('data-st'), 'have');
   assert.equal(asked[0].max_tokens, 16000);
+  // an answer that numbers its lines from 1 is read that way, not each line taking the answer for the one before it
+  says = JSON.stringify([{ line: 1, id: null, confidence: 0.9 }, { line: 2, id: 'p-scd41', confidence: 0.95 }]);
+  await sp.click('#smart'); await sp.waitForFunction(() => !document.querySelector('#smart').disabled); await sp.waitForSelector('.bom-summary');
+  assert.deepEqual(await sp.locator('.bom-table tbody tr').evaluateAll(rs => rs.map(r => r.dataset.st)), ['missing', 'have'], 'lines counted from 1');
   // an answer that isn't the list asked for says so, and plain matching is used
   says = 'I could not work that out.';
   await sp.click('#smart');

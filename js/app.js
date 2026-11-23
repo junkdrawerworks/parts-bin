@@ -853,7 +853,10 @@ Reply with only a JSON array, one entry per BOM line in the same order: [{"line"
       if(!Array.isArray(res)) throw {code:'invalid_json'};
       // Each answer by its line (or its place, from an answer without one). Claude's "nothing here" stands, so a line it
       // says isn't in the inventory shows as missing; only a line it left out, or gave an id that isn't here, is matched plainly.
-      const by=new Map(); res.forEach((x,i)=>{ if(x && typeof x==='object'){ const k=Number.isInteger(x.line)?x.line:i; if(!by.has(k)) by.set(k,x); } });
+      // An answer that counted its lines from 1 (every line numbered, none 0, the last one past the end) is read as that, so
+      // each line doesn't take the answer for the line before it.
+      const nums=res.map(x=>Number.isInteger(x?.line)?x.line:null), from1=nums.length && nums.every(n=>n!=null) && !nums.includes(0) && Math.max(...nums)===rows.length ? 1 : 0;
+      const by=new Map(); res.forEach((x,i)=>{ if(x && typeof x==='object'){ const k=Number.isInteger(x.line)?x.line-from1:i; if(!by.has(k)) by.set(k,x); } });
       const items=rows.map((r,i)=>{ const a=by.get(i);
         if(a && 'id' in a && (a.id==null || a.id==='')) return {...r, m:null};
         const hit=a?.id!=null && S.parts.get(String(a.id));

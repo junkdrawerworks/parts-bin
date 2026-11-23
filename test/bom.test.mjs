@@ -141,3 +141,112 @@ test('a shortfall in metres or grams reads as a person would write it', () => {
   assert.equal(shortBy(1.25, 0.5), 0.75);
   assert.equal(shortBy(5, 2), 3);
 });
+
+// A workroom's worth of parts, named the way the Parts Bin skill names them. Where two parts could tie, the wrong one
+// comes first, as a tie used to go to whichever came first.
+const P = (id, name, o = {}) => ({ id, name, qty: 10, unit: 'pcs', tags: [], ...o });
+const INV = [
+  P('r10', '10 resistor 1/4W', { tags: ['resistor', 'tht'] }), P('r100', '100 resistor 1/4W', { tags: ['resistor', 'tht'] }),
+  P('r220', '220 resistor 1/4W', { tags: ['resistor', 'tht'] }), P('r1k', '1k resistor 1/4W', { tags: ['resistor', 'tht'] }),
+  P('r1k2', '1.2k resistor 1/4W', { tags: ['resistor', 'tht'] }), P('r10k', '10k resistor 1/4W', { tags: ['resistor', 'tht'] }),
+  P('smd220', '220Ω 0805 SMD resistor', { tags: ['smd', '0805'] }), P('pot', '10 kΩ potentiometer'),
+  P('c100n', '100nF ceramic capacitor', { tags: ['ceramic'] }), P('c10u', '10uF electrolytic capacitor 25V', { tags: ['electrolytic'] }),
+  P('d4148', '1N4148 signal diode', { mpn: '1N4148' }), P('q2222', '2N2222 NPN transistor', { mpn: '2N2222' }),
+  P('ne555', 'NE555 timer', { mpn: 'NE555P' }), P('lm358', 'LM358 op amp', { mpn: 'LM358' }), P('lm7805', 'LM7805 5V regulator', { mpn: 'L7805CV' }),
+  P('pico', 'Raspberry Pi Pico', { mpn: 'RP2040' }), P('picow', 'Raspberry Pi Pico W', { mpn: 'RP2040' }),
+  P('xiao', 'Seeed XIAO ESP32-S3', { tags: ['esp32'] }), P('oled', 'SSD1306 0.96" OLED I2C'),
+  P('led5r', '5mm red LED', { tags: ['led', '5mm'] }), P('led3r', '3mm red LED', { tags: ['led', '3mm'] }), P('led5g', '5mm green LED', { tags: ['led', '5mm'] }),
+  P('stripa', 'WS2812B LED strip 60/m', { qty: 2.5, unit: 'm', tags: ['neopixel', 'ws2812'] }), P('stripb', 'WS2812B LED strip 144/m', { qty: 0.5, unit: 'm', tags: ['neopixel', 'ws2812'] }),
+  P('m3x4', 'M3x4 socket head screw', { tags: ['screw'] }), P('m3x6pan', 'M3x6 pan head screw'), P('m3x8', 'M3x8 socket head screw', { tags: ['screw'] }),
+  P('m3x8pan', 'M3x8 pan head screw'), P('m3x10so', 'M3x10 brass standoff'), P('m3x10', 'M3x10 socket head screw', { tags: ['screw'] }),
+  P('m2x4', 'M2x4 socket head screw', { tags: ['screw'] }), P('m3lock', 'M3 nylon lock nut'), P('m3nut', 'M3 hex nut'), P('m2nut', 'M2 hex nut'),
+  P('st2', 'Screw terminal 2-pin 5mm'), P('st3', 'Screw terminal 3-pin 5mm'),
+  P('xh2', 'JST-XH 2-pin connector set'), P('xh4', 'JST-XH 4-pin connector set'), P('ph3', 'JST-PH 3-pin cable female'), P('ph4', 'JST-PH 4-pin cable female'),
+  P('dip', 'DIP switch 4-position'), P('jump', 'Dupont jumper wires M-M'), P('jumpf', 'Dupont jumper wires M-F'),
+  P('heat', 'Heat shrink tubing 3mm', { qty: 1, unit: 'm' }), P('wire', '22AWG silicone wire red', { qty: 5, unit: 'm' }), P('solder', 'Solder 0.8mm 60/40', { qty: 250, unit: 'g' }),
+  P('mhz', 'MH-Z19B CO2 sensor', { mpn: 'MH-Z19B' }), P('scd', 'SCD41 CO₂ sensor', { mpn: 'SCD41' }),
+];
+// A line as BOM check reads it: its count, and the part it finds. ids: the right part (or any of these); sure: at 0.8 or
+// more, so not marked fuzzy.
+function reads(line, qty, ids, sure = true) {
+  const rows = parseBom(line); assert.equal(rows.length, 1, line);
+  const r = rows[0], m = matchPart(r.name, INV), ok = [].concat(ids);
+  assert.equal(r.qty, qty, `${line}: read as ${r.qty} × ${r.name}`);
+  assert.ok(m && ok.includes(m.p.id), `${line}: found ${m ? `${m.p.name} at ${m.conf}` : 'nothing'}, not ${ok}`);
+  if (sure) assert.ok(m.conf >= 0.8, `${line}: ${m.p.name} only at ${m.conf}`);
+  return m;
+}
+
+test('a plural finds the part named in the singular', () => {
+  reads('10k resistors', 1, 'r10k');
+  reads('220 ohm resistors', 1, 'r220');
+  reads('2 x 220 ohm resistors', 2, 'r220');
+  reads('220Ω resistor', 1, 'r220');
+  reads('red LEDs', 1, ['led5r', 'led3r']);
+  reads('5mm red LEDs', 1, 'led5r');
+  reads('M3 nuts', 1, 'm3nut');
+  reads('M3 screws', 1, ['m3x4', 'm3x8', 'm3x10']);
+  reads('M2 screws', 1, 'm2x4');
+  reads('M3x8 screws', 1, ['m3x8', 'm3x8pan']);
+  assert.equal(reads('M3x8 socket head screws', 1, 'm3x8').conf, 1);
+  reads('4x M3 Nylon locknuts', 4, 'm3lock');
+  reads('M3 lock nuts', 1, 'm3lock');
+  reads('a couple of 10k resistors', 1, 'r10k', false);
+  // es after x, s, ch or sh, and words that only look plural are left alone
+  assert.equal(matchPart('junction boxes', [P('box', 'Junction box')])?.p.id, 'box');
+  assert.equal(matchPart('tactile switches', [P('sw', '6x6mm tactile switch')])?.p.id, 'sw');
+  assert.equal(matchPart('project cases', [P('case', 'Project case')])?.conf, 1);
+  assert.equal(matchPart('brass inserts', [P('in', 'Brass insert')])?.conf, 1);
+});
+
+test('a short word only matches a whole word', () => {
+  // an LED isn't an OLED, a 2k isn't a 1.2k, an M3 isn't an LM358
+  assert.notEqual(matchPart('led', INV)?.p.id, 'oled');
+  assert.equal(matchPart('led', [P('oled', 'SSD1306 0.96" OLED I2C')]), null);
+  assert.ok(matchPart('2k resistor', [P('r1k2', '1.2k resistor 1/4W')]).conf < 0.8, '2k as a sure 1.2k');
+  assert.equal(matchPart('2k resistor', [P('r1k2', '1.2k resistor 1/4W'), P('r2k', '2k resistor')]).p.id, 'r2k');
+  assert.equal(matchPart('M3', [P('lm358', 'LM358 op amp')]), null);
+  assert.notEqual(matchPart('M3', INV)?.p.id, 'lm358');
+  // a longer one, or a number, can still sit inside a part number
+  reads('7805', 1, 'lm7805');
+  reads('555 timer', 1, 'ne555');
+  reads('NE555', 1, 'ne555');
+  reads('LM358', 1, 'lm358');
+  // and a common short form still finds the word it starts
+  reads('100nF cap', 1, 'c100n');
+  assert.equal(matchPart('10k pot', INV)?.p.id, 'pot');
+});
+
+test('pin counts, screw sizes and one-letter models tell parts apart', () => {
+  reads('JST-PH 4-pin female', 1, 'ph4');
+  reads('JST-PH 4-pin – Female', 1, 'ph4');
+  reads('JST XH 4 pin', 1, 'xh4');
+  reads('3-pin screw terminal', 1, 'st3');
+  reads('3 way screw terminal', 1, 'st3'); // a number before pin or way is the part's, not a count
+  reads('4 pin JST XH', 1, 'xh4');
+  reads('2x 4-pin JST XH', 2, 'xh4');
+  reads('DIP switch 4 position', 1, 'dip');
+  assert.ok(matchPart('JST-PH 4-pin female', [P('ph3', 'JST-PH 3-pin cable female')]).conf < 0.8, 'a 3-pin for a 4-pin is a guess');
+  reads('Raspberry Pi Pico W', 1, 'picow');
+  reads('Pi Pico', 1, 'pico');
+  assert.ok(matchPart('Raspberry Pi Pico W', [P('pico', 'Raspberry Pi Pico')]).conf < 0.8, 'a Pico for a Pico W is a guess');
+  reads('Dupont jumper wires M-F', 1, 'jumpf');
+  // a screw size however it's written
+  reads('M3 x 8', 1, ['m3x8', 'm3x8pan']);
+  reads('M3 x 8 x4', 4, ['m3x8', 'm3x8pan']);
+  reads('M3 x 8mm screw', 1, ['m3x8', 'm3x8pan']);
+  reads('M3x8mm socket head screw', 1, 'm3x8');
+  reads('4x M3 x 8mm (pan head)', 4, 'm3x8pan');
+  reads('7x M3 x 6mm (pan head)', 7, 'm3x6pan');
+  reads('Screws M3 x 10', 1, 'm3x10');
+  reads('M3x10 standoff', 1, 'm3x10so');
+});
+
+test('a part with the line’s pin count or value comes before one with more of its other words', () => {
+  // the Adafruit headlight list's "JST-PH 2-pin – Female", with no 2-pin female cable in stock
+  const jst = [P('ph3f', 'JST-PH 3-pin cable female'), P('ph2', 'JST-PH 2-pin cable')];
+  assert.equal(matchPart('JST-PH 2-pin – Female', jst).p.id, 'ph2');
+  assert.ok(matchPart('JST-PH 2-pin – Female', jst).conf < 0.8);
+  assert.equal(matchPart('JST-PH 3-pin – Male', jst).p.id, 'ph3f');
+  assert.ok(matchPart('JST-PH 3-pin – Male', jst).conf < 0.8, 'male isn’t in female');
+});

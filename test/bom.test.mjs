@@ -304,6 +304,8 @@ test('a length or weight is read with its unit, which leaves the name', () => {
   ]);
   // a range is the most it could need
   assert.deepEqual(parseBom('4-6 M3x8 screws\n2–3x NeoPixel Jewel\n3-4 pin JST'), [{ qty: 6, name: 'M3x8 screws' }, { qty: 3, name: 'NeoPixel Jewel' }, { qty: 1, name: '3-4 pin JST' }]);
+  // but an inch screw's size isn't one: 4-40 is a gauge and its threads per inch (it read as 40 × "screws")
+  assert.deepEqual(parseBom('4-40 screws\n10-24 nuts\n6-32 standoffs x8\n2-56 x 1/4 screw'), [{ qty: 1, name: '4-40 screws' }, { qty: 1, name: '10-24 nuts' }, { qty: 8, name: '6-32 standoffs' }, { qty: 1, name: '2-56 x 1/4 screw' }]);
   reads('2m of wire', 2, ['wire', 'jump'], false);
   reads('WS2812B strip 0.5m', 0.5, ['stripa', 'stripb'], false);
   reads('0.8 m heat shrink tubing 3mm', 0.8, 'heat');

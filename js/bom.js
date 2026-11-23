@@ -49,7 +49,7 @@ const SAYS = new Set('supplies supply parts part list tools tool hardware electr
 const HEAD = new Set([...SAYS, ...'electronic component material of misc other and the for this build you ll your what s here required optional'.split(' ')]);
 const isHeading = l => { const w = norm(l).split(' '); return w.length <= 6 && w.some(x => SAYS.has(x)) && w.every(x => HEAD.has(x)); };
 function count(l) {
-  l = l.replace(RANGE, '');
+  if (!THREAD.test(l)) l = l.replace(RANGE, '');
   for (const re of MEASURES) {
     const m = re.exec(l); if (!m) continue;
     const { q, u, name } = m.groups, [unit, per] = TO_BASE[u];
@@ -70,6 +70,9 @@ const MEASURES = [
   new RegExp(`^(?<name>.+?)(?:\\s*,\\s*|\\s+)${Q}\\s*${LEN}$`), // WS2812B strip 0.5m, heat shrink 3mm, 30cm
 ];
 const TO_BASE = { m: ['m', 1], cm: ['m', 0.01], mm: ['m', 0.001], ft: ['ft', 1], g: ['g', 1], kg: ['g', 1000] };
+// An inch screw's size isn't a range: 4-40 and 10-24 are a gauge and its threads per inch (the numbered sizes of ASME
+// B1.1's unified threads), so "4-40 screws" is one size of screw, not forty.
+const THREAD = /^(?:0-80|1-64|1-72|2-56|2-64|3-48|3-56|4-40|4-48|5-40|5-44|6-32|6-40|8-32|8-36|10-24|10-32|12-24|12-28)(?![\d.])/;
 const RANGE = /^\d+(?:\.\d+)?\s*[-–]\s*(?=\d+(?:\.\d+)?(?:\s*(?:m|cm|mm|g|kg|ft|[x×*]))?\s+(?!(?:pins?|ways?|positions?)(?![a-z])))/i;
 
 // Designators: the names a schematic gives each part on the board (R1, C2, D1-D4, LED1, U1), in a run at the start of a

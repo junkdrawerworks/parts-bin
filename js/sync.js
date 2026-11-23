@@ -314,19 +314,26 @@ function card(host) {
 }
 function watch(f) { watchers.push(f); f(); }
 
-// The page saved something: send it along shortly.
-function changed() {
+// The page saved something: send it along shortly, or straight away (wait: false) when other devices need to know at
+// once (a bag number given out).
+function changed(wait = true) {
   if (!CLIENT_ID || !st.on) return;
   clearTimeout(pushT);
-  if (live()) pushT = setTimeout(sync, 1200); else signedOut();
+  if (!live()) signedOut();
+  else if (wait) pushT = setTimeout(sync, 1200);
+  else sync();
 }
+// Bring in what other devices saved, now: before a bag number handed out here is used. A sync already under way goes
+// round once more after it (sync()), so this never runs two at once.
+function pull() { if (CLIENT_ID && st.on && live()) sync(); }
 
 export const drive = {
   ready: !!CLIENT_ID,
   isOn: () => !!CLIENT_ID && st.on,
   status: () => status, // off, busy, ok, tap (sign in again), error, offline
   last: () => st.last, // when it last synced, ms (0: never)
-  chip, card, changed, now, stop,
+  chip, card, changed, now, stop, pull,
+  push: () => changed(false),
   onUpdate(f) { ups.push(f); }, // synced data landed in localStorage
   watch(f) { if (CLIENT_ID) watch(f); }, // Drive turned on or off, or synced; return false to stop watching
 };

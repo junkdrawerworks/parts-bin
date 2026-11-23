@@ -246,7 +246,7 @@ function partRow(p, showBin){
 function clashBar(m){
   const c=bagClashes(); if(!c.size) return;
   const nums=[...c.keys()], list=nums.slice(0,6).map(bagStr).join(', ')+(nums.length>6?` and ${nums.length-6} more`:'');
-  const el=h(`<div class="checknote clashbar"><div><b>${nums.length===1?`Bag ${list} is`:`Bags ${list} are each`} on more than one part.</b> Two devices numbered bags before they synced. Keep the number on the bag with the tag.</div><button class="btn sm" id="showclash">Sort them out</button></div>`);
+  const el=h(`<div class="checknote clashbar"><div><b>${nums.length===1?`Bag ${list} is`:`Bags ${list} are each`} on more than one part.</b> Two devices gave out the same number. Keep the number on the bag with the tag.</div><button class="btn sm" id="showclash">Sort them out</button></div>`);
   el.querySelector('#showclash').onclick=()=>{ const here=S.route.view==='parts'; localSet('sr.cat','__clash'); S.q=''; if(here) render(); else go('parts'); };
   m.append(el);
 }
@@ -706,6 +706,9 @@ function editPart(p, opts={}){
   };
   const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked); bagText(); };
   dotag.onchange=syncTag; bagIn.oninput=syncTag; syncTag();
+  // A number handed out here comes from this device's last sync: bring in what other devices have packed since, so Save
+  // can move it on if one of them has used it (below).
+  if(filled) drive.pull();
   el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);
     if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
     try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
@@ -742,6 +745,7 @@ function editPart(p, opts={}){
     const finalBag=doc.bag===''||doc.bag==null?'':doc.bag, tagNow = native && dotag.checked && finalBag!=='', newNo = 'bag' in changes && finalBag!=='';
     if(isNew) localSet('pb.lastbin', doc.binId);
     try{ if(cur) await S.db.doc('parts/'+p.id).update(changes); else await S.db.doc('parts/'+p.id).set(doc); close();
+      if(newNo) drive.push(); // a new bag number goes to the other devices straight away, so they don't give it out too
       if(!tagNow) toast(newNo ? `Bag ${bagStr(finalBag)} saved. Write ${bagStr(finalBag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
       opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }
   };

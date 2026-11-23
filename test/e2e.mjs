@@ -715,6 +715,42 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sCtx.close();
 }
 
+// ---- two devices packing at once, both online: a new part's sheet brings in what the other device has just packed, so
+// the same bag number isn't given out twice (it was, almost every time: each device numbered from its last sync, and
+// a save went to Drive only 1.2 seconds later)
+{
+  const A = await device(), B = await device();
+  const partsOf = d => d.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin') || '{"items":{"parts":{}}}').items.parts));
+  for (const d of [A, B]) {
+    await d.page.evaluate(() => localStorage.setItem('__who', 'pair'));
+    await d.page.goto(base + '#settings'); await d.page.click('[data-a="on"]');
+    await d.page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok' && /Last synced/.test(document.querySelector('#drivecard').textContent), null, { timeout: 10000 });
+  }
+  const pairFile = () => g.files().find(f => f.owner === 'pair' && f.appProperties?.partsbin === 'sync' && !f.trashed);
+  const onPair = () => Object.values(JSON.parse(pairFile().body).items.parts);
+  // A packs bag #001
+  await A.page.click('#tabbar [data-go="parts"]'); await A.page.click('#addp');
+  assert.equal(await A.page.textContent('#p-bagshow'), '#001');
+  await A.page.fill('#p-name', 'Alpha sensor'); await A.page.click('.sheet #save');
+  await A.page.waitForSelector('#tz.wait'); await A.page.evaluate(() => window.__tap()); await A.page.waitForFunction(() => !document.querySelector('.sheet'));
+  await until(() => onPair().some(p => p.name === 'Alpha sensor' && p.bag === 1), 'A’s bag to reach Drive');
+  // B, which last synced before that, opens a new part's sheet: it hands out #001 from what it has, and brings in A's bag
+  await B.page.click('#tabbar [data-go="parts"]'); await B.page.click('#addp');
+  assert.equal(await B.page.textContent('#p-bagshow'), '#001');
+  await B.page.fill('#p-name', 'Beta sensor');
+  await until(async () => (await partsOf(B)).some(p => p.name === 'Alpha sensor'), 'B to bring in A’s bag', 8000);
+  // Save moves the number on before anything is saved, and the next tap saves it as #002
+  await B.page.click('.sheet #save');
+  await B.page.waitForSelector('#toast:has-text("Bag #001 was just used, so this is bag #002")');
+  assert.equal(await B.page.inputValue('#p-bag'), '2');
+  await B.page.click('.sheet #save');
+  await B.page.waitForSelector('#tz.wait'); await B.page.evaluate(() => window.__tap()); await B.page.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.match((await B.page.evaluate(() => window.__written)).at(-1), /#bag\/002$/);
+  assert.equal((await partsOf(B)).find(p => p.name === 'Beta sensor').bag, 2);
+  await until(() => onPair().some(p => p.name === 'Beta sensor' && p.bag === 2), 'B’s bag to reach Drive');
+  for (const d of [A, B]) { assert.deepEqual(d.page.problems, [], 'problems on two devices packing at once'); await d.ctx.close(); }
+}
+
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');

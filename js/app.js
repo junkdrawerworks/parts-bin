@@ -214,7 +214,7 @@ function renderNav(){
   document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
 }
 function topbar(m, title, extra=''){
-  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
+  const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bags" value="${esc(S.q)}" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
   m.append(el);
   el.querySelector('#readtag')?.addEventListener('click', readTag);
   const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(!q.isConnected) return; found=null; redrawResults(m, el); if(S.q.trim() && found) said(found); },160); };
@@ -280,9 +280,19 @@ function renderSearchResults(m){
   const bins=searchBins(S.q), parts=searchParts(S.q);
   found=`${many(parts.length,'part')}, ${many(bins.length,'bin')}`;
   if(bins.length){ m.append(h(`<div class="section-h"><h3>Bins</h3><span class="tiny">${bins.length}</span></div>`)); const l=h('<div class="list"></div>'); for(const b of bins) l.append(binRow(b)); m.append(l); }
-  m.append(h(`<div class="section-h"><h3>Parts</h3><span class="tiny">${parts.length}</span></div>`));
-  if(!parts.length) m.append(h('<div class="empty"><p>No parts match.</p></div>'));
-  else { const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l); }
+  if(parts.length){ m.append(h(`<div class="section-h"><h3>Parts</h3><span class="tiny">${parts.length}</span></div>`)); const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l); }
+  else if(!bins.length) noMatch(m); // bins and parts were both searched: not "Parts 0"
+}
+// A search that found nothing: what was looked for, a way back, and (for a name long enough to be one) adding it as a part.
+// With a filter on in Parts, it says which, and offers every category instead.
+function noMatch(m, filter='', list=false){
+  const q=S.q.trim(), add=S.canWrite && q.length>=3, what=q?` “${esc(q)}”`:'';
+  const says=!filter?`Nothing matches${what}.`:list?`Nothing in “${esc(filter)}”${q?` matches${what}`:''}.`:`No ${esc(filter)} match${what}.`; // a category, or a list such as Low stock
+  const e=h(`<div class="empty"><p>${says}</p><div class="row" style="justify-content:center">${filter?'<button class="btn" id="allcats">Show all categories</button>':''}${q?'<button class="btn" id="clearq">Clear search</button>':''}${add&&!filter?`<button class="btn primary" id="addq">${ICONS.plus} Add “${esc(q)}” as a part</button>`:''}</div></div>`);
+  e.querySelector('#allcats')?.addEventListener('click',()=>{ localSet('sr.cat',''); render(); });
+  e.querySelector('#clearq')?.addEventListener('click',()=>{ S.q=''; const box=document.getElementById('q'); if(box) box.value=''; render(); document.getElementById('q')?.focus(); }); // emptied first, or drawing again puts back what was typed
+  e.querySelector('#addq')?.addEventListener('click',()=>editPart({name:q}));
+  m.append(e);
 }
 function binRow(b){
   const ps=partsInBin(b.id);
@@ -440,7 +450,8 @@ function renderParts(m){
   else if(!S.q && cur!=='__clash') parts.sort((a,b)=>byName(a.name,b.name));
   found=many(parts.length,'part');
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
-  if(!parts.length){ m.append(h(`<div class="empty"><p>${S.parts.size?'No parts match.':'No parts here yet. Add one, or use Pack to bag and tag them as you go.'}</p></div>`)); return; }
+  if(!parts.length && S.parts.size){ noMatch(m, cur ? (tb.querySelector('#cat').selectedOptions[0]?.textContent || cur) : '', cur.startsWith('__')); return; }
+  if(!parts.length){ m.append(h('<div class="empty"><p>No parts here yet. Add one, or use Pack to bag and tag them as you go.</p></div>')); return; }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
 }
 // A part's page or the Inbox drawn from a copy more than 30 s old brings in what other devices have saved since, so Add one,
@@ -451,7 +462,8 @@ let freshenedAt=0;
 function freshen(){ const now=Date.now(); if(!drive.isOn() || now-drive.last()<30000 || now-freshenedAt<30000) return; freshenedAt=now; drive.pull(); }
 function renderPartPage(m, pid){
   freshen();
-  const p=S.parts.get(pid); if(!p){ m.append(h('<div class="empty"><p>Part not found.</p></div>')); return; }
+  const p=S.parts.get(pid);
+  if(!p){ m.append(h(`<div class="empty"><h3>Part not found</h3><p>This tag or link points at a part that no longer exists.</p><button class="btn" id="bk">All parts</button></div>`)); m.querySelector('#bk').onclick=()=>go('parts'); return; }
   const b=binOf(p);
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back">${ICONS.back}</button><span class="grow"></span>${S.canWrite?`<button class="btn sm" id="edit">Edit</button>`:''}</div>`);
   m.append(head); head.querySelector('#back').onclick=()=>canGoBack()?history.back():go('parts');

@@ -550,11 +550,28 @@ assert.deepEqual(bagged, ['#001', '#002', '#003', '#004', '#005', '#006'], 'Bagg
 await page.selectOption('#cat', '');
 await page.fill('#q', '0x62'); await page.waitForFunction(() => document.querySelectorAll('.item').length === 1);
 assert.equal(await page.textContent('.item .t'), 'SCD41'); await page.fill('#q', ''); await page.waitForFunction(() => document.querySelectorAll('.item').length > 1);
-// nothing found is "No parts match.", not "No parts here yet"
-await page.fill('#q', 'zzzz'); await page.waitForSelector('#main .empty:has-text("No parts match.")');
-await page.fill('#q', ''); await page.waitForFunction(() => document.querySelectorAll('.item').length > 1);
-await page.selectOption('#cat', '__low'); await page.waitForSelector('#main .empty:has-text("No parts match.")');
+// nothing found says what was looked for, not "No parts here yet", with a way back, and offers it as a new part
+await page.fill('#q', 'zzzz'); await page.waitForSelector('#main .empty:has-text("Nothing matches “zzzz”.")');
+await page.click('#main .empty #addq'); await page.waitForSelector('.sheet #p-name');
+assert.equal(await page.inputValue('#p-name'), 'zzzz'); await page.click('.sheet #cancel'); await page.waitForFunction(() => !document.querySelector('.sheet'));
+await page.click('#main .empty #clearq'); await page.waitForFunction(() => document.querySelectorAll('.item').length > 1);
+assert.equal(await page.inputValue('#q'), ''); assert.equal(await page.evaluate(() => document.activeElement.id), 'q');
+// with a category picked it says which, and offers them all; two letters aren't offered as a part
+await page.selectOption('#cat', 'Sensors'); await page.fill('#q', 'zz'); await page.waitForSelector('#main .empty:has-text("No Sensors match “zz”.")');
+assert.equal(await page.locator('#main .empty #addq').count(), 0);
+await page.click('#main .empty #allcats'); await page.waitForSelector('#main .empty:has-text("Nothing matches “zz”.")');
+assert.equal(await page.inputValue('#cat'), ''); await page.click('#main .empty #clearq');
+await page.selectOption('#cat', '__low'); await page.waitForSelector('#main .empty:has-text("Nothing in “Low stock”.")');
 await page.selectOption('#cat', '');
+// on Bins, where bins are searched too, nothing found is one line, with no "Parts 0" heading under it
+await page.goto(base + '#bins'); await page.fill('#q', 'qqq'); await page.waitForSelector('#main .empty:has-text("Nothing matches “qqq”.")');
+assert.equal(await page.locator('#main .section-h').count(), 0); assert.ok(await page.isVisible('#main .empty #addq'));
+assert.equal(await page.getAttribute('#q', 'placeholder'), 'Search parts, bins, bags');
+await page.click('#main .empty #clearq'); await page.waitForSelector('.bin');
+// a part that's gone says so, as a bin that's gone does, with the way to the rest (it said only "Part not found.")
+await page.goto(base + '#part/p-no-such-part'); await page.waitForSelector('#main h3:has-text("Part not found")');
+assert.match(await page.textContent('#main .empty p'), /^This tag or link points at a part that no longer exists\.$/);
+await page.click('#main .empty #bk'); await page.waitForSelector('#cat');
 
 // ---- a receipt adds to what's in stock, and a part that's already bagged isn't tagged again
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', made: '2026-11-23', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>', volts: '5–32 V in', logic: '5 V tolerant' }] } }));

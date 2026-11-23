@@ -13,10 +13,11 @@ export const KEY = 'parts-bin.inbox';
 const MAX_ITEMS = 400, MAX_BATCHES = 20, MAX_BYTES = 2_000_000;
 const SOURCES = ['photo', 'receipt', 'link', 'list', 'details'];
 
-// What a batch may say about a part, and how the Inbox names each one.
+// What a batch may say about a part, and how the Inbox names each one. A part's tags are called keywords on screen, as
+// "tag" there means the NFC sticker; the field keeps its name, which the skill's batches use.
 export const LABELS = {
   name: 'Name', category: 'Category', mpn: 'Part number', iface: 'Interface', addr: 'I2C address', volts: 'Supply',
-  logic: 'Logic level', link: 'Link', img: 'Reference photo', tags: 'Tags', notes: 'Notes', check: 'To check',
+  logic: 'Logic level', link: 'Link', img: 'Reference photo', tags: 'Keywords', notes: 'Notes', check: 'To check',
 };
 export const FIELDS = Object.keys(LABELS);
 

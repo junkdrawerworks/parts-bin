@@ -842,7 +842,7 @@ function editPart(p, opts={}){
       <div class="field"><label for="p-min">Reorder at (optional)</label><input id="p-min" type="number" inputmode="decimal" step="any" value="${esc(p.minQty??'')}"></div>
       <div class="field"><label for="p-mpn">Part number</label><input id="p-mpn" class="mono" value="${esc(p.mpn)}" autocapitalize="characters" autocorrect="off" spellcheck="false"></div>
       <div class="field"><label for="p-bag">Bag number</label><input id="p-bag" type="number" inputmode="numeric" min="1" step="1" class="mono" value="${esc(p.bag??'')}" placeholder="${nextBag()}"></div>
-      <div class="field"><label for="p-tags">Tags (comma separated)</label><input id="p-tags" value="${esc((p.tags||[]).join(', '))}"></div>
+      <div class="field"><label for="p-tags">Keywords (comma separated)</label><input id="p-tags" value="${esc((p.tags||[]).join(', '))}" placeholder="e.g. qwiic, 5V"></div>
     </div>
     <div class="field"><label for="p-link">Link</label><input id="p-link" type="url" value="${esc(p.link||'')}" placeholder="https://"></div>
     <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes" style="min-height:70px">${esc(p.notes)}</textarea></div>

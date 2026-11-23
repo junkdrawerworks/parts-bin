@@ -496,7 +496,7 @@ await page.click('#inb-go');
 await page.waitForSelector('.diff');
 assert.equal(await page.inputValue('#inb-paste'), '', 'the link that opened is still in the box');
 assert.equal(await page.locator('.card.inb').count(), 1, 'a part that already says it all isn’t shown');
-assert.deepEqual(await page.locator('.diff .k').allTextContents(), ['Part number', 'Interface', 'I2C address', 'Supply', 'Tags', 'Notes']);
+assert.deepEqual(await page.locator('.diff .k').allTextContents(), ['Part number', 'Interface', 'I2C address', 'Supply', 'Keywords', 'Notes']); // a tag is the NFC sticker
 await page.uncheck('.diff input[data-k="notes"]');
 await page.click('[data-a="apply"]');
 await page.waitForSelector('#toast:has-text("Updated BME280 (Adafruit)")'); // which part, not "Updated 1 part"
@@ -1023,6 +1023,8 @@ await page.fill('#q', ''); await putSort(false); await page.waitForTimeout(300);
 // a new part's hints read as examples, not as answers already filled in
 await page.goto(base + '#parts'); await page.click('#addp'); await page.waitForSelector('#p-name');
 assert.deepEqual([await page.getAttribute('#p-name', 'placeholder'), await page.getAttribute('#p-cat', 'placeholder')], ['e.g. Seeed XIAO ESP32-S3', 'e.g. Sensors']);
+// a part's tags are its keywords: "tag" everywhere else is the NFC sticker (they sat under "Tag bag #002 when I save")
+assert.equal(await page.textContent('label[for="p-tags"]'), 'Keywords (comma separated)'); assert.equal(await page.getAttribute('#p-tags', 'placeholder'), 'e.g. qwiic, 5V');
 await page.click('.sheet #cancel');
 // a sheet rises into place over a shade that fades in, and the tag zone's sign pulses while it listens; closing is instant.
 // With less motion asked for (prefers-reduced-motion), nothing moves

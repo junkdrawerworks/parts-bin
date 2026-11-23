@@ -59,7 +59,8 @@ async function api(method, path, body, type, as = null) { // as: a sign-in not t
     wait();
     // Google refused the sign-in: forget it here, and for the other projects unless one has a newer one already.
     if (r.status === 401) { if (!as) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; } throw { auth: true }; }
-    if (!r.ok) throw { http: r.status };
+    // Why Drive said no, as Google's Drive API guide "Resolve errors" names it: storageQuotaExceeded, rateLimitExceeded…
+    if (!r.ok) throw { http: r.status, reason: await r.json().then(x => x?.error?.errors?.[0]?.reason || '', () => '') };
     if (r.status === 204) return null;
     if (!r.body?.getReader) return await r.json();
     const reader = r.body.getReader(), dec = new TextDecoder();
@@ -105,8 +106,13 @@ function remember(u) {
   if (tok) { tok.email = st.email; put(KT, tok); } // so the next junkdrawer.works project can skip the account chooser
 }
 
+// Drive asking us to slow down (Google's guide says to wait and try again), or having a moment: tried once more.
+const isBusy = e => e?.http === 429 || (e?.http === 403 && /rateLimitExceeded/i.test(e.reason || '')) || [500, 502, 503, 504].includes(e?.http);
+const BACKOFF = () => +window.__driveBackoff || 3000 + Math.random() * 2000;
+
 // One sync: read the Drive copy, merge, write back what changed on either side.
-async function run(tries) {
+// lost: the file has already gone once mid-sync; waited: Drive has already been given a few seconds once.
+async function run(tries, lost = false, waited = false) {
   const local = readLocal(), localText = canon(local);
   try {
     const files = await findAll(FILE, 'id,version');
@@ -140,7 +146,11 @@ async function run(tries) {
     st.last = Date.now(); saveSt();
     return changed;
   } catch (e) {
-    if (e === RETRY && tries < 4) return run(tries + 1);
+    if (e === RETRY && tries < 4) return run(tries + 1, lost, waited);
+    // the file (or its folder) went between finding it and writing it, deleted on another device: once more finds it
+    // again or makes it afresh
+    if (e?.http === 404 && !lost) return run(tries, true, waited);
+    if (isBusy(e) && !waited) { await new Promise(r => setTimeout(r, BACKOFF())); return run(tries, lost, true); }
     throw e;
   }
 }
@@ -157,6 +167,8 @@ function sync() {
   }, e => {
     if (e?.auth) setStatus('tap');
     else if (e === FULL) setStatus('error', 'This browser’s storage is full, so what Drive brought in wasn’t kept here.' + (get(INBOX)?.batches?.length ? ' Dismiss what’s waiting in the Inbox to make room.' : ''));
+    else if (e?.reason === 'storageQuotaExceeded') setStatus('error', 'Your Google Drive is full, so the inventory wasn’t saved there. It’s kept on this device. Free some space in Drive, then tap Sync now.');
+    else if (isBusy(e)) setStatus('error', 'Google Drive is busy. Try again in a minute.');
     else if (e?.unreadable) setStatus('error', 'The file in your Drive isn’t readable, so it was left alone. Save a backup here, then delete that file from the Parts Bin folder to start it fresh.');
     else setStatus('error', e === RETRY ? 'Another device kept saving. Try again in a moment.' : 'Couldn’t reach Google Drive. Check the connection and try again.');
     return false;

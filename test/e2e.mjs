@@ -649,7 +649,39 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sp.evaluate(() => localStorage.setItem('__who', 'states'));
   await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
   assert.equal(JSON.parse(g.files().find(f => f.owner === 'states' && f.appProperties?.partsbin === 'sync').body).items.bins['b-w'].name, 'Work bench');
-  assert.deepEqual(sp.problems, [], 'problems on the Drive states device');
+  // Drive full: the card says so and that the inventory is kept here (it said to check the connection)
+  const touch = name => sp.evaluate(name => { const d = JSON.parse(localStorage.getItem('parts-bin')); d.items.bins['b-w'] = { ...d.items.bins['b-w'], name, t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, name);
+  const driveSays = (status, reason) => ({ status, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ error: { errors: [{ domain: 'global', reason, message: reason }], code: status, message: reason } }) });
+  const myFile = () => g.files().find(f => f.owner === 'states' && f.appProperties?.partsbin === 'sync' && !f.trashed);
+  let writes = 0;
+  await sp.route('https://www.googleapis.com/upload/**', r => (r.request().method() === 'OPTIONS' ? r.fallback() : (writes++, r.fulfill(driveSays(403, 'storageQuotaExceeded')))));
+  await touch('Full drive'); await sp.click('#drivecard [data-a="now"]'); await chipIs('error');
+  assert.match(await card(), /Your Google Drive is full, so the inventory wasn’t saved there\. It’s kept on this device\. Free some space in Drive, then tap Sync now\./);
+  assert.equal(writes, 1, 'a full Drive isn’t asked again and again');
+  await sp.unroute('https://www.googleapis.com/upload/**');
+  // Drive busy: tried once more a few seconds later, then the card says so
+  await sp.evaluate(() => { window.__driveBackoff = 200; });
+  writes = 0;
+  await sp.route('https://www.googleapis.com/upload/**', r => (r.request().method() === 'OPTIONS' ? r.fallback() : (writes++, r.fulfill(driveSays(429, 'rateLimitExceeded')))));
+  await touch('Busy drive'); await sp.click('#drivecard [data-a="now"]'); await chipIs('error');
+  assert.match(await card(), /Google Drive is busy\. Try again in a minute\./);
+  assert.equal(writes, 2, 'tried once more');
+  await sp.unroute('https://www.googleapis.com/upload/**');
+  // busy only once (403 userRateLimitExceeded): the second go gets through
+  writes = 0;
+  await sp.route('https://www.googleapis.com/upload/**', r => (r.request().method() === 'OPTIONS' ? r.fallback() : ++writes === 1 ? r.fulfill(driveSays(403, 'userRateLimitExceeded')) : r.fallback()));
+  await touch('Busy once'); await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  assert.equal(JSON.parse(myFile().body).items.bins['b-w'].name, 'Busy once');
+  await sp.unroute('https://www.googleapis.com/upload/**');
+  // the file deleted on another device between finding it and writing it: one more go makes it afresh
+  let gone404 = 0;
+  await sp.route('https://www.googleapis.com/upload/drive/v3/files/**', r => { if (r.request().method() !== 'PATCH' || gone404++) return r.fallback(); g.drive.files[myFile().id].trashed = true; return r.fulfill(driveSays(404, 'notFound')); });
+  const oldId = myFile().id;
+  await touch('Made afresh'); await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  assert.notEqual(myFile().id, oldId); assert.equal(JSON.parse(myFile().body).items.bins['b-w'].name, 'Made afresh');
+  await sp.unroute('https://www.googleapis.com/upload/drive/v3/files/**');
+  await sp.evaluate(() => { delete window.__driveBackoff; });
+  assert.deepEqual(sp.problems.filter(p => !p.startsWith('Failed to load resource')), [], 'problems on the Drive states device'); // Drive saying no, as it was asked to
   await sCtx.close();
 }
 

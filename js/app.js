@@ -375,7 +375,7 @@ function renderBin(m, binId){
   head.querySelector('#pack')?.addEventListener('click',pack);
   head.querySelector('#print').onclick=()=>printList(b,ps);
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
-  m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${b.sealed?' · sealed':''}</div></div></div>`));
+  m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${isBox(b)&&b.sealed?' · sealed':''}</div></div></div>`));
   codeNote(m,b);
   if(!ps.length){
     // emptied on this visit (or taped shut once, so it held something): done with, most likely
@@ -730,10 +730,10 @@ function editBin(b, {code:toCode=false}={}){
   const word=k=>k==='box'?'box':'bin'; // a box is called a box, as the Type says
   const {el,close}=sheet(`<h3>${isNew?'New':'Edit'} ${word(b.kind)}</h3>
     <div class="grid2"><div class="field"><label for="f-code">Label code</label><input id="f-code" class="mono" value="${esc(b.code)}" placeholder="B07"></div>
-    <div class="field"><label for="f-loc">Location</label><input id="f-loc" list="locs" value="${esc(b.location||'')}" placeholder="e.g. Rack A, shelf 2"><datalist id="locs">${locs.map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div></div>
-    <div class="grid2"><div class="field"><label for="f-kind">Type</label><select id="f-kind"><option value="bin" ${b.kind!=='box'?'selected':''}>Bin (permanent storage)</option><option value="box" ${b.kind==='box'?'selected':''}>Moving box</option></select></div>
-    <div class="field"><label for="f-sealed">Sealed</label><select id="f-sealed"><option value="" ${!b.sealed?'selected':''}>No</option><option value="1" ${b.sealed?'selected':''}>Yes — taped shut</option></select></div></div>
-    <div class="field"><label for="f-name">What's in it</label><input id="f-name" value="${esc(b.name||'')}" placeholder="${b.kind==='box'?'e.g. Workroom — sensors & boards':'e.g. Sensors — I2C breakouts'}"></div>
+    <div class="field"><label for="f-name">What's in it</label><input id="f-name" value="${esc(b.name||'')}" placeholder="${b.kind==='box'?'e.g. Workroom — sensors & boards':'e.g. Sensors — I2C breakouts'}"></div></div>
+    <div class="grid2"><div class="field"><label for="f-loc">Location</label><input id="f-loc" list="locs" value="${esc(b.location||'')}" placeholder="e.g. Rack A, shelf 2"><datalist id="locs">${locs.map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div>
+    <div class="field"><label for="f-kind">Type</label><select id="f-kind"><option value="bin" ${b.kind!=='box'?'selected':''}>Bin (permanent storage)</option><option value="box" ${b.kind==='box'?'selected':''}>Moving box</option></select></div></div>
+    <div class="field" id="f-sealedf" ${b.kind==='box'?'':'hidden'}><label for="f-sealed">Sealed</label><select id="f-sealed"><option value="" ${!b.sealed?'selected':''}>No</option><option value="1" ${b.sealed?'selected':''}>Yes — taped shut</option></select></div>
     <div class="field"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(b.notes||'')}"></div>
     ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
@@ -744,7 +744,8 @@ function editBin(b, {code:toCode=false}={}){
   const BIN_FORM={code:'#f-code', kind:'#f-kind', sealed:'#f-sealed', name:'#f-name', location:'#f-loc', notes:'#f-notes'};
   const asDrawn=Object.fromEntries(Object.entries(BIN_FORM).map(([k,sel])=>[k, el.querySelector(sel).value]));
   if(!isNew) drive.pull();
-  el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
+  // Sealed is about a moving box only. A box made a bin again keeps what it said, should it go back to being a box.
+  el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); el.querySelector('#f-sealedf').hidden=e.target.value!=='box'; };
   el.querySelector('#del')?.addEventListener('click',()=>deleteBin(b,close));
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ refuse(el,'#f-code','Label code is required'); return; }

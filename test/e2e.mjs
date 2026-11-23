@@ -1859,10 +1859,23 @@ await desk.goto(base);
   assert.equal(await np.textContent('.sheet h3'), 'New box');
   await np.selectOption('#f-kind', 'bin'); assert.equal(await np.textContent('.sheet h3'), 'New bin');
   await np.selectOption('#f-kind', 'box'); assert.equal(await np.textContent('.sheet h3'), 'New box');
+  // the name comes second, after the label code, and Sealed is asked only of a moving box
+  assert.deepEqual((await np.$$eval('.sheet .field label', l => l.map(x => x.textContent))).slice(0, 4), ['Label code', 'What\'s in it', 'Location', 'Type']);
+  assert.ok(await np.isVisible('#f-sealed'));
+  await np.selectOption('#f-kind', 'bin'); assert.ok(!(await np.isVisible('#f-sealed')), 'a permanent bin is asked if it is sealed');
+  await np.selectOption('#f-kind', 'box'); assert.ok(await np.isVisible('#f-sealed'));
   await np.click('.sheet #save'); await np.waitForSelector('#toast:has-text("Box added")');
   await np.waitForFunction(() => location.hash.startsWith('#bin/') && !document.querySelector('.sheet'));
   await np.click('#edit'); assert.equal(await np.textContent('.sheet h3'), 'Edit box'); assert.equal(await np.textContent('.sheet #del'), 'Delete box');
   await np.click('.sheet #cancel');
+  // a sealed box made a bin keeps what it said about being sealed (it shows nowhere while it's a bin)
+  const newBox = await np.evaluate(() => location.hash.slice(5)), boxNow = () => np.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.bins[id], newBox);
+  await np.click('#edit'); await np.selectOption('#f-sealed', '1'); await np.click('.sheet #save'); await np.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.equal((await boxNow()).sealed, true); assert.match(await np.textContent('.binhead .tiny'), /sealed/);
+  await np.click('#edit'); await np.selectOption('#f-kind', 'bin'); await np.click('.sheet #save'); await np.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.deepEqual([(await boxNow()).kind, (await boxNow()).sealed], ['bin', true]); assert.doesNotMatch(await np.textContent('.binhead .tiny'), /sealed/);
+  await np.click('#edit'); await np.selectOption('#f-kind', 'box'); assert.equal(await np.inputValue('#f-sealed'), '1');
+  await np.selectOption('#f-sealed', ''); await np.click('.sheet #save'); await np.waitForFunction(() => !document.querySelector('.sheet')); // a box again, as below needs
   // a bin's printed list counts parts, and deleting it says what happens to them, in words (it said "part(s)")
   await np.goto(base + '#bin/b01'); await np.evaluate(() => { window.print = () => {}; }); await np.click('#print');
   assert.match(await np.textContent('#print-root .sub'), / · 1 part · /);

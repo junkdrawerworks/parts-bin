@@ -730,10 +730,10 @@ function editBin(b, {code:toCode=false}={}){
   const word=k=>k==='box'?'box':'bin'; // a box is called a box, as the Type says
   const {el,close}=sheet(`<h3>${isNew?'New':'Edit'} ${word(b.kind)}</h3>
     <div class="grid2"><div class="field"><label for="f-code">Label code</label><input id="f-code" class="mono" value="${esc(b.code)}" placeholder="B07"></div>
-    <div class="field"><label for="f-loc">Location</label><input id="f-loc" list="locs" value="${esc(b.location||'')}" placeholder="Rack A, shelf 2"><datalist id="locs">${locs.map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div></div>
+    <div class="field"><label for="f-loc">Location</label><input id="f-loc" list="locs" value="${esc(b.location||'')}" placeholder="e.g. Rack A, shelf 2"><datalist id="locs">${locs.map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div></div>
     <div class="grid2"><div class="field"><label for="f-kind">Type</label><select id="f-kind"><option value="bin" ${b.kind!=='box'?'selected':''}>Bin (permanent storage)</option><option value="box" ${b.kind==='box'?'selected':''}>Moving box</option></select></div>
     <div class="field"><label for="f-sealed">Sealed</label><select id="f-sealed"><option value="" ${!b.sealed?'selected':''}>No</option><option value="1" ${b.sealed?'selected':''}>Yes — taped shut</option></select></div></div>
-    <div class="field"><label for="f-name">What's in it</label><input id="f-name" value="${esc(b.name||'')}" placeholder="${b.kind==='box'?'Workroom — sensors & boards':'Sensors — I2C breakouts'}"></div>
+    <div class="field"><label for="f-name">What's in it</label><input id="f-name" value="${esc(b.name||'')}" placeholder="${b.kind==='box'?'e.g. Workroom — sensors & boards':'e.g. Sensors — I2C breakouts'}"></div>
     <div class="field"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(b.notes||'')}"></div>
     ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
@@ -785,13 +785,13 @@ function editPart(p, opts={}){
   // no tag to write, and unticking it wouldn't take it out of the bag (emptying Bag number does).
   const inBag=!(NFC_OK&&!FRAMED) && !!BG.bagOf(p);
   const {el,close}=sheet(`<h3>${isNew?'New part':'Edit part'}</h3>
-    <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="Seeed XIAO ESP32-S3"></div>
+    <div class="field"><label for="p-name">Name</label><input id="p-name" value="${esc(p.name)}" placeholder="e.g. Seeed XIAO ESP32-S3"></div>
     ${inBag?'<div class="bagtag inbag">':`<label class="bagtag" for="p-dotag"><input type="checkbox" id="p-dotag" ${!p.bag||opts.tag?'checked':''}>`}
       <span class="bt-num" id="p-bagshow">${esc(bagStr(p.bag||nextBag()))}</span>
       <span class="bt-text"><span class="bt-head"></span><small>${inBag?'Write the number on the bag.':NFC_OK&&!FRAMED?'Have a blank sticker ready; hold it to the top of the phone after you tap Save.':'Write the number on the bag. Tags need Chrome on Android.'}</small><small id="p-bagnote"></small></span>${inBag?'</div>':'</label>'}
     <div class="grid2">
       <div class="field"><label for="p-bin">Bin</label><select id="p-bin"><option value="">— no bin —</option>${bins.map(b=>`<option value="${b.id}" ${b.id===p.binId?'selected':''}>${esc(b.code)} · ${esc(b.name||'')}</option>`).join('')}</select></div>
-      <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="MCU boards"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div class="field"><label for="p-cat">Category</label><input id="p-cat" list="cats" value="${esc(p.category)}" placeholder="e.g. Sensors"><datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
       <div class="field"><label for="p-qty">Quantity</label><div class="qty"><input id="p-qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(p.qty)}"${opts.uncounted?' aria-describedby="p-qtyhint"':''}><input id="p-unit" value="${esc(p.unit||'pcs')}" style="width:70px" aria-label="Unit"></div>${opts.uncounted?'<div class="tiny" id="p-qtyhint" style="color:var(--warn);margin-top:4px">Claude couldn’t count these. Count them before saving.</div>':''}</div>
       <div class="field"><label for="p-min">Reorder at (optional)</label><input id="p-min" type="number" inputmode="decimal" step="any" value="${esc(p.minQty??'')}"></div>
       <div class="field"><label for="p-mpn">Part number</label><input id="p-mpn" class="mono" value="${esc(p.mpn)}" autocapitalize="characters" autocorrect="off" spellcheck="false"></div>

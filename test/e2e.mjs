@@ -923,6 +923,10 @@ assert.deepEqual(await page.$$eval('.list .item .t', e => e.map(x => x.textConte
 await page.goto(base + '#bins'); await page.fill('#q', 'spacer'); await page.waitForSelector('.list .item:has-text("Spacer")');
 assert.deepEqual(await page.$$eval('.list .item .t', e => e.map(x => x.textContent)), ['Spacer #120', 'Spacer #1000']);
 await page.fill('#q', ''); await putSort(false); await page.waitForTimeout(300);
+// a new part's hints read as examples, not as answers already filled in
+await page.goto(base + '#parts'); await page.click('#addp'); await page.waitForSelector('#p-name');
+assert.deepEqual([await page.getAttribute('#p-name', 'placeholder'), await page.getAttribute('#p-cat', 'placeholder')], ['e.g. Seeed XIAO ESP32-S3', 'e.g. Sensors']);
+await page.click('.sheet #cancel');
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));
@@ -952,6 +956,7 @@ for (const colorScheme of ['light', 'dark']) {
     const btn = getComputedStyle(document.querySelector('.btn.primary')), box = getComputedStyle(document.querySelector('.label.box'));
     return { 'grey on the page': ratio(color('--ink3'), color('--bg')), 'grey on a card': ratio(color('--ink3'), color('--panel')), 'a warning': ratio(color('--warn'), color('--warn-soft')),
       'a teal button': ratio(btn.color, btn.backgroundColor), 'a box label': ratio(box.color, box.backgroundColor),
+      'a field’s hint': ratio(getComputedStyle(document.getElementById('q'), '::placeholder').color, getComputedStyle(document.getElementById('q')).backgroundColor),
       'a green have chip': ratio(color('--ok'), color('--ok-soft')), 'the line under a picked match': (() => {
         const l = document.createElement('div'); l.className = 'matchlist'; l.innerHTML = '<button class="pick"><span><b>x</b><div class="s">#002 · Sensors</div></span></button>'; document.body.append(l);
         const r = ratio(getComputedStyle(l.querySelector('.s')).color, getComputedStyle(l.querySelector('button')).backgroundColor); l.remove(); return r; })() };

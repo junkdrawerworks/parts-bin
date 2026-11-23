@@ -40,6 +40,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 /* Take photo and Choose photo are labels round a hidden file input: the ring goes on the button you see */
 label.btn:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 textarea{min-height:120px;resize:vertical}
+/* a hint is an example, lighter than anything typed, in both themes (the browser's own grey varied) */
+::placeholder{color:var(--ink3);opacity:1}
 select{max-width:100%}
 a{color:var(--accent-ink)}
 [hidden]{display:none!important}

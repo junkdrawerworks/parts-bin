@@ -95,11 +95,12 @@ export const isPartNumber = w => w.length >= 4 && /[a-z]/.test(w) && /\d/.test(w
 // The words a name is matched on, from norm(). Each is read in the singular (screws is screw, boxes is box: a word of four
 // letters or more, so bus and gps stay as they are). A pin count is one word however it's written (4-pin, 4 pin, 4 way, 4
 // position are all 4pin), and so is a screw size (M3 x 8mm, M3 x 8 and M3x8 are m3x8), and a value with its unit (100 uF
-// is 100uf). A word of one letter is dropped, unless it follows a word as a model's letter does (Pico W, wires M-F).
+// is 100uf). A word of one letter is dropped, unless it follows a word as a model's letter does (Pico W, wires M-F); an
+// apostrophe's s goes first, so "red LED's" is red LEDs, not a red LED model S.
 const UNITS = 'uf|nf|pf|k|m|mm|cm|v|mv|ma|mah|w|hz|khz|mhz|ghz|awg|g|kg|ft';
 const singular = w => w.length < 4 || !/^[a-z]+$/.test(w) ? w : /(?:ss|x|ch|sh)es$/.test(w) ? w.slice(0, -2) : /[^sui]s$/.test(w) ? w.slice(0, -1) : w;
 export function words(s) {
-  const raw = norm(s)
+  const raw = norm(String(s || '').replace(/(?<=[A-Za-z0-9])['’]s(?![A-Za-z0-9])/g, ''))
     .replace(/(^| )(\d+) ?(?:pins?|ways?|positions?)(?![a-z0-9])/g, '$1$2pin')
     .replace(/(^| )m(\d+(?:\.\d+)?) ?x ?(\d+(?:\.\d+)?)(?: ?mm)?(?![a-z0-9.])/g, '$1m$2x$3')
     .replace(new RegExp(`(^| )(\\d+(?:\\.\\d+)?) (${UNITS})(?= |$)`, 'g'), '$1$2$3')
@@ -160,7 +161,9 @@ function find(w, x) {
 export function matchPart(name, parts) {
   parts = [...parts];
   const all = bestPart(name, parts), d = designators(String(name || ''));
-  if (!d) return all;
+  // one letter and three digits or more is a part number before it's a designator: C1815 and D882 are transistors, and
+  // "C1815 transistor" mustn't become any transistor at all
+  if (!d || (d.n === 1 && /^\s*[A-Z]\d{3,}(?![A-Za-z0-9])/.test(String(name)))) return all;
   const past = bestPart(d.rest, parts);
   return !all || (past && past.conf > all.conf) ? past : all;
 }

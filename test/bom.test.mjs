@@ -184,6 +184,9 @@ test('a plural finds the part named in the singular', () => {
   reads('220Ω resistor', 1, 'r220');
   reads('red LEDs', 1, ['led5r', 'led3r']);
   reads('5mm red LEDs', 1, 'led5r');
+  // an apostrophe's s isn't a model letter (it made "red LED's" only a fuzzy match)
+  reads("5 red LED's", 5, ['led5r', 'led3r']);
+  reads('5mm red LED’s x10', 10, 'led5r');
   reads('M3 nuts', 1, 'm3nut');
   reads('M3 screws', 1, ['m3x4', 'm3x8', 'm3x10']);
   reads('M2 screws', 1, 'm2x4');
@@ -279,6 +282,11 @@ test('designators in front of a line are its count, and say what kind of part a 
   assert.equal(matchPart('D1 mini', boards).p.id, 'd1');
   assert.equal(matchPart('C3 SuperMini', boards).p.id, 'c3');
   assert.equal(matchPart('C3 SuperMini', boards).conf, 1);
+  // one letter and three digits or more is a transistor's part number (2SC1815 sold as C1815, 2SD882 as D882): a line
+  // naming one that isn't in stock is missing, not whatever the rest of the line finds
+  assert.equal(matchPart('C1815 transistor', INV), null);
+  assert.equal(matchPart('D882 NPN transistor', INV), null);
+  reads('L7805 regulator', 1, 'lm7805');
 });
 
 test('a length or weight is read with its unit, which leaves the name', () => {

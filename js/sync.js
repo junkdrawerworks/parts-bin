@@ -36,6 +36,8 @@ const good = t => !!(t && t.token && t.exp - 60000 > Date.now() && String(t.scop
 // A sign-in with more than a minute left: this page's, or a newer one another junkdrawer.works project saved.
 const live = () => good(tok) || (good(get(KT)) && !!(tok = get(KT)));
 function setStatus(s, n = '') { status = s; note = n; for (const f of [...watchers]) { try { if (f() === false) watchers.splice(watchers.indexOf(f), 1); } catch { watchers.splice(watchers.indexOf(f), 1); } } }
+// Signed out: what went wrong at the last sign-in still says so until the next one.
+const signedOut = () => setStatus('tap', status === 'tap' ? note : '');
 
 // A request that never answers (a stalled connection: one bar in the garage, a café's Wi-Fi sign-in page) is given up
 // after 30 seconds without a byte and counts as Drive not reached, so the sync ends and the next one can start. A slow
@@ -43,9 +45,10 @@ function setStatus(s, n = '') { status = s; note = n; for (const f of [...watche
 // second as well, and while the file comes down each piece that arrives starts the 30 seconds again, so a long inventory
 // on one bar still syncs. (The tests shorten the wait.)
 const WAIT = () => +window.__driveTimeout || 30000;
-async function api(method, path, body, type) {
-  if (!tok) throw { auth: true };
-  const headers = { Authorization: 'Bearer ' + tok.token };
+async function api(method, path, body, type, as = null) { // as: a sign-in not taken on yet (whoami's)
+  const t = as || tok;
+  if (!t) throw { auth: true };
+  const headers = { Authorization: 'Bearer ' + t.token };
   if (type) headers['Content-Type'] = type;
   const stop = new AbortController();
   let timer;
@@ -55,7 +58,7 @@ async function api(method, path, body, type) {
     const r = await fetch(API + path, { method, headers, body, signal: stop.signal });
     wait();
     // Google refused the sign-in: forget it here, and for the other projects unless one has a newer one already.
-    if (r.status === 401) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; throw { auth: true }; }
+    if (r.status === 401) { if (!as) { if (get(KT)?.token === tok.token) put(KT, null); tok = null; } throw { auth: true }; }
     if (!r.ok) throw { http: r.status };
     if (r.status === 204) return null;
     if (!r.body?.getReader) return await r.json();
@@ -91,11 +94,15 @@ async function create(body) {
     `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ ...FILE, parents: [dir] })}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${b}--`,
     `multipart/related; boundary=${b}`);
 }
-function whoami() {
-  return api('GET', 'drive/v3/about?fields=' + encodeURIComponent('user(displayName,emailAddress)')).then(x => {
-    st.email = x?.user?.emailAddress || ''; st.name = x?.user?.displayName || ''; saveSt();
-    if (tok) { tok.email = st.email; put(KT, tok); } // so the next junkdrawer.works project can skip the account chooser
-  }, () => {});
+// Which Google account this sign-in is (null when Drive couldn't say).
+function whoami(as = null) {
+  return api('GET', 'drive/v3/about?fields=' + encodeURIComponent('user(displayName,emailAddress)'), undefined, undefined, as)
+    .then(x => ({ email: x?.user?.emailAddress || '', name: x?.user?.displayName || '' }), () => null);
+}
+function remember(u) {
+  if (!u) return;
+  st.email = u.email; st.name = u.name; saveSt();
+  if (tok) { tok.email = st.email; put(KT, tok); } // so the next junkdrawer.works project can skip the account chooser
 }
 
 // One sync: read the Drive copy, merge, write back what changed on either side.
@@ -140,7 +147,7 @@ async function run(tries) {
 
 function sync() {
   if (!CLIENT_ID || !st.on) return Promise.resolve(false);
-  if (!live()) { setStatus('tap'); return Promise.resolve(false); }
+  if (!live()) { signedOut(); return Promise.resolve(false); }
   if (busy) { again = true; return busy; }
   setStatus('busy');
   busy = run(0).then(changed => {
@@ -186,10 +193,20 @@ function gotToken(r) {
     setStatus(st.on ? 'tap' : 'off', 'Google Drive wasn’t allowed, so nothing was saved there. Try again and leave the Drive box ticked.');
     return;
   }
-  tok = { token: r.access_token, exp: Date.now() + (+r.expires_in || 3600) * 1000, scope: r.scope || SCOPE, email: st.email || tok?.email || '' };
-  put(KT, tok);
-  st.on = true; saveSt(); setStatus('busy'); // a good sign-in: what went wrong last time no longer says so
-  (st.email ? Promise.resolve() : whoami()).then(sync);
+  const t = { token: r.access_token, exp: Date.now() + (+r.expires_in || 3600) * 1000, scope: r.scope || SCOPE, email: st.email };
+  st.on = true; saveSt();
+  setStatus('busy'); // a good sign-in: what went wrong last time no longer says so
+  // Which account it is, before it's used for anything: someone with two Google accounts can pick the other one in
+  // Google's window, and the whole inventory would be copied into that account's Drive while this still named the first.
+  whoami(t).then(u => {
+    if (u?.email && st.email && u.email.toLowerCase() !== st.email.toLowerCase()) {
+      // not taken on, here or for the other projects, so nothing syncs to that Drive
+      setStatus('tap', `You signed in as ${u.email}, but this device saves to ${st.email}’s Drive. Sign in as ${st.email}, or stop saving here and turn it on again to use the other account.`);
+      return;
+    }
+    tok = t; put(KT, t); remember(u);
+    return sync();
+  });
 }
 // Turn it on. With a sign-in from any junkdrawer.works project still good, no Google window at all.
 function start() {
@@ -198,7 +215,7 @@ function start() {
   if (!live()) { signIn(); return; }
   st.on = true; if (!st.email && tok.email) st.email = tok.email; saveSt();
   setStatus('busy');
-  (st.email ? Promise.resolve() : whoami()).then(sync);
+  (st.email ? Promise.resolve() : whoami().then(remember)).then(sync);
 }
 // Google only opens its window from a tap, so this has to run inside a click handler.
 function signIn() {
@@ -283,7 +300,7 @@ function watch(f) { watchers.push(f); f(); }
 function changed() {
   if (!CLIENT_ID || !st.on) return;
   clearTimeout(pushT);
-  if (live()) pushT = setTimeout(sync, 1200); else setStatus('tap');
+  if (live()) pushT = setTimeout(sync, 1200); else signedOut();
 }
 
 export const drive = {
@@ -301,7 +318,7 @@ if (CLIENT_ID) {
     if (live()) setTimeout(sync, 0);
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && st.on && live() && Date.now() - st.last > 30000) sync(); });
-  setInterval(() => { if (!document.hidden && st.on) { if (live()) sync(); else setStatus('tap'); } }, 5 * 60000);
+  setInterval(() => { if (!document.hidden && st.on) { if (live()) sync(); else signedOut(); } }, 5 * 60000);
   window.addEventListener('online', () => { if (st.on && live()) sync(); }); // the signal's back: no wait for the next round
   window.addEventListener('storage', e => { // another tab signed in, stopped, or synced
     if (e.key === KS || e.key === KT) {

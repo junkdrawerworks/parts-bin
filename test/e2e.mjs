@@ -625,6 +625,30 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
   await sp.evaluate(() => { window.__cfg.scope = 'https://www.googleapis.com/auth/drive.file'; });
   await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
   assert.doesNotMatch(await card(), /leave the Drive box ticked/);
+  // signed out again, and Google's window comes back with another of the person's accounts: nothing is read from or
+  // written to that account's Drive (the whole inventory was copied into a new file there, while the card still named the
+  // first account), and the card says which account is which
+  await expire();
+  await sp.evaluate(() => localStorage.setItem('__who', 'work'));
+  const before = g.calls.length;
+  await sp.click('#drivecard [data-a="now"]');
+  await sp.waitForFunction(() => /You signed in as work@gmail\.com/.test(document.querySelector('#drivecard').textContent), null, { timeout: 10000 });
+  assert.match(await card(), /You signed in as work@gmail\.com, but this device saves to states@gmail\.com’s Drive\. Sign in as states@gmail\.com, or stop saving here and turn it on again to use the other account\./);
+  assert.match(await card(), /Saved to Google Drive|not synced/);
+  assert.deepEqual(g.files().filter(f => f.owner === 'work'), [], 'a file was made in the other account’s Drive');
+  assert.deepEqual(g.calls.slice(before).filter(c => !c.startsWith('GET /drive/v3/about')), [], 'the other account’s Drive was used');
+  // a change saved meanwhile doesn't go there either, and the card still says why
+  await sp.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin') || '{"app":"parts-bin","v":1,"items":{"bins":{},"parts":{},"projects":{}}}'); d.items.bins['b-w'] = { code: 'W1', name: 'Work', t: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); });
+  await sp.goto(base + '#bins'); await sp.click('.bin:has-text("Work")'); await sp.click('#edit'); await sp.fill('.sheet #f-name', 'Work bench'); await sp.click('.sheet #save');
+  await sp.waitForTimeout(1600);
+  await sp.goto(base + '#settings'); await sp.waitForSelector('#drivecard [data-a="now"]');
+  assert.match(await card(), /You signed in as work@gmail\.com/);
+  assert.deepEqual(g.files().filter(f => f.owner === 'work'), []);
+  assert.equal(JSON.parse(await sp.evaluate(() => localStorage.getItem('parts-bin.sync'))).email, 'states@gmail.com');
+  // the right account again: it syncs, and the change goes to that Drive
+  await sp.evaluate(() => localStorage.setItem('__who', 'states'));
+  await sp.click('#drivecard [data-a="now"]'); await chipIs('ok');
+  assert.equal(JSON.parse(g.files().find(f => f.owner === 'states' && f.appProperties?.partsbin === 'sync').body).items.bins['b-w'].name, 'Work bench');
   assert.deepEqual(sp.problems, [], 'problems on the Drive states device');
   await sCtx.close();
 }

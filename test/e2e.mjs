@@ -2155,6 +2155,7 @@ await desk.goto(base);
   assert.equal(await enter('NEMA 23', 'Edit part'), 'NEMA 23 stepper motor'); await kp.click('.sheet #cancel');
   assert.equal(await enter('jst xh 12', 'Edit part'), 'JST-XH 12 pin'); await kp.click('.sheet #cancel');
   assert.equal(await enter('#117', 'Edit part'), 'NEMA 23 stepper motor', 'a bag number on its own opens its part'); await kp.click('.sheet #cancel');
+  assert.equal(await enter('bag 117', 'Edit part'), 'NEMA 23 stepper motor', 'and with the word bag'); await kp.click('.sheet #cancel');
   assert.equal(await enter('555', 'Edit part'), '555 timer', 'and a number that’s the whole name, its part'); await kp.click('.sheet #cancel');
   // Parts: a number in the search is a bag only as the whole number, and a bag number on its own still lists that bag first
   await kp.goto(base + '#parts'); await kp.waitForSelector('.list .item');
@@ -2162,6 +2163,8 @@ await desk.goto(base);
   assert.deepEqual(await found('nema 17'), []);
   assert.deepEqual(await found('nema 117'), ['NEMA 23 stepper motor'], 'its own bag number with a word finds it');
   assert.equal((await found('117'))[0], 'NEMA 23 stepper motor'); assert.equal((await found('#117'))[0], 'NEMA 23 stepper motor');
+  // "bag 117" is the bag number too (the word bag left the details searched, so it found nothing)
+  for (const q of ['bag 117', 'Bag #117', 'bag117']) assert.equal((await found(q))[0], 'NEMA 23 stepper motor', q);
   assert.deepEqual(await found('resistor 22'), []);
   assert.deepEqual(kp.problems, [], 'problems in Pack and search');
   await kCtx.close();

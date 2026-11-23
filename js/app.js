@@ -104,13 +104,14 @@ function localSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{}
 // Each word typed has to be in the part's details, as written or with their spaces taken out (esp32s3 finds ESP32-S3,
 // which reads as "esp32 s3"), or be its bag number. A bag number matches only as the whole number: 17 isn't bag 117, and
 // 40 isn't bag 140 or 400. A bare number (220, #220) lists that bag's part first, then the parts with the number in
-// their details: bag numbers run into the hundreds, so 220 is a bag and a resistor too.
+// their details: bag numbers run into the hundreds, so 220 is a bag and a resistor too. "bag 40" (or bag #040, bag40) is
+// the bare number too: the word bag isn't in a part's details.
 const isBagWord=(w,p)=>/^\d{1,9}$/.test(w) && !!p.bag && Number(w)===Number(p.bag);
-const bareBag=q=>String(q||'').trim().match(/^#?0*(\d{1,4})$/);
+const bareBag=q=>String(q||'').trim().match(/^(?:bag\s*)?#?0*(\d{1,4})$/i);
 function searchParts(q){
   const all=[...S.parts.values()], bm=bareBag(q);
   const bag=bm?all.filter(p=>Number(p.bag)===Number(bm[1])):[];
-  const t=norm(q).split(' ').filter(Boolean); if(!t.length) return all;
+  const t=norm(bm?String(q).trim().replace(/^bag\s*/i,''):q).split(' ').filter(Boolean); if(!t.length) return all;
   const hits=all.filter(p=>!bag.includes(p)).map(p=>{
     const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name].join(' '));
     const flat=hay.replace(/ /g,''), name=norm(p.name), nameFlat=name.replace(/ /g,'');

@@ -433,7 +433,14 @@ function renderParts(m){
   if(!parts.length){ m.append(h(`<div class="empty"><p>${S.parts.size?'No parts match.':'No parts here yet. Add one, or use Pack to bag and tag them as you go.'}</p></div>`)); return; }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
 }
+// A part's page or the Inbox drawn from a copy more than 30 s old brings in what other devices have saved since, so Add one,
+// Use one and Apply start from the newest (with Drive on, a device only syncs every 5 minutes, and Use one on the phone was
+// undone by Add one on a laptop left open on the part). At most once in 30 s, so a sync that fails, or no signal, doesn't
+// start another each time the screen is drawn.
+let freshenedAt=0;
+function freshen(){ const now=Date.now(); if(!drive.isOn() || now-drive.last()<30000 || now-freshenedAt<30000) return; freshenedAt=now; drive.pull(); }
 function renderPartPage(m, pid){
+  freshen();
   const p=S.parts.get(pid); if(!p){ m.append(h('<div class="empty"><p>Part not found.</p></div>')); return; }
   const b=binOf(p);
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back">${ICONS.back}</button><span class="grow"></span>${S.canWrite?`<button class="btn sm" id="edit">Edit</button>`:''}</div>`);
@@ -729,13 +736,20 @@ function editBin(b, {code:toCode=false}={}){
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close; enterSaves(el);
   if(toCode){ const f=el.querySelector('#f-code'); f.focus(); f.select(); } // Rename: straight to the code
+  // As with a part: bring in what other devices have saved since this device's last sync, and Save writes only the
+  // fields changed here over the bin as it is by then.
+  const BIN_FORM={code:'#f-code', kind:'#f-kind', sealed:'#f-sealed', name:'#f-name', location:'#f-loc', notes:'#f-notes'};
+  const asDrawn=Object.fromEntries(Object.entries(BIN_FORM).map(([k,sel])=>[k, el.querySelector(sel).value]));
+  if(!isNew) drive.pull();
   el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
   el.querySelector('#del')?.addEventListener('click',()=>deleteBin(b,close));
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ refuse(el,'#f-code','Label code is required'); return; }
     // a code another bin has is refused only when it's typed here: one that already clashes (two devices made it) still saves
     const dup=(isNew||code.toLowerCase()!==String(b.code||'').toLowerCase()) && [...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ refuse(el,'#f-code',`Code ${code} already used`); return; }
-    const doc={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim(), photo:b.photo||'', tagWritten:!!b.tagWritten, updatedAt:new Date().toISOString()};
+    const typed={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim()};
+    const cur=!isNew && S.bins.get(b.id), {id:_, updatedAt:__, ...now}=cur||b, doc={...now, photo:now.photo||'', tagWritten:!!now.tagWritten, updatedAt:new Date().toISOString()};
+    for(const k of Object.keys(BIN_FORM)) if(!cur || el.querySelector(BIN_FORM[k]).value!==asDrawn[k]) doc[k]=typed[k];
     const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it
     try{ await S.db.doc('bins/'+b.id).set(doc); close(); toast(isNew?(doc.kind==='box'?'Box added':'Bin added'):'Saved'); if(isNew) go('bin',b.id); }catch(e){ writeFail(e); }
@@ -819,9 +833,10 @@ function editPart(p, opts={}){
   };
   const syncTag=()=>{ if(dotag.checked && bagIn.value==='') bagIn.value=filled=String(p.bag||nextBag()); else if(!dotag.checked && !p.bag && filled && bagIn.value===filled){ bagIn.value=''; filled=''; } show.textContent=inBag&&!Number(bagIn.value)?'—':bagStr(Number(bagIn.value)||nextBag()); saveBtn.textContent=dotag.checked&&native?'Save & tag':'Save'; el.querySelector('.bagtag').classList.toggle('on',dotag.checked||inBag&&!!Number(bagIn.value)); bagText(); };
   dotag.onchange=syncTag; bagIn.oninput=syncTag; syncTag();
-  // A number handed out here comes from this device's last sync: bring in what other devices have packed since, so Save
-  // can move it on if one of them has used it (below).
-  if(filled) drive.pull();
+  // What's drawn comes from this device's last sync, up to 5 minutes old: bring in what other devices have saved since.
+  // Save writes only what was typed here over the part as it is by then, so a count changed on the phone meanwhile stays,
+  // and a bag number handed out here moves on if one of them has used it (below).
+  drive.pull();
   el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);
     if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
     try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
@@ -1079,6 +1094,7 @@ function pruneInbox(){
 }
 const SOURCES = {photo:'From a photo', receipt:'From a receipt', link:'From a link', list:'From a list', details:'Suggested details'};
 function renderInbox(m){
+  freshen();
   pruneInbox();
   const n=inboxCount();
   m.append(h(`<div class="topbar"><h2>Inbox</h2>${n?`<span class="tiny">${n} to check</span>`:''}</div>`));

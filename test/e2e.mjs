@@ -660,6 +660,48 @@ await page.click('#drivecard [data-a="now"]');
 await page.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 8000 });
 assert.equal((await part(iron.id)).qty, ironQty + 2);
 
+// ---- two devices on one part a few minutes apart: Use one on the phone, then the laptop, left open on the part, adds a
+// note. The laptop saved its note over its 5-minute-old copy, the phone's Use one was undone on every device, and nothing
+// said so. Opening a sheet brings in what other devices saved first, and so does drawing a part's page from an old copy.
+{
+  const lp = laptop.page, lpart = id => lp.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const lchip = () => lp.waitForFunction(() => document.querySelector('#cloud').dataset.s === 'ok', null, { timeout: 10000 });
+  await lp.goto(base + '#part/' + iron.id); await lp.waitForSelector('#inc');
+  await lp.evaluate(() => document.querySelector('#cloud').click()); await lchip();
+  await page.goto(base + '#part/' + iron.id); await page.waitForSelector('#dec');
+  const q0 = (await part(iron.id)).qty;
+  assert.equal((await lpart(iron.id)).qty, q0, 'both start the same');
+  await page.click('#dec');
+  await until(() => onDrive(iron.id).qty === q0 - 1, 'the phone’s Use one to reach Drive');
+  // the laptop's sheet brings it in before the note is saved
+  await lp.click('#edit'); await lp.waitForSelector('.sheet #p-notes');
+  await until(async () => (await lpart(iron.id)).qty === q0 - 1, 'the laptop to bring in the phone’s count when the sheet opened');
+  await lp.fill('.sheet #p-notes', 'Runs from 3.3 V'); await lp.click('.sheet #save'); await lp.waitForFunction(() => !document.querySelector('.sheet'));
+  await until(() => onDrive(iron.id).notes === 'Runs from 3.3 V', 'the laptop’s note to reach Drive');
+  assert.equal(onDrive(iron.id).qty, q0 - 1, 'the phone’s Use one stayed');
+  await page.evaluate(() => document.querySelector('#cloud').click());
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].notes === 'Runs from 3.3 V', iron.id, { timeout: 10000 });
+  assert.equal((await part(iron.id)).qty, q0 - 1);
+  // a part's page drawn from a copy more than 30 s old brings in the newest before Add one is used on it
+  await page.click('#dec'); await until(() => onDrive(iron.id).qty === q0 - 2, 'the phone’s second Use one to reach Drive');
+  await lp.goto(base + '#parts'); await lp.waitForSelector('.list .item');
+  await lp.evaluate(() => { const st = JSON.parse(localStorage.getItem('parts-bin.sync')); st.last = Date.now() - 60000; localStorage.setItem('parts-bin.sync', JSON.stringify(st)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin.sync' })); });
+  await lp.goto(base + '#part/' + iron.id);
+  await lp.waitForFunction(q => document.querySelector('#qv')?.value === String(q), q0 - 2, { timeout: 10000 });
+  await lp.click('#inc'); await until(() => onDrive(iron.id).qty === q0 - 1, 'the laptop’s Add one to reach Drive');
+  // and a bin's sheet: the phone renames the bin's place, the laptop changes its notes, and both stay
+  await page.goto(base + '#bin/bin-env'); await page.click('#edit'); await page.fill('.sheet #f-loc', 'Shelf 3'); await page.click('.sheet #save');
+  await page.waitForFunction(() => !document.querySelector('.sheet'));
+  await until(() => JSON.parse(file().body).items.bins['bin-env'].location === 'Shelf 3', 'the phone’s bin to reach Drive');
+  await lp.goto(base + '#bin/bin-env'); await lp.click('#edit'); await lp.waitForSelector('.sheet #f-notes');
+  await until(() => lp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.bins['bin-env'].location === 'Shelf 3'), 'the laptop to bring in the bin when its sheet opened');
+  assert.equal(await lp.inputValue('.sheet #f-loc'), 'Workroom', 'what the sheet shows was drawn when it opened');
+  await lp.fill('.sheet #f-notes', 'Top shelf'); await lp.click('.sheet #save'); await lp.waitForFunction(() => !document.querySelector('.sheet'));
+  await until(() => JSON.parse(file().body).items.bins['bin-env'].notes === 'Top shelf', 'the laptop’s bin notes to reach Drive');
+  assert.equal(JSON.parse(file().body).items.bins['bin-env'].location, 'Shelf 3', 'the phone’s change to the bin stayed');
+  await page.evaluate(() => document.querySelector('#cloud').click()); await page.waitForFunction(() => document.querySelector('#cloud')?.dataset.s === 'ok', null, { timeout: 8000 });
+}
+
 // ---- Drive when it can't save: each way it goes wrong says what's really wrong and what to do (on a device of its own,
 // with a Drive of its own)
 {

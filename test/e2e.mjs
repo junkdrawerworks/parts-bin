@@ -1006,6 +1006,24 @@ await desk.goto(base);
   await pg.click('#main .empty >> text=Search parts'); await pg.waitForFunction(() => location.hash === '#parts' && document.activeElement?.id === 'q');
   await pg.goto(base + '#bag/042'); await pg.click('#main .empty >> text=All bins'); await pg.waitForFunction(() => location.hash === '#bins');
 
+  // two tabs: tab A has a part's sheet open and types a note while tab B takes two off its count. Saving A keeps B's count
+  // (it used to put back the count A's sheet opened with) and the note
+  await pg.goto(base + '#part/p-bme'); await pg.click('#edit'); await pg.waitForSelector('.sheet #p-notes');
+  const before = await got('p-bme');
+  await pg.fill('#p-notes', 'Bosch, from the 2024 order');
+  const tabB2 = await bagCtx.newPage();
+  await tabB2.goto(base + '#part/p-bme'); await tabB2.click('#dec'); await tabB2.click('#dec');
+  await pg.waitForFunction(q => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme'].qty === q, before.qty - 2);
+  await tabB2.close();
+  assert.equal(await pg.inputValue('#p-qty'), String(before.qty), 'the sheet still shows the count it opened with');
+  await pg.click('.sheet #save'); await gone();
+  bme = await got('p-bme');
+  assert.equal(bme.qty, before.qty - 2, 'the other tab’s count stays'); assert.equal(bme.notes, 'Bosch, from the 2024 order');
+  assert.equal(bme.bag, before.bag); assert.equal(bme.tagWritten, true); assert.equal(bme.binId, before.binId);
+  // a count typed into the sheet still wins
+  await pg.click('#edit'); await pg.fill('#p-qty', '7'); await pg.click('.sheet #save'); await gone();
+  assert.equal((await got('p-bme')).qty, 7);
+
   assert.deepEqual(pg.problems, [], 'problems while packing bagged parts');
   await bagCtx.close();
 }

@@ -556,8 +556,19 @@ function nextBinCode(){
   const pre=nums[nums.length-1][1]||'B'; const max=Math.max(...nums.map(m=>Number(m[2]))); const w=Math.max(2, nums[0][2].length);
   return pre+String(max+1).padStart(w,'0');
 }
+// The part sheet's fields: where each is, how a part's value shows in it, and what's saved from what's typed.
+const PART_FORM={
+  name:['#p-name', x=>x.name, v=>v.trim()], binId:['#p-bin', x=>x.binId, v=>v], category:['#p-cat', x=>x.category, v=>v.trim()],
+  qty:['#p-qty', x=>x.qty, v=>Math.max(0,Number(v)||0)], unit:['#p-unit', x=>x.unit||'pcs', v=>v.trim()||'pcs'],
+  minQty:['#p-min', x=>x.minQty, v=>v===''?'':Number(v)], mpn:['#p-mpn', x=>x.mpn, v=>v.trim()], bag:['#p-bag', x=>x.bag, v=>v===''?'':Number(v)],
+  tags:['#p-tags', x=>(x.tags||[]).join(', '), v=>v.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)],
+  link:['#p-link', x=>x.link, v=>v.trim()], notes:['#p-notes', x=>x.notes, v=>v.trim()],
+  iface:['#p-iface', x=>(x.iface||[]).join(', '), v=>IN.ifaces(v)], addr:['#p-addr', x=>x.addr, v=>v.trim()], volts:['#p-volts', x=>x.volts, v=>v.trim()],
+  logic:['#p-logic', x=>x.logic, v=>v.trim()], img:['#p-img', x=>x.img, v=>IN.httpsUrl(v.trim())], check:['#p-check', x=>x.check, v=>v.trim()],
+};
+const PART_BLANK={name:'', category:'', mpn:'', qty:1, unit:'pcs', minQty:'', binId:'', tags:[], notes:'', link:'', bag:'', from:''};
 function editPart(p, opts={}){
-  const isNew=!p.id; p={id:id(), name:'', category:'', mpn:'', qty:1, unit:'pcs', minQty:'', binId:'', tags:[], notes:'', link:'', bag:'', from:'', ...p};
+  const isNew=!p.id; p={id:id(), ...PART_BLANK, ...p};
   if(isNew && !p.binId){ const last=localGet('pb.lastbin',''); if(S.bins.has(last)) p.binId=last; }
   const bins=[...S.bins.values()].sort(binCodeSort);
   const cats=[...new Set([...S.parts.values()].map(x=>x.category).filter(Boolean))].sort();
@@ -596,6 +607,11 @@ function editPart(p, opts={}){
   // without a bag. A number typed in, or the part's own bag, stays. filled: the number Parts Bin handed out here (opts.autoBag:
   // the one it was opened with), as opposed to one typed in.
   let filled=opts.autoBag && p.bag ? String(p.bag) : '';
+  // What each field said when the sheet opened, before the bag box fills in a number. Saving writes only the fields typed in
+  // since, and those the sheet was opened with a value for that the part didn't have (Pack's box, the Inbox's details, a
+  // new bag number), over the part as it is by then: a count changed in another tab or by a sync while the sheet was open,
+  // or a tag written elsewhere, stays.
+  const asDrawn=Object.fromEntries(Object.entries(PART_FORM).map(([k,[sel]])=>[k, el.querySelector(sel).value]));
   // What the box says follows the number in it: the part's own bag (whose tag can be written again), or a new one, and
   // what a new number means for the bag it was in.
   const native=NFC_OK&&!FRAMED, was=S.parts.get(p.id), wasBag=BG.bagOf(was);
@@ -612,34 +628,38 @@ function editPart(p, opts={}){
     if(!confirm(`Delete ${name}?${n?` Bag ${bagStr(n)}’s tag will open nothing.`:''}`)) return;
     try{ await S.db.doc('parts/'+p.id).delete(); }catch(e){ writeFail(e); return; } close(); toast('Deleted '+name); go('parts'); });
   el.querySelector('#save').onclick=async()=>{
-    const name=el.querySelector('#p-name').value.trim(); if(!name){ toast('Name is required'); return; }
+    const raw=k=>el.querySelector(PART_FORM[k][0]).value, val=k=>PART_FORM[k][2](raw(k));
+    const name=val('name'); if(!name){ toast('Name is required'); return; }
+    const cur=S.parts.get(p.id), base={...PART_BLANK, ...(was||{})}, same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    const shown=(x,k)=>{ const v=PART_FORM[k][1](x); return PART_FORM[k][2](v==null?'':String(v)); };
+    const touched=k=>!was || raw(k)!==asDrawn[k] || !same(shown(p,k),shown(base,k));
+    const changes={}; for(const k of Object.keys(PART_FORM)) if(touched(k)) changes[k]=val(k);
+    const bag=changes.bag ?? '';
+    if('bag' in changes){
+      if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ toast('Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
+      if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && BG.bagOf(x)===bag)){
+        // Taken since the sheet opened (another tab, another device's sync). A number Parts Bin handed out moves on to the next
+        // one, and this tap saves nothing: the old number may already be written on the bag.
+        if(filled && bagIn.value===filled && bag!==BG.bagOf(cur)){ const n=nextBag(); bagIn.value=filled=String(n); syncTag(); toast(`Bag ${bagStr(bag)} was just used, so this is bag ${bagStr(n)}. Tap ${saveBtn.textContent} again.`,4500); return; }
+        toast(`Bag ${bagStr(bag)} is already used`); return;
+      }
+      if(bag===BG.bagOf(cur)) delete changes.bag;
+    }
+    if('img' in changes && raw('img').trim() && !changes.img){ toast('The photo link needs to start with https://',3000); return; }
     // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in
     // boxes and forgotten once it's out of them
-    const newBin=el.querySelector('#p-bin').value; const oldB=binOf(S.parts.get(p.id)||{}), nb=S.bins.get(newBin);
-    const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : (p.from||'');
-    const bagv=el.querySelector('#p-bag').value; const bag = bagv===''?'':Number(bagv);
-    if(bag!=='' && !(Number.isSafeInteger(bag) && bag>=1)){ toast('Bag numbers are whole numbers from 1 up',3000); return; } // a tag for bag -5 or 2.5 couldn't open it
-    if(bag!=='' && [...S.parts.values()].some(x=>x.id!==p.id && BG.bagOf(x)===bag)){
-      // Taken since the sheet opened (another tab, another device's sync). A number Parts Bin handed out moves on to the next
-      // one, and this tap saves nothing: the old number may already be written on the bag.
-      if(filled && bagIn.value===filled && bag!==BG.bagOf(S.parts.get(p.id))){ const n=nextBag(); bagIn.value=filled=String(n); syncTag(); toast(`Bag ${bagStr(bag)} was just used, so this is bag ${bagStr(n)}. Tap ${saveBtn.textContent} again.`,4500); return; }
-      toast(`Bag ${bagStr(bag)} is already used`); return;
-    }
-    const imgv=el.querySelector('#p-img').value.trim(), img=IN.httpsUrl(imgv);
-    if(imgv && !img){ toast('The photo link needs to start with https://',3000); return; }
-    const doc={...p, name, bag, from, binId:newBin, category:el.querySelector('#p-cat').value.trim(), qty:Math.max(0,Number(el.querySelector('#p-qty').value)||0), unit:el.querySelector('#p-unit').value.trim()||'pcs',
-      minQty:el.querySelector('#p-min').value===''?'':Number(el.querySelector('#p-min').value), mpn:el.querySelector('#p-mpn').value.trim(), tags:el.querySelector('#p-tags').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean),
-      link:el.querySelector('#p-link').value.trim(), notes:el.querySelector('#p-notes').value.trim(), updatedAt:new Date().toISOString(),
-      iface:IN.ifaces(el.querySelector('#p-iface').value), addr:el.querySelector('#p-addr').value.trim(), volts:el.querySelector('#p-volts').value.trim(), logic:el.querySelector('#p-logic').value.trim(), img, check:el.querySelector('#p-check').value.trim()};
-    const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
-    delete doc.id;
-    if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(S.parts.get(p.id))) doc.tagWritten=false; // no tag carries the new number until one is written
+    const oldB=binOf(cur||{}), nb=S.bins.get(changes.binId ?? cur?.binId ?? ''), keptFrom=(cur?cur.from:p.from)||'';
+    const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : keptFrom;
+    if(!cur || from!==keptFrom) changes.from=from;
+    const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); changes.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
+    const {id:_, updatedAt, ...rest}=cur||p, doc={...rest, ...changes};
+    if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(cur)) doc.tagWritten=changes.tagWritten=false; // no tag carries the new number until one is written
     // The tag sheet opens after saving where a tag can be written. Elsewhere (an iPhone, a laptop) it couldn't write one,
     // so a new number is said instead, to write on the bag.
-    const tagNow = native && dotag.checked && bag!=='', newNo = bag!=='' && bag!==BG.bagOf(S.parts.get(p.id));
-    if(isNew) localSet('pb.lastbin', newBin);
-    try{ await S.db.doc('parts/'+p.id).set(doc); close();
-      if(!tagNow) toast(newNo ? `Bag ${bagStr(bag)} saved. Write ${bagStr(bag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
+    const finalBag=doc.bag===''||doc.bag==null?'':doc.bag, tagNow = native && dotag.checked && finalBag!=='', newNo = 'bag' in changes && finalBag!=='';
+    if(isNew) localSet('pb.lastbin', doc.binId);
+    try{ if(cur) await S.db.doc('parts/'+p.id).update(changes); else await S.db.doc('parts/'+p.id).set(doc); close();
+      if(!tagNow) toast(newNo ? `Bag ${bagStr(finalBag)} saved. Write ${bagStr(finalBag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
       opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }
   };
 }

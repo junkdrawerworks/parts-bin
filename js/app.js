@@ -3,7 +3,7 @@ import { db as localDb, store } from './store.js';
 import { drive } from './sync.js';
 import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
-import { norm, parseBom, matchPart, shortBy, needs, unitOf } from './bom.js';
+import { norm, parseBom, matchPart, shortBy, needs, unitOf, asPiece } from './bom.js';
 import * as BG from './bags.js';
 import { LONG, gone } from './model.js';
 // ------------------------------------------------------------------ state
@@ -577,7 +577,7 @@ function renderBom(m){
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
-    const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
+    const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${asPiece(r)?`${r.qty} ${r.unit} `:''}${r.name}`); // 0.2 m heat shrink, 1 × BME280, 1 × 2 m USB-C cable
     out.querySelectorAll('#copy,#copytop').forEach(b=>b.onclick=()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }

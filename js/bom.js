@@ -201,16 +201,22 @@ export const shortBy = (need, have) => Math.round((need - have) * 1000) / 1000;
 const PER = { m: ['m', 1], cm: ['m', 0.01], mm: ['m', 0.001], ft: ['m', 0.3048], g: ['g', 1], kg: ['g', 1000] };
 const per = u => PER[String(u || '').trim().toLowerCase()];
 const pieces = u => !u || u === 'pcs';
+// Whether a line's length or weight describes the piece it found rather than how much it needs: "2m USB-C cable" or "2m
+// of jumper wire" against a part counted in pieces is one 2 m cable, not two of them (one cable in stock said short 1 m).
+export const asPiece = r => !!r.m && !!per(r.unit) && pieces(r.m.p.unit);
 // A line's count in its part's unit, to the thousandth: 10 ft of a wire kept in metres is 3.048, 50 cm is 0.5. A line
-// with no unit is in the part's, and one in a unit that can't become the part's (2 m of a part counted in pieces) is
-// taken as written.
+// with no unit is in the part's, a length or weight against a part counted in pieces is one piece (asPiece), and one in
+// a unit that can't become the part's otherwise (30 g of a part kept in metres) is taken as written.
 export function inPartUnit(r) {
+  if (asPiece(r)) return 1;
   const from = per(r.unit), to = per(r.m?.p.unit);
   return from && to && from[0] === to[0] ? Math.round(r.qty * from[1] / to[1] * 1000) / 1000 : r.qty;
 }
-// The unit a line's shortfall is in: its part's, unless that's pieces or another kind than the line's own.
+// The unit a line's shortfall is in: its part's, unless that's pieces or another kind than the line's own. A line
+// counted as one piece (asPiece) is short in pieces.
 export function unitOf(r) {
   const pu = r.m?.p.unit;
+  if (asPiece(r)) return '';
   if (!pieces(pu) && (!r.unit || (per(r.unit) && per(pu) && per(r.unit)[0] === per(pu)[0]))) return pu;
   return r.unit || '';
 }

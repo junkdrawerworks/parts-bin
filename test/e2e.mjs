@@ -382,6 +382,18 @@ assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs =>
 assert.equal(await page.textContent('.bom-table tbody tr:first-child td:nth-child(2) .tiny:last-child'), '0.6 m needed across 2 lines');
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '0.5 m heat shrink tubing 3mm');
+// a length against a part counted in pieces is one piece: "2m USB-C cable" with one cable in stock has it (it said short
+// 1 m), Need still reads 2 m, and two such lines are two cables, bought with the length they were asked for
+const inject = (id, x) => page.evaluate(([id, x]) => { const d = JSON.parse(localStorage.getItem('parts-bin')); if (x) d.items.parts[id] = { tags: [], ...x, t: Date.now() }; else delete d.items.parts[id]; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, [id, x]);
+await inject('p-cable', { name: 'USB-C cable', qty: 1, unit: 'pcs', binId: 'bin-env' });
+await page.fill('#bom', '2m USB-C cable'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['have']);
+assert.equal(await page.textContent('.bom-table tbody td.n'), '2 m');
+await page.fill('#bom', '2m USB-C cable\n1 m USB-C cable'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['short 1', 'short 1']);
+await page.click('#out #copy');
+await page.waitForFunction(() => window.__shared === '1 × 2 m USB-C cable');
+await inject('p-cable', null);
 // two lines for one part are checked together: each fits the stock alone, but not both (both said have, and the shopping
 // list left them out); the shortfall is bought once
 const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280'].qty);

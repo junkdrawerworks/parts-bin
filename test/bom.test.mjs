@@ -1,7 +1,7 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf } from '../js/bom.js';
+import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf, asPiece } from '../js/bom.js';
 
 test('norm folds the ways a name can be typed', () => {
   // search, bags and BOM check all read names through it
@@ -319,16 +319,33 @@ test('a line in another unit of the same kind is counted in its part’s', () =>
   assert.equal(inPartUnit({ qty: 0.3, unit: 'm', m: { p: heat } }), 0.3);
   assert.equal(inPartUnit({ qty: 10, unit: 'ft', m: { p: heat } }), 3.048);
   assert.equal(inPartUnit({ qty: 0.3, m: { p: heat } }), 0.3, 'no unit: the part’s');
-  assert.equal(inPartUnit({ qty: 2, unit: 'm', m: { p: bme } }), 2, 'a part in pieces: as written');
+  assert.equal(inPartUnit({ qty: 20, unit: 'g', m: { p: heat } }), 20, 'a weight against a length: as written');
   assert.equal(inPartUnit({ qty: 0.5, unit: 'm', m: { p: { ...heat, unit: 'cm' } } }), 50);
   assert.equal(inPartUnit({ qty: 20, unit: 'g', m: { p: { ...solder, unit: 'kg' } } }), 0.02);
   assert.equal(unitOf({ qty: 0.3, m: { p: heat } }), 'm');
   assert.equal(unitOf({ qty: 10, unit: 'ft', m: { p: heat } }), 'm');
-  assert.equal(unitOf({ qty: 2, unit: 'm', m: { p: bme } }), 'm');
   assert.equal(unitOf({ qty: 2, m: { p: bme } }), '');
   assert.equal(unitOf({ qty: 2, unit: 'm', m: null }), 'm');
   const n = needs([{ qty: 0.5, unit: 'm', m: { p: heat } }, { qty: 30, unit: 'cm', m: { p: heat } }, { qty: 2, unit: 'ft', m: { p: heat } }]);
   assert.deepEqual(n.get('heat'), { qty: 1.41, lines: 3 });
+});
+
+test('a length or weight against a part counted in pieces is one piece', () => {
+  // "2m USB-C cable" found the USB-C cable kept in pieces, and with one in stock said short 1 m
+  const cable = { id: 'c', name: 'USB-C cable 2m', qty: 1, unit: 'pcs' }, jumpers = { id: 'j', name: 'Jumper wire kit', qty: 2 };
+  const line = { ...parseBom('2m USB-C cable')[0], m: { p: cable } };
+  assert.deepEqual([line.qty, line.unit], [2, 'm'], 'Need still reads 2 m');
+  assert.ok(asPiece(line));
+  assert.equal(inPartUnit(line), 1);
+  assert.equal(unitOf(line), '', 'short in pieces, not metres');
+  assert.equal(inPartUnit({ qty: 2, unit: 'm', m: { p: jumpers } }), 1, 'a part with no unit is counted in pieces');
+  assert.equal(inPartUnit({ qty: 30, unit: 'g', m: { p: cable } }), 1, 'a weight too');
+  assert.deepEqual(needs([line, { ...line }]).get('c'), { qty: 2, lines: 2 }, 'two lines are two cables');
+  assert.equal(shortBy(needs([line]).get('c').qty, cable.qty), 0, 'one cable in stock covers it');
+  // what the line says stays as it was read: only the counting changes
+  assert.ok(!asPiece({ qty: 2, unit: 'm', m: { p: { ...cable, unit: 'm' } } }), 'a part kept in metres is counted in metres');
+  assert.ok(!asPiece({ qty: 2, m: { p: cable } }), 'a plain count is a count');
+  assert.ok(!asPiece({ qty: 2, unit: 'm', m: null }), 'nothing found: nothing to count');
 });
 
 test('a heading in a pasted list is read as one, not as a part', () => {

@@ -2389,6 +2389,68 @@ await desk.goto(base);
   await mCtx.close();
 }
 
+// ---- Move parts on a bin's page: a tick on each row and a bar, "Move N to [bin or box]", that moves the ticked ones in
+// one go with Undo, by the same "came from" rule as Pack and Unpack (splitting a 30-part bin was about 120 taps)
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-big': { code: 'MIX', name: 'Everything', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-a': { name: 'Buck converter', binId: 'b-big', qty: 3, unit: 'pcs', tags: [], bag: 1, t: 1 },
+      'p-b': { name: 'INA219', binId: 'b-big', qty: 2, unit: 'pcs', tags: [], bag: 2, t: 1 },
+      'p-c': { name: 'LED strip', binId: 'b-big', qty: 1.5, unit: 'm', tags: [], bag: 3, t: 1 },
+      'p-d': { name: 'TP4056', binId: 'b-big', qty: 4, unit: 'pcs', tags: [], bag: 4, t: 1 },
+      'p-e': { name: 'Zener diodes', binId: 'b-big', qty: 20, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const vCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await vCtx.addInitScript(fakeNfc);
+  await vCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const vp = await vCtx.newPage();
+  vp.problems = []; vp.on('pageerror', e => vp.problems.push(e.message)); vp.on('console', m => { if (m.type() === 'error') vp.problems.push(m.text()); });
+  const parts = () => vp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts);
+  const where = async () => Object.fromEntries(Object.entries(await parts()).map(([k, x]) => [k, x.binId]));
+  await vp.goto(base + '#bin/b-big'); await vp.click('#moveparts'); await vp.waitForSelector('.movelist');
+  assert.equal(await vp.locator('#moveparts').count(), 0);
+  assert.equal(await vp.textContent('#mv-n'), 'Move 0 to'); assert.equal(await vp.isDisabled('#mv-go'), true);
+  await vp.check('.movelist input[data-id="p-a"]'); await vp.check('.movelist input[data-id="p-b"]'); await vp.check('.movelist input[data-id="p-d"]');
+  assert.equal(await vp.textContent('#mv-n'), 'Move 3 to'); assert.equal(await vp.isDisabled('#mv-go'), true, 'nowhere picked yet');
+  assert.equal(await vp.getAttribute('#mv-to', 'id'), 'mv-to');
+  assert.deepEqual(await vp.locator('#mv-to option').evaluateAll(o => o.map(x => x.value)), ['', 'b-pwr', 'box-1']);
+  await vp.selectOption('#mv-to', 'b-pwr'); await vp.click('#mv-go');
+  await vp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-d'].binId === 'b-pwr');
+  assert.deepEqual(await where(), { 'p-a': 'b-pwr', 'p-b': 'b-pwr', 'p-c': 'b-big', 'p-d': 'b-pwr', 'p-e': 'b-big' });
+  await vp.waitForSelector('#toast:has-text("3 parts moved to PWR") button:has-text("Undo")');
+  // the page is the bin again, with what's left in it
+  await vp.waitForSelector('#moveparts'); assert.equal(await vp.locator('.movelist').count(), 0);
+  assert.deepEqual(await vp.locator('#main .list .item .t').allTextContents(), ['LED strip', 'Zener diodes']);
+  // Undo puts all three back
+  await vp.click('#toast button'); await vp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-a'].binId === 'b-big');
+  await vp.waitForSelector('#toast:has-text("3 parts are back where they were")');
+  assert.deepEqual(Object.values(await where()), ['b-big', 'b-big', 'b-big', 'b-big', 'b-big']);
+  // All ticks every row; into a box, each remembers it came from MIX; PWR is listed first now, as lately used
+  await vp.click('#moveparts'); await vp.check('#mv-all');
+  assert.equal(await vp.textContent('#mv-n'), 'Move 5 to');
+  assert.deepEqual(await vp.locator('#mv-to optgroup').evaluateAll(o => o.map(x => x.label)), ['Lately', 'Every other']);
+  await vp.selectOption('#mv-to', 'box-1'); await vp.click('#mv-go');
+  await vp.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).every(x => x.binId === 'box-1'));
+  assert.deepEqual(Object.values(await parts()).map(x => x.from), ['MIX', 'MIX', 'MIX', 'MIX', 'MIX']);
+  await vp.waitForSelector('text=Nothing in this bin yet.');
+  // out of the box again from its page: where they came from is forgotten, as when they're unpacked
+  await vp.goto(base + '#bin/box-1'); await vp.click('#moveparts'); await vp.waitForSelector('.movelist');
+  assert.equal(await vp.locator('#unpack-to').count(), 0, 'the unpacking bar under the ticks');
+  await vp.check('.movelist input[data-id="p-c"]'); await vp.selectOption('#mv-to', 'b-pwr'); await vp.click('#mv-go');
+  await vp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-c'].binId === 'b-pwr');
+  assert.equal((await parts())['p-c'].from, '');
+  // ticks stay while the page is drawn again, and Cancel, or another screen, leaves them
+  await vp.click('#moveparts'); await vp.check('.movelist input[data-id="p-a"]');
+  await vp.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
+  await vp.waitForTimeout(200); assert.equal(await vp.isChecked('.movelist input[data-id="p-a"]'), true);
+  await vp.click('#mv-cancel'); await vp.waitForSelector('#moveparts'); assert.equal(await vp.locator('.movelist').count(), 0);
+  await vp.click('#moveparts'); await vp.goto(base + '#bins'); await vp.goto(base + '#bin/box-1'); await vp.waitForSelector('#moveparts');
+  assert.equal(await vp.locator('.movelist').count(), 0);
+  assert.deepEqual(vp.problems, []);
+  await vCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

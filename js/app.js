@@ -164,7 +164,7 @@ function render(back=false){
   const v=S.route.view;
   const held=!!heldCode && linkCode()===heldCode;
   if(linkCode() && !held){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
-  if(!same){ if(toastCarry) toastCarry=false; else { hideToast(); toastNext=null; } }
+  if(!same){ if(toastCarry) toastCarry=false; else { hideToast(); toastNext=null; } moving=null; }
   shown=key;
   if(v==='inbox' || held) renderInbox(m);
   else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else noBag(m, n); }
@@ -365,6 +365,9 @@ function noteNewClashes(){
 
 // ---- Bin page
 let unpackTo=''; // the bin picked under a box's Unpack into, for this visit ('': back where each came from)
+// Move parts on a bin's or box's page: the parts ticked and where they're going, kept while the page is drawn again (a
+// sync, a tick) and forgotten once another screen opens.
+let moving=null; // {bin, ids:Set, to}
 // The bin a bag in a box came out of, while there's still a bin with that code (a box is never one).
 function fromBin(p){ const k=String(p.from||'').toLowerCase(); return k ? [...S.bins.values()].sort(binCodeSort).find(x=>!isBox(x) && codeKey(x)===k) || null : null; }
 // Bags taken out of a box on this visit to Parts Bin, with where each came from, which taking it out forgets: Undo puts
@@ -467,7 +470,7 @@ function renderBin(m, binId){
   if(!b){ m.append(h(`<div class="empty"><h3>Bin not found</h3><p>This tag or link points at a bin that no longer exists.</p><button class="btn" id="bk">All bins</button></div>`)); m.querySelector('#bk').onclick=()=>go('bins'); return; }
   const ps=partsInBin(binId); if(isBox(b)) ps.sort(byBag); // a box's bags in number order, as they're labelled and printed
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back to bins">${ICONS.back}</button><span class="grow"></span>
-    <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>
+    <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>${ps.length && moving?.bin!==binId?'<button class="btn sm" id="moveparts">Move parts</button>':''}
     <button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add" aria-label="New part">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button></div>`);
   m.append(head);
   head.querySelector('#back').onclick=()=>go('bins');
@@ -477,6 +480,7 @@ function renderBin(m, binId){
   const pack=()=>{ localSet('sr.packbox',b.id); go('scan'); };
   head.querySelector('#pack')?.addEventListener('click',pack);
   head.querySelector('#print').onclick=()=>printList(b,ps);
+  head.querySelector('#moveparts')?.addEventListener('click',()=>{ moving={bin:binId, ids:new Set(), to:''}; render(); });
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
   m.append(h(`<div class="binhead"><div class="photo">${ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${isBox(b)&&b.sealed?' · sealed':''}</div></div></div>`));
   codeNote(m,b);
@@ -487,6 +491,7 @@ function renderBin(m, binId){
     e.querySelector('#packe')?.addEventListener('click',pack); e.querySelector('#delbox')?.addEventListener('click',()=>deleteBin(b));
     m.append(e); return;
   }
+  if(moving?.bin===binId){ moveParts(m, b, ps); return; }
   if(isBox(b)){
     // Unpacking: each bag goes back to the bin it came out of, or every one to the bin picked. What's picked stays picked
     // while the page redraws after each move.
@@ -513,6 +518,25 @@ function renderBin(m, binId){
     m.append(l); return;
   }
   const l=h('<div class="list"></div>'); for(const p of ps) l.append(partRow(p,false)); m.append(l);
+}
+// Move parts: a tick on each row, and a bar to send the ticked ones to another bin or box in one go, each by the same
+// "came from" rule as Pack and Unpack (moveTo), with Undo. For splitting or reorganising a bin without a tap per part.
+function moveParts(m, b, ps){
+  const sel=moving.ids; for(const x of [...sel]) if(!ps.some(p=>p.id===x)) sel.delete(x); // moved or deleted meanwhile
+  if(moving.to && (moving.to===b.id || !S.bins.has(moving.to))) moving.to='';
+  const recent=recentBins().map(x=>S.bins.get(x)).filter(c=>c && c.id!==b.id).slice(0,5);
+  const rest=[...S.bins.values()].filter(c=>c.id!==b.id && !recent.includes(c)).sort((x,y)=>(isBox(x)-isBox(y))||binCodeSort(x,y));
+  const opt=c=>`<option value="${esc(c.id)}" ${c.id===moving.to?'selected':''}>${esc(contLabel(c))}</option>`;
+  const l=h(`<div class="list movelist"><label class="all"><input type="checkbox" id="mv-all"><span>All ${ps.length}</span></label>${ps.map(p=>`<label><input type="checkbox" data-id="${esc(p.id)}" ${sel.has(p.id)?'checked':''}><span class="mn"><span class="t">${esc(p.name)}</span><span class="s">${p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:''}${p.category?`<span>${esc(p.category)}</span>`:''}</span></span><span class="q">${esc(fmtQty(p))}</span></label>`).join('')}</div>`);
+  const bar=h(`<div class="movebar"><label for="mv-to" id="mv-n"></label><select id="mv-to"><option value="">— pick a bin or box —</option>${recent.length?`<optgroup label="Lately">${recent.map(opt).join('')}</optgroup><optgroup label="Every other">${rest.map(opt).join('')}</optgroup>`:rest.map(opt).join('')}</select><span class="acts"><button class="btn" id="mv-cancel">Cancel</button><button class="btn primary" id="mv-go">Move</button></span></div>`);
+  const boxes=[...l.querySelectorAll('input[data-id]')], all=l.querySelector('#mv-all'), go=bar.querySelector('#mv-go'), to=bar.querySelector('#mv-to');
+  const count=()=>{ const n=sel.size; bar.querySelector('#mv-n').textContent=`Move ${n} to`; go.disabled=!n || !to.value; all.checked=n===ps.length; all.indeterminate=n>0 && n<ps.length; };
+  boxes.forEach(i=>i.onchange=()=>{ if(i.checked) sel.add(i.dataset.id); else sel.delete(i.dataset.id); count(); });
+  all.onchange=()=>{ for(const i of boxes){ i.checked=all.checked; if(all.checked) sel.add(i.dataset.id); else sel.delete(i.dataset.id); } count(); };
+  to.onchange=()=>{ moving.to=to.value; count(); };
+  bar.querySelector('#mv-cancel').onclick=()=>{ moving=null; render(); };
+  go.onclick=async()=>{ const c=S.bins.get(to.value); if(!c || !sel.size) return; const list=ps.filter(p=>sel.has(p.id)); moving=null; await moveTo(list, c); render(); };
+  count(); m.append(l, bar);
 }
 // A packing list to tick off as the box is packed or unpacked: a box to tick on each line, the numbers lined up under
 // their headings, the notes in full, and where each bag came from only for a box with something to say there.

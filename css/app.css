@@ -401,6 +401,18 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .packed .section-h:first-child{margin-top:4px}
 .sheet .lbl{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin:12px 0 6px}
 .sheet .list+details{margin-top:12px}
+.movelist label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:10px 14px;min-height:44px;border-bottom:1px solid var(--line);cursor:pointer}
+.movelist label:last-child{border-bottom:0}
+.movelist label.all{font-weight:600;background:var(--panel2)}
+.movelist input{width:20px;height:20px;padding:0;accent-color:var(--accent)}
+.movelist .t{display:block;font-weight:600;overflow-wrap:anywhere}
+.movelist .s{display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink3)}
+.movelist .q{font-family:"JetBrains Mono",monospace;font-weight:600;font-size:14px;font-variant-numeric:tabular-nums}
+.movebar{position:sticky;bottom:12px;z-index:3;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.movebar label{font-weight:600}
+.movebar select{flex:1 1 160px;width:auto;min-width:0}
+.movebar .acts{display:flex;gap:8px;margin-left:auto}
+@media(max-width:760px){.movebar{bottom:calc(70px + env(safe-area-inset-bottom,0px))}}
 .sheethead{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sheethead h3{margin:0}
 .tickline{display:flex;gap:10px;align-items:center;padding:6px 0;cursor:pointer;font-size:14.5px}

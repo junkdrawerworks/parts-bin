@@ -611,7 +611,7 @@ function renderBom(m){
       // the shopping list from the top as well, so a phone needn't scroll past every line to it
       // each count shows only its lines when tapped, and every line again when tapped again
       if(!counts.some(([,w])=>w===bomOnly)) bomOnly='';
-      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<button type="button" class="chip ${c}" data-only="${w}" aria-pressed="false">${k} ${w}</button>`).join('')}<span class="grow"></span>${pickBtn('picktop')}<button class="btn sm" id="copytop">Copy shopping list</button></div>`;
+      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<button type="button" class="chip ${c}" data-only="${w}" aria-pressed="false">${k} ${w}</button>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button>${pickBtn('picktop')}</div>`;
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>

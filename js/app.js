@@ -435,17 +435,22 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
         ${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${esc(p.category||'')} · in stock ${esc(fmtQty(p))}${binOf(p)?' · '+esc(binOf(p).code):''}</div></span><span class="chip">existing</span></button>`).join('')}
         <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
         <div class="tiny">Pick the row that is what's in the bag. Existing rows keep their record, and one already in a bag keeps its number; the count you enter next replaces the old count.</div></div>`);
-      res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box);
+      res.querySelector('.matchlist')?.parentElement?.remove(); res.append(box); listedFor=desc||null;
       box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
     }catch(e){ st.textContent = e.code==='not_granted' ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
   }
   ui.querySelector('#identify')?.addEventListener('click', identify);
   // type-ahead over the inventory, no AI needed
-  const desc=ui.querySelector('#desc'); let tt;
+  const desc=ui.querySelector('#desc'); let tt, listedFor=null; // listedFor: what the matches showing were found for
   desc.oninput=()=>{ clearTimeout(tt); tt=setTimeout(()=>localList(desc.value.trim()),120); };
-  desc.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const first=res.querySelector('[data-id]'); first?.click(); } };
+  // Enter picks the first row. Straight after typing (a pasted name, the keyboard's Go) the matches aren't there yet, so
+  // they're found there and then.
+  desc.onkeydown=e=>{ if(e.key!=='Enter') return; e.preventDefault(); const q=desc.value.trim(); if(!q) return;
+    if(listedFor!==q || !res.querySelector('.matchlist')){ clearTimeout(tt); localList(q); }
+    res.querySelector('[data-id]')?.click(); };
   function localList(q){
     res.querySelector('.matchlist')?.parentElement?.remove();
+    listedFor=q||null;
     if(!q) return;
     const hits=searchParts(q).slice(0,6);
     const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${p.bag?esc(bagStr(p.bag))+' · ':''}${esc(p.category||'')} · in stock ${esc(fmtQty(p))}${binOf(p)?' · '+esc(binOf(p).code):''}</div></span><span class="chip">existing</span></button>`).join('')}

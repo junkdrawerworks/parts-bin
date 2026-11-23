@@ -872,6 +872,17 @@ await desk.goto(base);
   await pg.click('.sheet #save'); await gone();
   assert.equal((await got('p-scd')).bag, 9); assert.equal((await got('p-scd')).tagWritten, false, 'no tag carries #009 yet');
 
+  // Enter straight after typing (a pasted name, or the keyboard's Go) opens the sheet; it used to do nothing until the
+  // matches showed
+  await pg.goto(base + '#scan'); await pg.fill('#desc', 'BME280'); await pg.press('#desc', 'Enter');
+  await pg.waitForSelector('.sheet #p-name', { timeout: 1000 });
+  assert.equal(await pg.inputValue('#p-name'), 'BME280 (Adafruit)'); assert.equal(await pg.inputValue('#p-bag'), '1');
+  await pg.click('.sheet #cancel'); await gone();
+  await pg.fill('#desc', 'Hot glue sticks'); await pg.press('#desc', 'Enter');
+  await pg.waitForSelector('.sheet #p-name', { timeout: 1000 });
+  assert.equal(await pg.inputValue('#p-name'), 'Hot glue sticks'); assert.equal(await pg.textContent('.sheet h3'), 'New part');
+  await pg.click('.sheet #cancel'); await gone();
+
   // a sticker whose number no part has now says what may have happened, and where to go from there (it was a dead end)
   await pg.goto(base + '#bag/042'); await pg.waitForSelector('#main .empty');
   assert.equal(await pg.textContent('#main .empty p'), 'No part has bag #042 now. It may have been renumbered or deleted.');

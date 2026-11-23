@@ -323,7 +323,15 @@ assert.match(await page.textContent('.bom-table tbody tr:first-child td:nth-chil
 // the examples above the list read as they're typed, not uppercased like the label (2X XIAO ESP32-S3)
 assert.equal(await page.$eval('.field label code', c => getComputedStyle(c).textTransform), 'none');
 await shot(page, 'phone-bom');
-// a list typed but not checked yet stays through another screen, a reload, and Save as project
+// Save this BOM with nothing in the box saves nothing and says what to do (an empty BOM was saved under the name typed)
+const savedBoms = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('parts-bin')).items.projects).length);
+const bomsBefore = await savedBoms();
+await page.fill('#bom', '  \n');
+let namedEmpty = false; const ask = d => { namedEmpty = true; d.dismiss(); }; page.on('dialog', ask);
+await page.click('#save');
+await page.waitForSelector('#toast:has-text("Paste a parts list first")');
+page.off('dialog', ask); assert.ok(!namedEmpty, 'it asked for a name for an empty BOM'); assert.equal(await savedBoms(), bomsBefore);
+// a list typed but not checked yet stays through another screen, a reload, and Save this BOM
 await page.fill('#bom', '1 SCD41\n2 heat-set inserts');
 await page.click('#tabbar [data-go="parts"]'); await page.waitForSelector('#cat');
 await page.click('#tabbar [data-go="bom"]'); await page.waitForSelector('#bom');
@@ -331,10 +339,16 @@ assert.equal(await page.inputValue('#bom'), '1 SCD41\n2 heat-set inserts');
 await page.reload(); await page.waitForSelector('#bom');
 assert.equal(await page.inputValue('#bom'), '1 SCD41\n2 heat-set inserts');
 await page.fill('#bom', '3 WS2812 strip segment');
-page.once('dialog', d => d.accept('Lamp'));
+assert.equal(await page.textContent('#save'), 'Save this BOM');
+page.once('dialog', d => { assert.equal(d.message(), 'Name this BOM:'); d.accept('Lamp'); });
 await page.click('#save');
 await page.waitForFunction(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.projects).some(p => p.name === 'Lamp'));
+// it says which, and the picker shows it once the screen is drawn again (it went back to "Saved BOMs…")
+await page.waitForSelector('#toast:has-text("Saved “Lamp”")');
+const lampId = await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.projects).find(([, p]) => p.name === 'Lamp')[0]);
+await page.waitForFunction(id => document.getElementById('proj').value === id, lampId, { timeout: 2000 }).catch(() => assert.fail('the saved BOM isn’t picked'));
 await page.waitForTimeout(100);
+assert.equal(await page.inputValue('#proj'), lampId);
 assert.equal(await page.inputValue('#bom'), '3 WS2812 strip segment');
 // a long parts list (a KiCad export with footprints and datasheet links) is saved whole: it was cut to 4,000 characters
 // on every load, mid-line, while the page said Saved
@@ -1137,7 +1151,7 @@ await page.click('.sheet #cancel');
 // + on the count goes back to what's kept
 await noToast(); await page.click('#inc'); await page.waitForSelector(FULL);
 assert.equal(await page.inputValue('#qv'), String(scdQty));
-// Save as project
+// Save this BOM
 await page.goto(base + '#bom'); await page.waitForSelector('#save');
 await noToast(); page.once('dialog', d => d.accept('No room')); await page.click('#save'); await page.waitForSelector(FULL);
 // suggestions from the Inbox stay waiting until they can be saved

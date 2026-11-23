@@ -500,19 +500,22 @@ function renderPartPage(m, pid){
 }
 
 // ---- BOM check (reading the list and matching it: bom.js)
+let bomPicked=''; // the saved BOM in the box, picked or just saved, so the picker still shows it when the screen is drawn again
 function renderBom(m){
   m.append(h('<div class="topbar"><h2>BOM check</h2></div>'));
   const saved=[...S.projects.values()].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
   const last=localGet('sr.bom','');
+  if(!S.projects.has(bomPicked)) bomPicked='';
   const ui=h(`<div>
-    <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><span class="grow"></span></div>
+    <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}" ${p.id===bomPicked?'selected':''}>${esc(p.name)}</option>`).join('')}</select><span class="grow"></span></div>
     <div class="field"><label for="bom">Parts list — one per line, quantity first or last (<code>2x XIAO ESP32-S3</code>, <code>SCD41 ×1</code>)</label><textarea id="bom" placeholder="2x XIAO ESP32-S3&#10;1 SCD41 breakout&#10;3 WS2812 strip segment&#10;M3 heat-set inserts x8">${esc(last)}</textarea></div>
-    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span>${S.canWrite?'<button class="btn" id="save">Save as project</button>':''}</div>
+    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span>${S.canWrite?'<button class="btn" id="save">Save this BOM</button>':''}</div>
     <div id="out" style="margin-top:14px"></div></div>`);
   m.append(ui);
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
-  ta.oninput=()=>localSet('sr.bom',ta.value); // kept as it's typed, so another screen, a reload or a redraw doesn't lose it
-  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
+  // kept as it's typed, so another screen, a reload or a redraw doesn't lose it; changed, it's no longer the saved one picked
+  ta.oninput=()=>{ localSet('sr.bom',ta.value); bomPicked=''; };
+  ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); bomPicked=p?p.id:''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
@@ -550,9 +553,13 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
       run(all.map(r=>r.heading?{...r, m:null}:items[rows.indexOf(r)]));
     }catch(e){ if(e.code==='not_granted') toast(e.message+' Used plain matching.',4000); else toast('Smart matching unavailable, used plain matching'); run(); }
   });
+  // A list with no lines to check isn't saved (an empty box was saved as a BOM), and the one saved shows in the picker.
   ui.querySelector('#save')?.addEventListener('click', async()=>{
-    const name=prompt('Project name for this BOM:', ''); if(!name) return;
-    const pid=id(); try{ await S.db.doc('projects/'+pid).set({name, text:ta.value, updatedAt:new Date().toISOString()}); toast('Saved'); }catch(e){ writeFail(e); }
+    if(!parseBom(ta.value).some(r=>!r.heading)){ toast('Paste a parts list first'); ta.focus(); return; }
+    const name=(prompt('Name this BOM:', '')||'').trim(); if(!name) return;
+    const pid=id(), was=bomPicked; bomPicked=pid; // picked as the screen is drawn again with it
+    try{ await S.db.doc('projects/'+pid).set({name, text:ta.value, updatedAt:new Date().toISOString()}); }catch(e){ bomPicked=was; writeFail(e); return; }
+    toast(`Saved “${name}”`);
   });
   if(last) run(null, true); // the list left from last time, checked again as the screen opens: its heading is what's said
 }

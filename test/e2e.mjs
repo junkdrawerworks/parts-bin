@@ -837,18 +837,19 @@ await page.evaluate(() => {
 });
 await page.goto(base + '#bin/box-move');
 assert.equal(await page.locator('button button').count(), 0, 'a ⇢ inside a row’s own button');
-assert.equal(await page.getByRole('button', { name: 'Move Moved part 01 to the chosen bin', exact: true }).count(), 1, 'each ⇢ says which bag it moves');
+assert.equal(await page.getByRole('button', { name: 'Move Moved part 01: choose a bin first', exact: true }).count(), 1, 'each ⇢ says which bag it moves');
 await page.selectOption('#unpack-to', 'bin-env');
+assert.equal(await page.getByRole('button', { name: 'Move Moved part 01 to ENV', exact: true }).count(), 1, 'each button says where it moves the bag');
 await page.evaluate(() => window.scrollTo(0, 200));
-const moveButtons = () => page.locator('button[aria-label$="to the chosen bin"]');
+const moveButtons = () => page.locator('button[aria-label$=" to ENV"]');
 await moveButtons().first().click();
-await page.waitForFunction(() => document.querySelectorAll('button[aria-label$="to the chosen bin"]').length === 15);
+await page.waitForFunction(() => document.querySelectorAll('button[aria-label$=" to ENV"]').length === 15);
 assert.equal(await page.inputValue('#unpack-to'), 'bin-env', 'the bin picked is still picked');
 assert.equal(await page.evaluate(() => scrollY), 200, 'the page kept its place');
 // the Drive button scrolls away with the top of the page, rather than sitting over the quantities and ⇢ buttons below it
 assert.ok(await page.evaluate(() => { const r = document.getElementById('cloud-m').getBoundingClientRect(); return r.height > 0 && r.bottom <= 0; }), 'the Drive button stayed on the screen over the list');
 await moveButtons().first().click();
-await page.waitForFunction(() => document.querySelectorAll('button[aria-label$="to the chosen bin"]').length === 14);
+await page.waitForFunction(() => document.querySelectorAll('button[aria-label$=" to ENV"]').length === 14);
 assert.deepEqual(await page.evaluate(() => ['p-move1', 'p-move2'].map(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].binId)), ['bin-env', 'bin-env']);
 
 // ---- a count stops at zero, from − or from the sheet
@@ -1118,7 +1119,7 @@ await page.waitForSelector('.item:has-text("BME280 (Adafruit)")'); await page.wa
 // ---- the buttons tapped over and over while counting and unpacking are big enough for a thumb (44 px)
 const big = async sel => { const b = await page.locator(sel).first().boundingBox(); assert.ok(b.width >= 44 && b.height >= 44, `${sel} is ${b.width}×${b.height}`); };
 await page.goto(base + '#part/p-bme280'); await big('#dec'); await big('#inc');
-await page.goto(base + '#bin/box-move'); await big('button[aria-label$="to the chosen bin"]');
+await page.goto(base + '#bin/box-move'); await big('.unpack > .btn');
 
 // ---- a box's printed packing list says Parts Bin, and the site's footer and Drive button stay off the paper
 await page.evaluate(() => { window.print = () => {}; });
@@ -1234,7 +1235,7 @@ await desk.goto(base);
   assert.deepEqual(await pg.locator('#print-root tbody td').allTextContents(), ['#001', 'BME280 (Adafruit)', '3', 'ENV', '']);
   assert.match(await pg.textContent('#print-root .sub'), / · 1 bag · /);
   // unpacking it puts it back in a bin, and it no longer says where it was
-  await pg.selectOption('#unpack-to', 'bin-env'); await pg.click('button[aria-label="Move #001 to the chosen bin"]');
+  await pg.selectOption('#unpack-to', 'bin-env'); await pg.click('button[aria-label="Move #001 to ENV"]');
   await pg.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme'].binId === 'bin-env');
   assert.equal((await got('p-bme')).from, '');
   // a part with no bag yet gets the next number, and its tag is written
@@ -1353,6 +1354,78 @@ await desk.goto(base);
 
   assert.deepEqual(pg.problems, [], 'problems while packing bagged parts');
   await bagCtx.close();
+}
+
+// ---- unpacking a box: rows in bag order, each saying where it came from; one tap puts a bag back there, Undo takes it back,
+// a bag put back in the box keeps where it came from, Put them all back, and an emptied box offers Delete box
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 }, 'b-mcu': { code: 'MCU', name: 'Boards', t: 1 }, 'b-led': { code: 'LED', name: 'Lights', t: 1 },
+      'box-u': { code: 'BOX 01', kind: 'box', name: 'Bench', location: 'Moving boxes', t: 1 } },
+    parts: {
+      'p-ina': { name: 'INA219', binId: 'box-u', qty: 2, unit: 'pcs', tags: [], bag: 10, from: 'pwr', t: 1 },
+      'p-ssd': { name: 'SSD1306', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 3, from: 'MCU', t: 1 },
+      'p-vl5': { name: 'VL53L1X', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 7, from: 'ENV', t: 1 },
+      'p-aar': { name: 'Aardvark', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], bag: 12, from: 'GONE', t: 1 },
+      'p-zet': { name: 'Zeta', binId: 'box-u', qty: 1, unit: 'pcs', tags: [], t: 1 },
+    } } });
+  const uCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await uCtx.addInitScript(fakeNfc);
+  await uCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const up = await uCtx.newPage();
+  up.problems = []; up.on('pageerror', e => up.problems.push(e.message)); up.on('console', m => { if (m.type() === 'error') up.problems.push(m.text()); });
+  const got = id => up.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const binOf = async id => (await got(id)).binId;
+  const until = (id, bin) => up.waitForFunction(([id, bin]) => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id].binId === bin, [id, bin]);
+  await up.goto(base + '#bin/box-u'); await up.waitForSelector('.unpack');
+  // in bag order, as the bags in hand and the printed list are (they were by name), with the unnumbered last
+  assert.deepEqual(await up.locator('.unpack .item .t').allTextContents(), ['SSD1306', 'VL53L1X', 'INA219', 'Aardvark', 'Zeta']);
+  // each says where it came from, when that bin is still here (the code matched whatever its case)
+  assert.match(await up.textContent('.unpack:nth-child(3) .item .s'), /from PWR/);
+  assert.doesNotMatch(await up.textContent('.unpack:nth-child(4) .item .s'), /from/, 'a bin that’s gone');
+  // left on Where each came from, a bag's button names its bin and one tap puts it back
+  assert.equal(await up.$eval('#unpack-to option', o => o.textContent), 'Where each came from');
+  const ina = up.getByRole('button', { name: 'Move #010 back to PWR', exact: true });
+  assert.equal((await ina.textContent()).trim(), '→ PWR');
+  await ina.click(); await until('p-ina', 'b-pwr');
+  let p = await got('p-ina');
+  assert.equal(p.from, ''); assert.ok(!('box' in p), 'an empty box field written on the part');
+  // Undo puts it back in the box, still saying where it came from
+  await up.waitForSelector('#toast button:has-text("Undo")');
+  assert.match(await up.textContent('#toast'), /#010 → PWR/);
+  await up.click('#toast button'); await until('p-ina', 'box-u');
+  assert.equal((await got('p-ina')).from, 'pwr');
+  // with a bin picked, every button goes there; a bag sent there by mistake and put back through Edit keeps where it came from
+  await up.selectOption('#unpack-to', 'b-led');
+  const inaLed = up.getByRole('button', { name: 'Move #010 to LED', exact: true });
+  assert.equal((await inaLed.textContent()).trim(), '→ LED');
+  await inaLed.click(); await until('p-ina', 'b-led');
+  await up.goto(base + '#part/p-ina'); await up.click('#edit'); await up.selectOption('#p-bin', 'box-u'); await up.click('.sheet #save');
+  await until('p-ina', 'box-u');
+  assert.equal((await got('p-ina')).from, 'pwr', 'putting it back in its box gave it the bin it was sent to by mistake');
+  // Put them all back: the three whose bins are here go back, the two with none stay for the picker
+  await up.goto(base + '#bin/box-u'); await up.selectOption('#unpack-to', '');
+  assert.equal((await up.textContent('#putback')).trim(), 'Put them all back (3)');
+  const asked = new Promise(r => up.once('dialog', d => { r(d.message()); d.accept(); }));
+  await up.click('#putback');
+  assert.equal(await asked, 'Put 3 bags back in the bins they came from? 2 have no bin to go back to and stay.');
+  await until('p-vl5', 'b-env');
+  assert.deepEqual([await binOf('p-ina'), await binOf('p-ssd'), await binOf('p-vl5'), await binOf('p-aar'), await binOf('p-zet')], ['b-pwr', 'b-mcu', 'b-env', 'box-u', 'box-u']);
+  await up.waitForSelector('#toast:has-text("3 bags put back")');
+  // a bag with nowhere to go back to asks for a bin
+  await up.getByRole('button', { name: 'Move #012: choose a bin first', exact: true }).click();
+  await up.waitForSelector('#toast:has-text("choose")');
+  // the last two go to a bin picked, and the empty box says so and offers to delete it
+  await up.selectOption('#unpack-to', 'b-led');
+  await up.getByRole('button', { name: 'Move #012 to LED', exact: true }).click(); await until('p-aar', 'b-led');
+  await up.getByRole('button', { name: 'Move Zeta to LED', exact: true }).click(); await until('p-zet', 'b-led');
+  await up.waitForSelector('text=Everything’s unpacked.');
+  const askedDel = new Promise(r => up.once('dialog', d => { r(d.message()); d.accept(); }));
+  await up.click('#delbox'); assert.equal(await askedDel, 'Delete box BOX 01?');
+  await up.waitForFunction(() => location.hash === '#bins');
+  assert.ok(JSON.parse(await up.evaluate(() => localStorage.getItem('parts-bin'))).items.bins['box-u'].del, 'the box was deleted');
+  assert.deepEqual(up.problems, []);
+  await uCtx.close();
 }
 
 // ---- a browser with no NFC (an iPhone, a laptop) and one bin

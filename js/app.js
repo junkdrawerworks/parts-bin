@@ -50,15 +50,19 @@ function id(){ return Math.random().toString(36).slice(2,10)+Date.now().toString
 // A message is about the screen it was shown on, so it goes when another screen opens (a tag read on Bins doesn't follow
 // you to BOM check), unless it was shown on the way there: toast() then go() in one go, or keepToast().
 let toastFresh=false, toastCarry=false;
-// It fades in and out (the class), and #say reads it out for a screen reader.
-function toast(msg,ms=1800){
+// It fades in and out (the class), and #say reads it out for a screen reader. act: a button on it ({label, run}), such as
+// Undo; it stays longer then, and while the keyboard is on the button.
+function toast(msg,ms=1800,act=null){
   const t=document.getElementById('toast'), say=document.getElementById('say'); t.textContent=say.textContent=msg;
+  if(act){ const b=document.createElement('button'); b.type='button'; b.className='btn sm'; b.textContent=act.label; b.onclick=()=>{ hideToast(); act.run(); }; t.append(b); ms=Math.max(ms,6000); }
+  t.classList.toggle('act',!!act);
   clearTimeout(t._t); t.hidden=false; void t.offsetWidth; t.classList.add('on');
   toastCarry=false; toastFresh=true; queueMicrotask(()=>{ toastFresh=false; });
-  t._t=setTimeout(()=>{ t.classList.remove('on'); t._t=setTimeout(hideToast,200); },ms);
+  const fade=()=>{ if(t.contains(document.activeElement)){ t._t=setTimeout(fade,1000); return; } t.classList.remove('on'); t._t=setTimeout(hideToast,200); };
+  t._t=setTimeout(fade,ms);
 }
 // gone at once (another screen has opened), or at the end of the fade
-function hideToast(){ const t=document.getElementById('toast'); clearTimeout(t._t); t.classList.remove('on'); t.hidden=true; document.getElementById('say').textContent=''; toastCarry=false; }
+function hideToast(){ const t=document.getElementById('toast'); clearTimeout(t._t); t.classList.remove('on','act'); t.hidden=true; t.textContent=''; document.getElementById('say').textContent=''; toastCarry=false; }
 function keepToast(){ if(!document.getElementById('toast').hidden) toastCarry=true; }
 function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; }
 function fmtQty(p){ return (p.qty ?? 0) + (p.unit && p.unit!=='pcs' ? ' '+p.unit : ''); }
@@ -236,9 +240,9 @@ function binRow(b){
   const r=h(`<button type="button" class="item"><div><div class="t"><span class="label">${esc(b.code)}</span> &nbsp;${esc(b.name||'')}</div><div class="s">${esc(b.location||'')}</div></div><div class="q">${ps.length}<small>parts</small></div></button>`);
   r.onclick=()=>go('bin',b.id); return r;
 }
-function partRow(p, showBin){
+function partRow(p, showBin, extra=''){
   const b=binOf(p);
-  const r=h(`<button type="button" class="item ${isLow(p)?'low':''}"><div><div class="t">${esc(p.name)}</div><div class="s">${p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:''}${showBin&&b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:''}${p.category?`<span>${esc(p.category)}</span>`:''}${p.mpn?`<span class="mono">${esc(p.mpn)}</span>`:''}${(p.tags||[]).slice(0,3).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${p.check?'<span class="chip warn">check</span>':''}${clashOf(p)?'<span class="chip warn">bag used twice</span>':''}</div></div><div class="q">${esc(fmtQty(p))}${isLow(p)?'<small>low</small>':''}</div></button>`);
+  const r=h(`<button type="button" class="item ${isLow(p)?'low':''}"><div><div class="t">${esc(p.name)}</div><div class="s">${p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:''}${showBin&&b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:''}${extra}${p.category?`<span>${esc(p.category)}</span>`:''}${p.mpn?`<span class="mono">${esc(p.mpn)}</span>`:''}${(p.tags||[]).slice(0,3).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${p.check?'<span class="chip warn">check</span>':''}${clashOf(p)?'<span class="chip warn">bag used twice</span>':''}</div></div><div class="q">${esc(fmtQty(p))}${isLow(p)?'<small>low</small>':''}</div></button>`);
   r.onclick=()=>go('part',p.id); return r;
 }
 
@@ -286,11 +290,35 @@ function noteNewClashes(){
 }
 
 // ---- Bin page
-let unpackTo=''; // the bin picked under a box's Unpack into, for this visit
+let unpackTo=''; // the bin picked under a box's Unpack into, for this visit ('': back where each came from)
+// The bin a bag in a box came out of, while there's still a bin with that code (a box is never one).
+function fromBin(p){ const k=String(p.from||'').toLowerCase(); return k ? [...S.bins.values()].sort(binCodeSort).find(x=>!isBox(x) && codeKey(x)===k) || null : null; }
+// Bags taken out of a box on this visit to Parts Bin, with where each came from, which taking it out forgets: Undo puts
+// that back, and so does putting the bag back in the box (a mis-tap noticed later), rather than the bin it went to.
+const UNPACKED=new Map(); // part id → {box, to, from}
+const byBag=(a,c)=>(a.bag||1e9)-(c.bag||1e9) || a.name.localeCompare(c.name);
+async function unpack(list){
+  const done=[];
+  for(const [p,to] of list){ if(await writePart({...p, binId:to, from:''})){ done.push(p); UNPACKED.set(p.id,{box:p.binId, to, from:p.from||''}); } else break; }
+  return done;
+}
+// Puts bags taken out by mistake back in the box, as they were, unless one has moved again since.
+async function unpackUndo(done){
+  let n=0;
+  for(const p of done){ const u=UNPACKED.get(p.id), cur=S.parts.get(p.id); if(!u || !cur || cur.binId!==u.to) continue;
+    try{ await S.db.doc('parts/'+p.id).update({binId:u.box, from:u.from}); UNPACKED.delete(p.id); n++; }catch(e){ writeFail(e); return; } }
+  const box=S.bins.get(done[0]?.binId); if(n) toast(n===1?`${bagStr(done[0].bag)||done[0].name} is back in ${box?.code||'the box'}`:`${n} bags are back in ${box?.code||'the box'}`);
+}
+function deleteBin(b, then){
+  const n=partsInBin(b.id).length, box=isBox(b), word=box?'box':'bin';
+  const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
+  if(!confirm(`Delete ${word} ${b.code}?${left}`)) return;
+  (async()=>{ try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } then?.(); toast(`Deleted ${word} ${b.code}`); go('bins'); })();
+}
 function renderBin(m, binId){
   const b=S.bins.get(binId);
   if(!b){ m.append(h(`<div class="empty"><h3>Bin not found</h3><p>This tag or link points at a bin that no longer exists.</p><button class="btn" id="bk">All bins</button></div>`)); m.querySelector('#bk').onclick=()=>go('bins'); return; }
-  const ps=partsInBin(binId);
+  const ps=partsInBin(binId); if(isBox(b)) ps.sort(byBag); // a box's bags in number order, as they're labelled and printed
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back to bins">${ICONS.back}</button><span class="grow"></span>
     <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>
     ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`);
@@ -305,15 +333,36 @@ function renderBin(m, binId){
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
   m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${b.sealed?' · sealed':''}</div></div></div>`));
   codeNote(m,b);
-  if(!ps.length){ const e=h(`<div class="empty"><p>${isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p>${S.canWrite?`<button class="btn primary" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`); e.querySelector('#packe')?.addEventListener('click',pack); m.append(e); return; }
+  if(!ps.length){
+    // emptied on this visit (or taped shut once, so it held something): done with, most likely
+    const emptied=isBox(b) && (b.sealed || [...UNPACKED.values()].some(u=>u.box===b.id));
+    const e=h(`<div class="empty"><p>${emptied?'Everything’s unpacked.':isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p>${S.canWrite?`<div class="row" style="justify-content:center">${emptied?'<button class="btn danger" id="delbox">Delete box</button>':''}<button class="btn ${emptied?'':'primary'}" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button></div>`:''}</div>`);
+    e.querySelector('#packe')?.addEventListener('click',pack); e.querySelector('#delbox')?.addEventListener('click',()=>deleteBin(b));
+    m.append(e); return;
+  }
   if(isBox(b)&&S.canWrite){
-    // unpack helper: move bags out of the box into a bin. The bin picked stays picked while the page redraws after each move.
+    // Unpacking: each bag goes back to the bin it came out of, or every one to the bin picked. What's picked stays picked
+    // while the page redraws after each move.
     const bins=[...S.bins.values()].filter(x=>!isBox(x)).sort(binCodeSort);
-    const bar=h(`<div class="row" style="margin-bottom:10px"><label class="muted" for="unpack-to">Unpack into</label><select id="unpack-to" style="width:auto"><option value="">choose a bin…</option>${bins.map(x=>`<option value="${x.id}" ${x.id===unpackTo?'selected':''}>${esc(contLabel(x))}</option>`).join('')}</select><span class="tiny">then tap a bag's ⇢</span></div>`);
-    bar.querySelector('#unpack-to').onchange=e=>{ unpackTo=e.target.value; };
+    if(unpackTo && !S.bins.has(unpackTo)) unpackTo='';
+    const back=ps.filter(fromBin);
+    const bar=h(`<div class="row" style="margin-bottom:10px"><label class="muted" for="unpack-to">Unpack into</label><select id="unpack-to" style="width:auto"><option value="">Where each came from</option>${bins.map(x=>`<option value="${x.id}" ${x.id===unpackTo?'selected':''}>${esc(contLabel(x))}</option>`).join('')}</select>${back.length&&!unpackTo?`<button class="btn sm" id="putback">Put them all back (${back.length})</button>`:''}</div>`);
+    bar.querySelector('#unpack-to').onchange=e=>{ unpackTo=e.target.value; render(); };
+    const moved=(done)=>{ if(!done.length) return; const to=S.bins.get(UNPACKED.get(done[0].id)?.to);
+      toast(done.length===1?`${bagStr(done[0].bag)||done[0].name} → ${to?.code||''}`:`${done.length} bags put back`, 1800, {label:'Undo', run:()=>unpackUndo(done)}); };
+    bar.querySelector('#putback')?.addEventListener('click',async()=>{
+      const n=back.length, k=ps.length-n;
+      if(!confirm(`Put ${n} bag${n===1?'':'s'} back in the bin${n===1?' it':'s they'} came from?${k?` ${k} ${k===1?'has':'have'} no bin to go back to and ${k===1?'stays':'stay'}.`:''}`)) return;
+      moved(await unpack(back.map(p=>[p, fromBin(p).id])));
+    });
     m.append(bar);
     const l=h('<div class="list"></div>');
-    for(const p of ps){ const row=h('<div class="unpack"></div>'), mv=h(`<button type="button" class="btn sm" aria-label="Move ${esc(bagStr(p.bag)||p.name)} to the chosen bin">⇢</button>`); mv.onclick=async()=>{ const to=bar.querySelector('#unpack-to').value; if(!to){ toast('Choose a bin first'); return; } if(await writePart({...p, binId:to, box:'', from:''})) toast(`${bagStr(p.bag)||p.name} → ${S.bins.get(to)?.code}`); }; row.append(partRow(p,false), mv); l.append(row); } // the ⇢ beside the row's button, not inside it
+    for(const p of ps){
+      const fb=fromBin(p), to=unpackTo?S.bins.get(unpackTo):fb, name=bagStr(p.bag)||p.name;
+      const row=h('<div class="unpack"></div>'), mv=h(`<button type="button" class="btn sm" aria-label="${esc(to?`Move ${name} ${unpackTo?'to':'back to'} ${to.code}`:`Move ${name}: choose a bin first`)}">${to?'→ '+esc(to.code):'⇢'}</button>`);
+      mv.onclick=async()=>{ if(!to){ toast('No bin to go back to: choose one under Unpack into'); return; } moved(await unpack([[p,to.id]])); };
+      row.append(partRow(p,false,fb?`<span>from ${esc(fb.code)}</span>`:''), mv); l.append(row); // the button beside the row's own, not inside it
+    }
     m.append(l); return;
   }
   const l=h('<div class="list"></div>'); for(const p of ps) l.append(partRow(p,false)); m.append(l);
@@ -355,7 +404,7 @@ function renderPartPage(m, pid){
   m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${photoImg(p.photo)||ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
     <h2>${esc(p.name)}</h2>
     <div class="row" style="gap:6px;margin:4px 0 8px">${p.category?`<span class="chip">${esc(p.category)}</span>`:''}${specChips(p)}${(p.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${isLow(p)?'<span class="chip warn">low stock</span>':''}</div>
-    <div class="muted">${b?`In <a href="#bin/${b.id}"><span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span></a> ${esc(b.name||'')}${b.location?` · ${esc(b.location)}`:''}`:'Not in a bin'}${p.from?` <span class="tiny">· was in ${esc(p.from)}</span>`:''}</div>
+    <div class="muted">${b?`In <a href="#bin/${b.id}"><span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span></a> ${esc(b.name||'')}${b.location?` · ${esc(b.location)}`:''}`:'Not in a bin'}${p.from&&isBox(b)?` <span class="tiny">· was in ${esc(p.from)}</span>`:''}</div>
     ${p.mpn?`<div class="tiny mono" style="margin-top:4px">${esc(p.mpn)}</div>`:''}
     ${/^https?:\/\//i.test(p.link||'')?`<div class="tiny" style="margin-top:4px"><a href="${esc(p.link)}" target="_blank" rel="noopener">Product link</a></div>`:''}
   </div></div>`));
@@ -618,9 +667,7 @@ function editBin(b, {code:toCode=false}={}){
   el.querySelector('#cancel').onclick=close;
   if(toCode){ const f=el.querySelector('#f-code'); f.focus(); f.select(); } // Rename: straight to the code
   el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
-  el.querySelector('#del')?.addEventListener('click', async()=>{ const n=partsInBin(b.id).length, box=isBox(b);
-    const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
-    if(!confirm(`Delete ${word(b.kind)} ${b.code}?${left}`)) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); toast(`Deleted ${word(b.kind)} ${b.code}`); go('bins'); });
+  el.querySelector('#del')?.addEventListener('click',()=>deleteBin(b,close));
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ toast('Label code is required'); return; }
     // a code another bin has is refused only when it's typed here: one that already clashes (two devices made it) still saves
@@ -733,9 +780,11 @@ function editPart(p, opts={}){
     }
     if('img' in changes && raw('img').trim() && !changes.img){ toast('The photo link needs to start with https://',3000); return; }
     // where it came from: the bin it was in before this sheet (Pack has already put the box in it), kept while it's in
-    // boxes and forgotten once it's out of them
+    // boxes and forgotten once it's out of them. A bag taken out of its box on this visit and put back in it, from the bin
+    // it went to, came from where it did before: that bin was a mis-tap.
     const oldB=binOf(cur||{}), nb=S.bins.get(changes.binId ?? cur?.binId ?? ''), keptFrom=(cur?cur.from:p.from)||'';
-    const from = (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : keptFrom;
+    const un=cur && UNPACKED.get(p.id), backIn=!!un && isBox(nb) && nb.id===un.box && cur.binId===un.to;
+    const from = backIn ? un.from : (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : keptFrom;
     if(!cur || from!==keptFrom) changes.from=from;
     const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); changes.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     const {id:_, updatedAt, ...rest}=cur||p, doc={...rest, ...changes};
@@ -744,7 +793,7 @@ function editPart(p, opts={}){
     // so a new number is said instead, to write on the bag.
     const finalBag=doc.bag===''||doc.bag==null?'':doc.bag, tagNow = native && dotag.checked && finalBag!=='', newNo = 'bag' in changes && finalBag!=='';
     if(isNew) localSet('pb.lastbin', doc.binId);
-    try{ if(cur) await S.db.doc('parts/'+p.id).update(changes); else await S.db.doc('parts/'+p.id).set(doc); close();
+    try{ if(cur) await S.db.doc('parts/'+p.id).update(changes); else await S.db.doc('parts/'+p.id).set(doc); close(); if(backIn) UNPACKED.delete(p.id);
       if(newNo) drive.push(); // a new bag number goes to the other devices straight away, so they don't give it out too
       if(!tagNow) toast(newNo ? `Bag ${bagStr(finalBag)} saved. Write ${bagStr(finalBag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
       opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }

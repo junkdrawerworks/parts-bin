@@ -104,6 +104,8 @@ a{color:var(--accent-ink)}
 .note.lost .row .grow{min-width:0;color:var(--ink)}
 .toast{position:fixed;left:50%;bottom:calc(72px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--label);color:var(--label-ink);padding:9px 14px;border-radius:var(--r);font-weight:600;font-size:14px;box-shadow:var(--shadow);z-index:20;opacity:0;transition:opacity .2s}
 .toast.on{opacity:1}
+.toast.act{display:flex;align-items:center;gap:12px;padding:6px 6px 6px 14px}
+.toast .btn{background:transparent;color:inherit;border-color:currentColor;min-height:40px}
 @media(prefers-reduced-motion:reduce){.toast{transition:none}}
 @media(min-width:761px){.toast{bottom:24px}}
 
@@ -129,11 +131,12 @@ a{color:var(--accent-ink)}
 .item .q{font-family:"JetBrains Mono",monospace;font-weight:600;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
 .item .q small{display:block;font-size:11px;color:var(--ink3);font-weight:400}
 .item.low .q{color:var(--warn)}
-/* a bag in a box being unpacked: its row, with the ⇢ that moves it beside it */
+/* a bag in a box being unpacked: its row, with the button that moves it beside it (→ PWR) */
 .unpack{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;border-bottom:1px solid var(--line)}
 .unpack:last-child{border-bottom:0}
 .unpack .item{border-bottom:0;padding-right:8px}
 .unpack>.btn{margin:4px 14px 4px 0;font-family:"JetBrains Mono",monospace;min-width:44px;min-height:44px;justify-content:center}
+.unpack>.btn{max-width:9em;overflow:hidden;text-overflow:ellipsis}
 .section-h{display:flex;align-items:baseline;gap:10px;margin:22px 0 10px}
 .section-h h3{font-size:19px}
 .section-h .tiny{margin-left:auto}

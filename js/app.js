@@ -380,7 +380,7 @@ function cameFrom(cur, nb){
 }
 async function unpack(list){
   const done=[];
-  for(const [p,to] of list){ if(await writePart({...p, binId:to, from:''})){ done.push(p); UNPACKED.set(p.id,{box:p.binId, to, from:p.from||''}); } else break; }
+  for(const [p,to] of list){ if(await writePart({...p, binId:to, from:''})){ done.push(p); UNPACKED.set(p.id,{box:p.binId, to, from:p.from||''}); noteRecent(to); } else break; }
   return done;
 }
 // Puts bags taken out by mistake back in the box, as they were, unless one has moved again since.
@@ -406,6 +406,55 @@ function unpackByTag(t){
   if(!to){ toast(`${name} has no bin to go back to: choose one under Unpack into`,3500); return true; }
   unpack([[p,to.id]]).then(unpacked);
   return true;
+}
+// The bins and boxes moved to, packed into or unpacked into lately on this device, newest first: Move lists them first.
+const recentBins=()=>{ const r=localGet('pb.recentbins',[]); return Array.isArray(r)?r.filter(x=>typeof x==='string'):[]; };
+function noteRecent(id){ if(id) localSet('pb.recentbins',[id,...recentBins().filter(x=>x!==id)].slice(0,8)); }
+// Moves parts to a bin or box, each by the "came from" rule (cameFrom), and says so with Undo, which puts back each one
+// that hasn't moved again since, where it was and what it came from.
+async function moveTo(list, c){
+  const undo=[];
+  for(const x of list){
+    const cur=S.parts.get(x.id); if(!cur || cur.binId===c.id) continue;
+    const {from, backIn}=cameFrom(cur, c);
+    try{ await S.db.doc('parts/'+cur.id).update({binId:c.id, from}); }catch(e){ writeFail(e); break; }
+    if(backIn) UNPACKED.delete(cur.id);
+    undo.push({id:cur.id, name:bagStr(cur.bag)||cur.name, binId:cur.binId||'', from:cur.from||'', to:c.id});
+  }
+  noteRecent(c.id);
+  if(!undo.length) return 0;
+  toast(undo.length===1?`${undo[0].name} → ${c.code}`:`${undo.length} parts moved to ${c.code}`, 1800, {label:'Undo', run:async()=>{
+    let n=0;
+    for(const u of undo){ const cur=S.parts.get(u.id); if(!cur || cur.binId!==u.to) continue;
+      try{ await S.db.doc('parts/'+u.id).update({binId:u.binId, from:u.from}); n++; }catch(e){ writeFail(e); return; } }
+    if(n) toast(n===1?`${undo[0].name} is back where it was`:`${n} parts are back where they were`);
+  }});
+  return undo.length;
+}
+// Move, from a part's page: the bins and boxes moved to lately first, then the rest. While it's open, holding a bin's or
+// box's sticker moves the bag there, so the phone does the choosing at the shelf.
+let moveCatch=null; // while Move is open: what a tag held does (onTag)
+function moveSheet(p){
+  const here=binOf(p), others=[...S.bins.values()].filter(c=>c.id!==p.binId), name=bagStr(p.bag)||p.name;
+  const recent=recentBins().map(id=>S.bins.get(id)).filter(c=>c && c.id!==p.binId).slice(0,5);
+  const rest=others.filter(c=>!recent.includes(c)).sort((x,y)=>(isBox(x)-isBox(y))||binCodeSort(x,y));
+  const row=c=>`<button type="button" class="item" data-to="${esc(c.id)}"><div><div class="t"><span class="label${isBox(c)?' box':''}">${esc(c.code)}</span> ${esc(c.name||'')}</div>${c.location?`<div class="s">${esc(c.location)}</div>`:''}</div></button>`;
+  const native=NFC_OK && !FRAMED;
+  const {el,close}=sheet(`<h3>Move ${esc(name)}</h3>
+    <p class="muted">${here?`In <span class="label${isBox(here)?' box':''}">${esc(here.code)}</span> now. `:'In no bin now. '}${!others.length?'There’s no other bin or box yet.':native?'Hold the sticker of the bin or box it’s going into, or pick one.':'Pick where it’s going.'}</p>
+    ${recent.length?`<div class="lbl">Lately</div><div class="list">${recent.map(row).join('')}</div>`:''}
+    ${rest.length?(recent.length?`<details class="more"><summary>Every other bin and box (${rest.length})</summary><div class="list">${rest.map(row).join('')}</div></details>`:`<div class="list">${rest.map(row).join('')}</div>`):''}
+    <div class="actions"><button class="btn" id="done">Cancel</button></div>`, ()=>{ if(moveCatch===catcher) moveCatch=null; });
+  el.querySelector('#done').onclick=close;
+  const to=c=>{ close(); moveTo([p], c); };
+  el.querySelectorAll('[data-to]').forEach(b=>b.onclick=()=>{ const c=S.bins.get(b.dataset.to); if(c) to(c); });
+  const catcher=t=>{
+    const hit=findTarget(t);
+    if(hit?.kind==='bin'){ try{ navigator.vibrate?.(40); }catch{} if(hit.item.id===p.binId) toast(`${name} is in ${hit.item.code} already`); else to(hit.item); }
+    else toast(hit?`That’s ${bagStr(hit.item.bag)?'bag '+bagStr(hit.item.bag):hit.item.name}’s tag. Hold a bin’s or box’s.`:'That tag isn’t one of yours',2500);
+    return true;
+  };
+  moveCatch=catcher;
 }
 function deleteBin(b, then){
   const n=partsInBin(b.id).length, box=isBox(b), word=box?'box':'bin';
@@ -509,6 +558,7 @@ function renderPartPage(m, pid){
   m.append(head); head.querySelector('#back').onclick=()=>canGoBack()?history.back():go('parts');
   head.querySelector('#edit').addEventListener('click',()=>editPart(p));
   const tg=h(`<button class="btn sm" id="bagtag">${ICONS.nfc} ${p.tagWritten?'Rewrite tag':'Bag tag'}</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg);
+  const mv=h('<button class="btn sm" id="move">Move</button>'); mv.onclick=()=>moveSheet(p); tg.before(mv);
   const ref=!!p.img;
   // the bag number sits under the photo, big enough to match against the bag across the bench
   // and says when its sticker has been written, as a bin's page does
@@ -803,7 +853,7 @@ function renderScan(m){
     <div><label class="lbl" for="dest">Packing into</label><div class="row" style="margin-top:4px"><select id="dest" style="flex:1 1 170px;min-width:0;width:auto"><option value="">— pick a box or bin —</option>${conts.map(c=>`<option value="${c.id}" ${c.id===dest?'selected':''}>${esc(packLabel(c))}</option>`).join('')}</select><button class="btn sm" id="newbin" aria-label="New bin">${ICONS.plus} Bin</button><button class="btn sm" id="newbox" aria-label="New box">${ICONS.plus} Box</button></div></div>
     <div style="text-align:right"><div class="lbl">Next bag</div><div class="big">${bagStr(nb)}</div></div></div>`);
   m.append(staleNote(), head);
-  head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); render(); }; // what's been packed into it
+  head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); noteRecent(e.target.value); render(); }; // what's been packed into it
   head.querySelector('#newbox').onclick=()=>{ localSet('sr.newkind','box'); editBin(null); };
   head.querySelector('#newbin').onclick=()=>{ localSet('sr.newkind','bin'); editBin(null); };
   // How Pack works, in full until this browser has packed a bag, then folded away to one line, so the field to type in
@@ -1266,6 +1316,7 @@ function onTag(ev){
     const url=new TextDecoder().decode(rec.data), t=tagTarget(url); if(!t) continue;
     // A tag sheet keeps it, to say whose sticker it is if writing fails; another sheet says what it's in the way of.
     if(tagWait){ tagWait.read={url, at:Date.now()}; return; }
+    if(moveCatch?.(t)) return; // Move is open: a bin's sticker is where the bag goes
     // (Not for what's open behind it already: the old tag that opened "Update this tag?", read again as it's held.)
     if(open){ const hit=findTarget(t), here=['bag','bin','part'].includes(S.route.view) && findTarget(S.route);
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }

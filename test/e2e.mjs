@@ -2326,6 +2326,69 @@ await desk.goto(base);
   await uCtx.close();
 }
 
+// ---- Move on a part's page: the bins moved to lately first, then the rest; a tap, or holding a bin's sticker while it's
+// open, moves the bag there with Undo, by the same "came from" rule as Pack and Unpack
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental', location: 'Rack A', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', t: 1 }, 'b-led': { code: 'LED', name: 'Lights', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', t: 1 } },
+    parts: {
+      'p-ina': { name: 'INA219', binId: 'b-env', qty: 2, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 },
+      'p-two': { name: 'SCD41', binId: 'b-env', qty: 1, unit: 'pcs', tags: [], bag: 2, tagWritten: true, t: 1 },
+    } } });
+  const mCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await mCtx.addInitScript(fakeNfc);
+  await mCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
+  const mp = await mCtx.newPage();
+  mp.problems = []; mp.on('pageerror', e => mp.problems.push(e.message)); mp.on('console', m => { if (m.type() === 'error') mp.problems.push(m.text()); });
+  const got = () => mp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-ina']);
+  const until = bin => mp.waitForFunction(bin => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-ina'].binId === bin, bin);
+  const closed = () => mp.waitForFunction(() => !document.querySelector('.sheet'));
+  const hold = path => mp.evaluate(p => window.__read(location.origin + '/' + p), path);
+  await mp.goto(base + '#part/p-ina'); await mp.waitForSelector('#move'); await mp.waitForFunction(() => !!window.__reader?.onreading);
+  // nothing moved to lately: every other bin and box, bins first
+  await mp.click('#move'); await mp.waitForSelector('.sheet [data-to]');
+  assert.equal(await mp.textContent('.sheet h3'), 'Move #001');
+  assert.equal(await mp.textContent('.sheet p.muted'), 'In ENV now. Hold the sticker of the bin or box it’s going into, or pick one.');
+  assert.deepEqual(await mp.locator('.sheet [data-to]').evaluateAll(b => b.map(x => x.dataset.to)), ['b-led', 'b-pwr', 'box-1']);
+  assert.equal(await mp.locator('.sheet details').count(), 0);
+  // a tap moves it, with Undo
+  await mp.click('.sheet [data-to="b-pwr"]'); await closed(); await until('b-pwr');
+  await mp.waitForSelector('#toast:has-text("#001 → PWR") button:has-text("Undo")');
+  assert.match(await mp.textContent('.binhead .muted'), /In PWR/);
+  await mp.click('#toast button'); await until('b-env');
+  await mp.waitForSelector('#toast:has-text("#001 is back where it was")');
+  // PWR first now, under Lately, the rest folded away
+  await mp.click('#move'); await mp.waitForSelector('.sheet [data-to]');
+  assert.equal(await mp.textContent('.sheet .lbl'), 'Lately');
+  assert.deepEqual(await mp.locator('.sheet .list').first().locator('[data-to]').evaluateAll(b => b.map(x => x.dataset.to)), ['b-pwr']);
+  assert.equal(await mp.textContent('.sheet details summary'), 'Every other bin and box (2)');
+  // a bag's sticker held while it's open isn't where it goes; nor is the bin it's in
+  await hold('#bag/002'); await mp.waitForSelector('#toast:has-text("That’s bag #002’s tag. Hold a bin’s or box’s.")');
+  await hold('#bin/b-env'); await mp.waitForSelector('#toast:has-text("#001 is in ENV already")');
+  assert.equal(await mp.locator('.sheet').count(), 1); assert.equal(await mp.evaluate(() => location.hash), '#part/p-ina');
+  // a bin's sticker held while it's open moves the bag there, and the page stays on the part
+  await hold('#bin/b-led'); await closed(); await until('b-led');
+  await mp.waitForSelector('#toast:has-text("#001 → LED")');
+  assert.equal(await mp.evaluate(() => location.hash), '#part/p-ina');
+  // into a box: it came from the bin it was in; out again: forgotten
+  await mp.click('#move'); await mp.click('.sheet details summary'); await mp.click('.sheet [data-to="box-1"]'); await until('box-1');
+  assert.equal((await got()).from, 'LED');
+  await mp.click('#move'); await mp.waitForSelector('.sheet [data-to]');
+  assert.equal(await mp.textContent('.sheet p.muted'), 'In BOX 01 now. Hold the sticker of the bin or box it’s going into, or pick one.');
+  await hold('#bin/b-pwr'); await until('b-pwr');
+  assert.equal((await got()).from, '');
+  // closed (Cancel, or the phone's Back), a bin's sticker opens the bin again
+  await mp.click('#move'); await mp.click('.sheet #done'); await closed();
+  await hold('#bin/b-env'); await mp.waitForFunction(() => location.hash === '#bin/b-env');
+  assert.equal((await got()).binId, 'b-pwr');
+  await mp.goto(base + '#part/p-ina'); await mp.click('#move'); await mp.waitForSelector('.sheet [data-to]');
+  await mp.evaluate(() => history.back()); await closed();
+  await hold('#bin/b-led'); await mp.waitForFunction(() => location.hash === '#bin/b-led');
+  assert.equal((await got()).binId, 'b-pwr');
+  assert.deepEqual(mp.problems, []);
+  await mCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

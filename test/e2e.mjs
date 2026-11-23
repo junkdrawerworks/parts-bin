@@ -454,11 +454,21 @@ assert.ok(card.where <= card.line + 1, `where it is takes ${card.where} px, more
 assert.equal(await page.getByRole('cell', { name: 'missing' }).count(), 1, 'a missing line lost its status cell');
 await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-set inserts\nFor this build you’ll need:'); await page.click('#check');
 // everything on hand says so, and which bins it's in, with no red "0 missing" (it showed three chips, two of them 0)
-await page.fill('#bom', '1 BME280\n1 SCD41\nSCD41 x1'); await page.click('#check');
-assert.equal(await page.textContent('.bom-summary'), 'You have everything for this. 2 parts, in ENV');
+await page.fill('#bom', '3 BME280\n1 SCD41\nSCD41 x1'); await page.click('#check');
+assert.equal(await page.textContent('.bom-summary'), 'You have everything for this. 2 parts, in ENVCopy pick list');
 assert.equal(await page.locator('.bom-summary .chip, #out #copy').count(), 0);
 assert.equal(await page.textContent('.bom-summary .label'), 'ENV');
 await page.waitForFunction(() => document.getElementById('say').textContent === 'You have everything for this. 2 parts', null, { timeout: 2000 }).catch(() => assert.fail('BOM check didn’t say it has everything'));
+// a pick list of the lines on hand, a bin a line with bag numbers, for gathering a build: a line that's short, missing or a
+// near match isn't on it, two lines for one part are one entry, and a part not in a bin comes last
+await page.evaluate(() => { window.__shared = ''; });
+await page.click('.bom-summary #picktop');
+await page.waitForFunction(() => window.__shared === 'ENV: 3× BME280 (Adafruit) #001, 2× SCD41');
+await inject('p-loose2', { name: 'Hookup wire', qty: 5, unit: 'm' });
+await page.fill('#bom', '1 BME280\n1 SCD41\nSGP30\n50cm hookup wire\n0.1 m heat shrink tubing 5mm\nSCD41 x1'); await page.click('#check');
+await page.click('#out #pick');
+await page.waitForFunction(() => window.__shared === 'ENV: 1× BME280 (Adafruit) #001, 2× SCD41\nNo bin: 0.5 m Hookup wire');
+await inject('p-loose2', null);
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card

@@ -567,6 +567,14 @@ function renderBom(m){
       const unit=r.unit||unitOf(r);
       return `<tr data-st="${st.split(' ')[0]}"><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
+    // The pick list: the parts on hand for this, one bin a line (bins by code, bags by number, then the parts not in a bin),
+    // so gathering a build is a walk to each bin once: "ENV: 2× BME280 (Adafruit) #001, 1× SCD41 #002".
+    const picks=new Map();
+    for(const r of items) if(r.m && !near(r) && !lacks(r) && !picks.has(r.m.p.id)) picks.set(r.m.p.id,{p:r.m.p, qty:need.get(r.m.p.id).qty, unit:unitOf(r)});
+    const byBin=new Map(); for(const x of picks.values()){ const b=binOf(x.p)||null, k=b?b.id:''; if(!byBin.has(k)) byBin.set(k,{b,xs:[]}); byBin.get(k).xs.push(x); }
+    const bagNo=x=>BG.bagOf(x.p)||Infinity;
+    const pick=[...byBin.values()].sort((a,b)=>(!a.b)-(!b.b) || (a.b&&b.b?binCodeSort(a.b,b.b):0)).map(({b,xs})=>`${b?b.code:'No bin'}: ${xs.sort((x,y)=>(bagNo(x)-bagNo(y))||byName(x.p.name,y.p.name)).map(x=>`${x.unit?`${x.qty} ${x.unit}`:`${x.qty}×`} ${x.p.name}${x.p.bag?' '+bagStr(x.p.bag):''}`).join(', ')}`);
+    const pickBtn=idn=>pick.length?`<button class="btn sm" id="${idn}">Copy pick list</button>`:'';
     // Everything on hand says so, and where it all is (the bins in the order the list comes to them). Otherwise a count of
     // none isn't shown: a red "0 missing" read as something wrong.
     let sum, say;
@@ -576,18 +584,18 @@ function renderBom(m){
       for(const r of items) if(r.m){ ids.add(r.m.p.id); const b=binOf(r.m.p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); }
       const and=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1], n=ids.size;
       const where=[bins.length?'in '+and(bins.map(b=>`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`)):'', loose.size?(bins.length?`${loose.size} not in a bin`:'not in a bin'):''].filter(Boolean).join('; ');
-      sum=`<div class="bom-summary allhave"><span><b>You have everything for this.</b> ${many(n,'part')}${where?', '+where:''}</span></div>`;
+      sum=`<div class="bom-summary allhave"><span><b>You have everything for this.</b> ${many(n,'part')}${where?', '+where:''}</span><span class="grow"></span>${pickBtn('picktop')}</div>`;
       say=`You have everything for this. ${many(n,'part')}`;
     } else {
       const counts=[[have,'have','ok'],[check,'check','warn'],[short,'short','warn'],[missing,'missing','bad']].filter(([k])=>k);
       // the shopping list from the top as well, so a phone needn't scroll past every line to it
       // each count shows only its lines when tapped, and every line again when tapped again
       if(!counts.some(([,w])=>w===bomOnly)) bomOnly='';
-      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<button type="button" class="chip ${c}" data-only="${w}" aria-pressed="false">${k} ${w}</button>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button></div>`;
+      sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<button type="button" class="chip ${c}" data-only="${w}" aria-pressed="false">${k} ${w}</button>`).join('')}<span class="grow"></span>${pickBtn('picktop')}<button class="btn sm" id="copytop">Copy shopping list</button></div>`;
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
-      ${missing+short+check?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
+      ${missing+short+check||pick.length?`<div class="row" style="margin-top:10px">${missing+short+check?'<button class="btn sm" id="copy">Copy shopping list</button>':''}${pickBtn('pick')}</div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
     const shopping=items.filter(r=>!r.heading && (near(r) || lacks(r))).filter(r=>!r.m || near(r) || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>near(r)
       ? `${r.qty} ${r.unit||'×'} ${r.name} (check: you have ${aName(r.m.p.name)})` // all of it, in case what was found is the wrong part
@@ -605,6 +613,7 @@ function renderBom(m){
     };
     only();
     out.querySelectorAll('.bom-summary [data-only]').forEach(b=>b.onclick=()=>{ bomOnly=bomOnly===b.dataset.only?'':b.dataset.only; only(); said(bomOnly?`Showing only ${b.textContent}`:'Showing every line'); });
+    out.querySelectorAll('#pick,#picktop').forEach(b=>b.onclick=()=>copyText(pick.join('\n'),'Pick list copied','Copy the pick list'));
     out.querySelectorAll('#copy,#copytop').forEach(b=>b.onclick=()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }

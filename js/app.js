@@ -628,9 +628,13 @@ function editPart(p, opts={}){
     const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     delete doc.id;
     if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(S.parts.get(p.id))) doc.tagWritten=false; // no tag carries the new number until one is written
-    const tagNow = dotag.checked && bag!=='';
+    // The tag sheet opens after saving where a tag can be written. Elsewhere (an iPhone, a laptop) it couldn't write one,
+    // so a new number is said instead, to write on the bag.
+    const tagNow = native && dotag.checked && bag!=='', newNo = bag!=='' && bag!==BG.bagOf(S.parts.get(p.id));
     if(isNew) localSet('pb.lastbin', newBin);
-    try{ await S.db.doc('parts/'+p.id).set(doc); close(); if(!tagNow) toast(isNew?'Part added':'Saved'); opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }
+    try{ await S.db.doc('parts/'+p.id).set(doc); close();
+      if(!tagNow) toast(newNo ? `Bag ${bagStr(bag)} saved. Write ${bagStr(bag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
+      opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }
   };
 }
 async function writePart(p){ const d={...p}; delete d.id; d.updatedAt=new Date().toISOString(); try{ await S.db.doc('parts/'+p.id).set(d); return true; }catch(e){ writeFail(e); return false; } }
@@ -649,12 +653,12 @@ function tagSheet(b, kind='bin', opts={}){
   const label = kind==='part' ? (bagStr(b.bag)||b.name) : b.code;
   const native = NFC_OK && !FRAMED;
   const title = kind==='part' ? `Tag bag <span class="label lg">${esc(bagStr(b.bag)||b.name)}</span>` : `Tag <span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span>`;
-  let ctl=null; // however the sheet closes (Back, Escape, a tap outside, Cancel), a write still waiting for the sticker stops
+  let ctl=null, written=false; // however the sheet closes (Back, Escape, a tap outside, Cancel), a write still waiting for the sticker stops
   const {el,close}=sheet(`<h3>${title}</h3>
     ${kind==='part'&&b.bag?`<p class="muted">${newBag?`This will be bag <b>${esc(bagStr(b.bag))}</b>. The number is saved once ${native?'the tag is written':'its link is copied'}; write it on the bag then.`:`Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.`}</p>`:''}
     <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
-    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>ctl?.abort());
+    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
   el.querySelector('#done').onclick=close;
   // The number was free when the sheet opened. If another part has taken it since (another tab, a sync), stop here
   // rather than put two bags on one number.
@@ -668,7 +672,7 @@ function tagSheet(b, kind='bin', opts={}){
     tz.className='tagzone wait'; st.innerHTML='Hold the sticker to the <b>top edge of the phone</b>…';
     try{
       await new NDEFReader().write({records:[{recordType:'url', data:url}]}, {overwrite, signal:ctl.signal});
-      lastWrite=Date.now();
+      lastWrite=Date.now(); written=true;
       try{ navigator.vibrate?.(70); }catch{}
       tz.className='tagzone ok'; st.textContent=`${label} tag written.`;
       const kept=await S.db.doc((kind==='part'?'parts/':'bins/')+b.id).update(newBag?{tagWritten:true, bag:newBag}:{tagWritten:true}).then(()=>true, e=>{ if(e?.code!=='invalid_argument') writeFail(e); return false; });

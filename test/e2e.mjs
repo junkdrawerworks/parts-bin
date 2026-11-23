@@ -904,6 +904,11 @@ await desk.goto(base);
   await pg.waitForSelector('#toast:has-text("Bag #011 is already used")'); assert.equal(await pg.inputValue('#p-bag'), '11');
   await pg.click('.sheet #cancel'); await gone();
 
+  // skipping the tag after a save still says it was saved (nothing did)
+  await pg.goto(base + '#scan'); await pg.fill('#desc', 'Hot glue sticks'); await pg.press('#desc', 'Enter'); await pg.waitForSelector('.sheet #p-bag');
+  await pg.click('.sheet #save'); await pg.waitForSelector('#tz.wait'); await pg.click('.sheet #done'); await gone();
+  await pg.waitForSelector('#toast:has-text("Saved as bag #012")');
+
   // a match with no category or bin reads cleanly (it was "#002 ·  · in stock 1")
   await pg.goto(base + '#scan'); await pg.fill('#desc', 'Buzzer'); await pg.waitForSelector('.matchlist [data-id="p-buzz"]');
   assert.equal(await pg.textContent('.matchlist [data-id="p-buzz"] .s'), '#002 · in stock 1');
@@ -949,11 +954,18 @@ await desk.goto(base);
   const got = id => np.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
   // with only one bin, Pack starts on it (it started on "pick a box or bin", and the parts went in no bin)
   await np.goto(base + '#scan'); assert.equal(await np.inputValue('#dest'), 'b01');
+  // saving in Pack says the bag's number to write on it, with no tag sheet that can't write a tag (it opened one for every bag)
+  await np.fill('#desc', 'OLED 0.96'); await np.press('#desc', 'Enter'); await np.waitForSelector('.sheet #p-bag');
+  assert.equal(await np.textContent('.bt-head'), 'Put it in bag #001'); assert.equal(await np.textContent('.sheet #save'), 'Save');
+  await np.click('.sheet #save');
+  await np.waitForSelector('#toast:has-text("Bag #001 saved. Write #001 on the bag.")');
+  assert.equal(await np.locator('.sheet').count(), 0);
+  assert.equal(await np.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).find(x => x.name === 'OLED 0.96').binId), 'b01');
   // where there's no clipboard at all, a tag's Copy link shows the link to copy by hand (it did nothing)
   await np.goto(base + '#part/p-loose'); await np.evaluate(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined, configurable: true }));
   await np.click('text=Bag tag'); await np.click('.sheet #copy');
   await np.waitForSelector('.sheet textarea');
-  assert.equal(await np.inputValue('.sheet textarea'), base + '#bag/001'); assert.equal((await got('p-loose')).bag, 1);
+  assert.equal(await np.inputValue('.sheet textarea'), base + '#bag/002'); assert.equal((await got('p-loose')).bag, 2);
   await np.click('.sheet #done');
 
   assert.deepEqual(np.problems, [], 'problems with no NFC');

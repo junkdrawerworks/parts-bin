@@ -8,8 +8,7 @@ import * as BG from './bags.js';
 import { LONG } from './model.js';
 // ------------------------------------------------------------------ state
 const S = {
-  db: null, user: null, sample: null, assets: null, downloads: null,
-  canWrite: true, uid: null,
+  db: null, sample: null,
   bins: new Map(), parts: new Map(), projects: new Map(),
   q: '', route: parseHash(), loaded: false, imgOk: false,
 };
@@ -78,10 +77,8 @@ function binOf(p){ return p.binId ? S.bins.get(p.binId) : null; }
 const byName=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'}).compare;
 function partsInBin(binId){ return [...S.parts.values()].filter(p=>p.binId===binId).sort((a,b)=>byName(a.name,b.name)); }
 function binCodeSort(a,b){ return a.code.localeCompare(b.code, undefined, {numeric:true}); }
-// Photos taken in the Stockroom artifact are kept in its own store on claude.ai, which this page can't reach (S.assets is
-// that store, and there isn't one here). Their ids stay in the data, and the icon or a reference photo shows instead.
-function assetUrl(idv){ return idv && S.assets ? '/_blob/'+idv : ''; }
-function photoImg(idv){ const u=assetUrl(idv); return u ? `<img src="${u}" alt="">` : ''; }
+// Photos taken in the Stockroom artifact stayed in its own store on claude.ai, which this page can't reach. Their ids stay
+// in the data (photo), and the icon or a reference photo shows instead.
 function isBox(b){ return !!b && b.kind==='box'; }
 function nextBag(){ let m=0; for(const p of S.parts.values()) m=Math.max(m,BG.bagOf(p)); return m+1; }
 function bagStr(n){ return n ? '#'+String(n).padStart(3,'0') : ''; }
@@ -212,7 +209,7 @@ function renderNav(){
   document.getElementById('nav').innerHTML = mk(); document.getElementById('tabbar').innerHTML = mk();
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
   const n=S.parts.size, b=S.bins.size, low=[...S.parts.values()].filter(isLow).length;
-  document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}<br>${S.canWrite?'':'read-only view'}`;
+  document.getElementById('sidefoot').innerHTML = `${b} bin${b===1?'':'s'} · ${n} part${n===1?'':'s'}${low?` · <span style="color:var(--warn)">${low} low</span>`:''}`;
 }
 function topbar(m, title, extra=''){
   const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bags" value="${esc(S.q)}" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
@@ -235,7 +232,7 @@ function redrawResults(m, tb){
 
 // ---- Bins
 function renderBins(m){
-  const tb=topbar(m,'Bins', S.canWrite?`<button class="btn primary" id="addbin" aria-label="New bin">${ICONS.plus} Bin</button>`:'');
+  const tb=topbar(m,'Bins', `<button class="btn primary" id="addbin" aria-label="New bin">${ICONS.plus} Bin</button>`);
   clashBar(m); codeNote(m);
   tb.querySelector('#addbin')?.addEventListener('click',()=>editBin(null));
   if(S.q){ renderSearchResults(m); return; }
@@ -248,7 +245,7 @@ function renderBins(m){
     m.append(h(`<div class="section-h"><h3>Moving boxes</h3><span class="tiny">${boxes.length} box${boxes.length===1?'':'es'} · ${packed} bag${packed===1?'':'s'} packed</span></div>`));
     const g=h('<div class="bins"></div>');
     for(const b of boxes){ const ps=partsInBin(b.id);
-      const c=h(`<button type="button" class="bin"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div class="body"><div><span class="label box">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} bag${ps.length===1?'':'s'}</span>${b.sealed?'<span>sealed</span>':''}</div></div></button>`);
+      const c=h(`<button type="button" class="bin"><div class="photo">${ICONS.box}</div><div class="body"><div><span class="label box">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} bag${ps.length===1?'':'s'}</span>${b.sealed?'<span>sealed</span>':''}</div></div></button>`);
       c.onclick=()=>go('bin',b.id); g.append(c); }
     m.append(g);
   }
@@ -258,7 +255,7 @@ function renderBins(m){
     const g=h('<div class="bins"></div>');
     for(const b of list){
       const ps=partsInBin(b.id); const low=ps.filter(isLow).length;
-      const c=h(`<button type="button" class="bin"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div class="body"><div><span class="label">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} part${ps.length===1?'':'s'}</span>${low?`<span style="color:var(--warn)">${low} low</span>`:''}</div></div></button>`);
+      const c=h(`<button type="button" class="bin"><div class="photo">${ICONS.box}</div><div class="body"><div><span class="label">${esc(b.code)}</span></div><div class="name">${esc(b.name||'')}</div><div class="meta"><span>${ps.length} part${ps.length===1?'':'s'}</span>${low?`<span style="color:var(--warn)">${low} low</span>`:''}</div></div></button>`);
       c.onclick=()=>go('bin',b.id); g.append(c);
     }
     m.append(g);
@@ -287,7 +284,7 @@ function renderSearchResults(m){
 // A search that found nothing: what was looked for, a way back, and (for a name long enough to be one) adding it as a part.
 // With a filter on in Parts, it says which, and offers every category instead.
 function noMatch(m, filter='', list=false){
-  const q=S.q.trim(), add=S.canWrite && q.length>=3, what=q?` “${esc(q)}”`:'';
+  const q=S.q.trim(), add=q.length>=3, what=q?` “${esc(q)}”`:'';
   const says=!filter?`Nothing matches${what}.`:list?`Nothing in “${esc(filter)}”${q?` matches${what}`:''}.`:`No ${esc(filter)} match${what}.`; // a category, or a list such as Low stock
   const e=h(`<div class="empty"><p>${says}</p><div class="row" style="justify-content:center">${filter?'<button class="btn" id="allcats">Show all categories</button>':''}${q?'<button class="btn" id="clearq">Clear search</button>':''}${add&&!filter?`<button class="btn primary" id="addq">${ICONS.plus} Add “${esc(q)}” as a part</button>`:''}</div></div>`);
   e.querySelector('#allcats')?.addEventListener('click',()=>{ localSet('sr.cat',''); render(); });
@@ -340,7 +337,7 @@ function codeNote(m, only){
     const what=boxes===n?`${num} boxes`:!boxes?`${num} bins`:n===2?'a box and a bin':`${n} bins and boxes`;
     // the one to rename: this one on its own page; on Bins, one without its tag written if there is one
     const pick=only || list.find(x=>!x.tagWritten) || list[list.length-1];
-    const el=h(`<div class="checknote codenote"><div><b>${esc(list[0].code)} is on ${what}.</b> Rename one, and rewrite its label.</div>${S.canWrite?'<button class="btn sm">Rename</button>':''}</div>`);
+    const el=h(`<div class="checknote codenote"><div><b>${esc(list[0].code)} is on ${what}.</b> Rename one, and rewrite its label.</div><button class="btn sm">Rename</button></div>`);
     el.querySelector('button')?.addEventListener('click',()=>editBin(pick,{code:true}));
     m.append(el);
   }
@@ -390,7 +387,7 @@ function renderBin(m, binId){
   const ps=partsInBin(binId); if(isBox(b)) ps.sort(byBag); // a box's bags in number order, as they're labelled and printed
   const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back to bins">${ICONS.back}</button><span class="grow"></span>
     <button class="btn sm" id="print">Print list</button><button class="btn sm" id="copy">Copy list</button>
-    ${S.canWrite?`<button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add" aria-label="New part">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button>`:''}</div>`);
+    <button class="btn sm" id="tag">${ICONS.nfc} Tag</button><button class="btn sm" id="edit">Edit</button>${isBox(b)?'':`<button class="btn sm" id="add" aria-label="New part">${ICONS.plus} Part</button>`}<button class="btn primary sm" id="pack">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button></div>`);
   m.append(head);
   head.querySelector('#back').onclick=()=>go('bins');
   head.querySelector('#tag')?.addEventListener('click',()=>tagSheet(b));
@@ -400,16 +397,16 @@ function renderBin(m, binId){
   head.querySelector('#pack')?.addEventListener('click',pack);
   head.querySelector('#print').onclick=()=>printList(b,ps);
   head.querySelector('#copy').onclick=()=>copyText(ps.map(p=>`${p.bag?bagStr(p.bag)+' ':''}${p.name}${p.qty!=null?' ×'+p.qty:''}`).join('\n'),'List copied','Copy the list');
-  m.append(h(`<div class="binhead"><div class="photo">${photoImg(b.photo)||ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${isBox(b)&&b.sealed?' · sealed':''}</div></div></div>`));
+  m.append(h(`<div class="binhead"><div class="photo">${ICONS.box}</div><div><span class="label lg ${isBox(b)?'box':''}">${esc(b.code)}</span><h2>${esc(b.name||'')}</h2><div class="muted">${esc(b.location||'')}${b.notes?` · ${esc(b.notes)}`:''}</div><div class="tiny" style="margin-top:6px">${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'}${b.tagWritten?' · NFC tag written':''}${isBox(b)&&b.sealed?' · sealed':''}</div></div></div>`));
   codeNote(m,b);
   if(!ps.length){
     // emptied on this visit (or taped shut once, so it held something): done with, most likely
     const emptied=isBox(b) && (b.sealed || [...UNPACKED.values()].some(u=>u.box===b.id));
-    const e=h(`<div class="empty"><p>${emptied?'Everything’s unpacked.':isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p>${S.canWrite?`<div class="row" style="justify-content:center">${emptied?'<button class="btn danger" id="delbox">Delete box</button>':''}<button class="btn ${emptied?'':'primary'}" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button></div>`:''}</div>`);
+    const e=h(`<div class="empty"><p>${emptied?'Everything’s unpacked.':isBox(b)?'Nothing packed in this box yet.':'Nothing in this bin yet.'}</p><div class="row" style="justify-content:center">${emptied?'<button class="btn danger" id="delbox">Delete box</button>':''}<button class="btn ${emptied?'':'primary'}" id="packe">${ICONS.scan} Pack into this ${isBox(b)?'box':'bin'}</button></div></div>`);
     e.querySelector('#packe')?.addEventListener('click',pack); e.querySelector('#delbox')?.addEventListener('click',()=>deleteBin(b));
     m.append(e); return;
   }
-  if(isBox(b)&&S.canWrite){
+  if(isBox(b)){
     // Unpacking: each bag goes back to the bin it came out of, or every one to the bin picked. What's picked stays picked
     // while the page redraws after each move.
     const bins=[...S.bins.values()].filter(x=>!isBox(x)).sort(binCodeSort);
@@ -450,7 +447,7 @@ function printList(b, ps){
 function renderParts(m){
   const cats=[...new Set([...S.parts.values()].map(p=>p.category).filter(Boolean))].sort();
   const cur=localGet('sr.cat','');
-  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select>${S.canWrite?`<button class="btn primary" id="addp" aria-label="New part">${ICONS.plus} Part</button>`:''}`);
+  const tb=topbar(m,'Parts', `<select id="cat" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}<option value="__low" ${cur==='__low'?'selected':''}>Low stock</option><option value="__unbagged" ${cur==='__unbagged'?'selected':''}>Not yet bagged</option><option value="__bagged" ${cur==='__bagged'?'selected':''}>Bagged</option><option value="__nobin" ${cur==='__nobin'?'selected':''}>Not in a bin</option><option value="__check" ${cur==='__check'?'selected':''}>To check</option><option value="__clash" ${cur==='__clash'?'selected':''}>Bag numbers to sort out</option></select><button class="btn primary" id="addp" aria-label="New part">${ICONS.plus} Part</button>`);
   tb.querySelector('#cat').onchange=e=>{ localSet('sr.cat',e.target.value); render(); };
   tb.querySelector('#addp')?.addEventListener('click',()=>editPart({}));
   if(cur==='__clash') gapNote(m); else clashBar(m);
@@ -476,22 +473,22 @@ function renderPartPage(m, pid){
   const p=S.parts.get(pid);
   if(!p){ m.append(h(`<div class="empty"><h3>Part not found</h3><p>This tag or link points at a part that no longer exists.</p><button class="btn" id="bk">All parts</button></div>`)); m.querySelector('#bk').onclick=()=>go('parts'); return; }
   const b=binOf(p);
-  const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back">${ICONS.back}</button><span class="grow"></span>${S.canWrite?`<button class="btn sm" id="edit">Edit</button>`:''}</div>`);
+  const head=h(`<div class="row pagehead" style="margin-bottom:10px"><button class="btn icon" id="back" aria-label="Back">${ICONS.back}</button><span class="grow"></span><button class="btn sm" id="edit">Edit</button></div>`);
   m.append(head); head.querySelector('#back').onclick=()=>canGoBack()?history.back():go('parts');
-  head.querySelector('#edit')?.addEventListener('click',()=>editPart(p));
-  if(S.canWrite){ const tg=h(`<button class="btn sm" id="bagtag">${ICONS.nfc} ${p.tagWritten?'Rewrite tag':'Bag tag'}</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg); }
-  const ref=!assetUrl(p.photo)&&p.img;
+  head.querySelector('#edit').addEventListener('click',()=>editPart(p));
+  const tg=h(`<button class="btn sm" id="bagtag">${ICONS.nfc} ${p.tagWritten?'Rewrite tag':'Bag tag'}</button>`); tg.onclick=()=>tagSheet(p,'part'); head.querySelector('#edit').before(tg);
+  const ref=!!p.img;
   // the bag number sits under the photo, big enough to match against the bag across the bench
   // and says when its sticker has been written, as a bin's page does
   const bagTag=p.bag?`<div class="bagbadge${clashOf(p)?' twice':''}"${p.tagWritten?` role="img" aria-label="Bag ${bagStr(p.bag)}, tag written"`:''}><small>Bag</small><span class="bagno">${bagStr(p.bag)}</span>${p.tagWritten?`<span class="tagged">${ICONS.nfc}tagged</span>`:''}</div>`:'';
-  m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${photoImg(p.photo)||ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
+  m.append(h(`<div class="binhead"><div class="lead"><div class="photo${ref?' refphoto':''}"${ref?' role="button" tabindex="0" aria-label="Reference photo, tap to enlarge"':''}>${ICONS.parts+refImg(p)}</div>${bagTag}</div><div>
     <h2>${esc(p.name)}</h2>
     <div class="row" style="gap:6px;margin:4px 0 8px">${p.category?`<span class="chip">${esc(p.category)}</span>`:''}${specChips(p)}${(p.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}${isLow(p)?'<span class="chip warn">low stock</span>':''}</div>
     <div class="muted">${b?`In <a href="#bin/${b.id}"><span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span></a> ${esc(b.name||'')}${b.location?` · ${esc(b.location)}`:''}`:'Not in a bin'}${p.from&&isBox(b)?` <span class="tiny">· was in ${esc(p.from)}</span>`:''}</div>
     ${p.mpn?`<div class="tiny mono" style="margin-top:4px">${esc(p.mpn)}</div>`:''}
     ${/^https?:\/\//i.test(p.link||'')?`<div class="tiny" style="margin-top:4px"><a href="${esc(p.link)}" target="_blank" rel="noopener">Product link</a></div>`:''}
   </div></div>`));
-  if(S.canWrite){
+  { // the count, with − and + either side
     const q=h(`<div class="row" style="margin:6px 0 14px"><label class="muted" for="qv">Quantity</label><div class="qty"><button class="btn icon" id="dec" aria-label="Use one">−</button><input id="qv" type="number" inputmode="decimal" min="0" step="any" value="${esc(p.qty??0)}"><button class="btn icon" id="inc" aria-label="Add one">+</button></div><span class="tiny">${esc(p.unit||'pcs')}${p.minQty!=null&&p.minQty!==''?` · reorder at ${esc(p.minQty)}`:''}</span></div>`);
     m.append(q);
     // a count stops at zero; a refused one goes back; a saved one is said, as the keyboard stays on the button
@@ -500,26 +497,26 @@ function renderPartPage(m, pid){
     const step=d=>save(Number((Number(inp.value)+d).toPrecision(12)));
     q.querySelector('#dec').onclick=()=>step(-1); q.querySelector('#inc').onclick=()=>step(1);
     inp.onchange=()=>save(inp.value);
-  } else m.append(h(`<div class="muted" style="margin-bottom:12px">Quantity: ${esc(fmtQty(p))}</div>`));
+  }
   const cl=clashOf(p);
   if(cl){
     const others=cl.filter(x=>x.id!==p.id), mine=!!p.tagWritten, theirs=others.some(x=>x.tagWritten), nb=nextBag();
     const advice = mine&&!theirs ? `This bag has the tag, so give ${others.length===1?'the other part':'the others'} a new number.`
       : !mine&&theirs ? `${others.length===1?'That one has':'One of those has'} the tag, so give this one a new number.`
       : 'Give one of them a new number, and write it on its bag.';
-    const c=h(`<div class="checknote clash"><div><b>Bag ${esc(bagStr(BG.bagOf(p)))} is on ${cl.length} parts.</b> Also on ${others.map(x=>`<a href="#part/${esc(x.id)}">${esc(x.name)}</a>${binOf(x)?` (${esc(binOf(x).code)})`:''}`).join(', ')}. ${advice}</div>${!S.canWrite?'':mine&&!theirs?others.map(x=>`<button class="btn sm" data-renumber="${esc(x.id)}">Renumber ${esc(x.name)}: ${esc(bagStr(nb))}</button>`).join(''):`<button class="btn sm" id="renumber">New number: ${esc(bagStr(nb))}</button>`}</div>`);
+    const c=h(`<div class="checknote clash"><div><b>Bag ${esc(bagStr(BG.bagOf(p)))} is on ${cl.length} parts.</b> Also on ${others.map(x=>`<a href="#part/${esc(x.id)}">${esc(x.name)}</a>${binOf(x)?` (${esc(binOf(x).code)})`:''}`).join(', ')}. ${advice}</div>${mine&&!theirs?others.map(x=>`<button class="btn sm" data-renumber="${esc(x.id)}">Renumber ${esc(x.name)}: ${esc(bagStr(nb))}</button>`).join(''):`<button class="btn sm" id="renumber">New number: ${esc(bagStr(nb))}</button>`}</div>`);
     // this part's sticker carries the number, so it's the other part that takes a new one
     c.querySelectorAll('[data-renumber]').forEach(btn=>btn.onclick=()=>{ const x=S.parts.get(btn.dataset.renumber); if(x) editPart({...x, bag:nb},{tag:true, autoBag:true}); });
     c.querySelector('#renumber')?.addEventListener('click',()=>editPart({...p, bag:nb},{tag:true, autoBag:true}));
     m.append(c);
   }
   if(p.check){
-    const c=h(`<div class="checknote"><div><b>Check before trusting it.</b> ${esc(p.check)}</div>${S.canWrite?'<button class="btn sm" id="checked">Checked, it’s right</button>':''}</div>`);
+    const c=h(`<div class="checknote"><div><b>Check before trusting it.</b> ${esc(p.check)}</div><button class="btn sm" id="checked">Checked, it’s right</button></div>`);
     c.querySelector('#checked')?.addEventListener('click',async()=>{ try{ await S.db.doc('parts/'+p.id).update({check:''}); toast('Marked as checked'); }catch(e){ writeFail(e); } });
     m.append(c);
   }
   if(p.notes) m.append(h(`<div class="note">${esc(p.notes)}</div>`));
-  if(S.canWrite && lacksDetails(p)){ const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask">Ask Claude for details</button><span class="tiny">Interface, voltages, a part number, a reference photo</span></div>`); ask.querySelector('#ask').onclick=()=>sendToClaude([p]); m.append(ask); }
+  if(lacksDetails(p)){ const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask">Ask Claude for details</button><span class="tiny">Interface, voltages, a part number, a reference photo</span></div>`); ask.querySelector('#ask').onclick=()=>sendToClaude([p]); m.append(ask); }
   const rp=m.querySelector('.refphoto'); if(rp){ rp.onclick=()=>zoomRef(p); rp.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoomRef(p); } }; }
   wireRefs(m);
 }
@@ -534,7 +531,7 @@ function renderBom(m){
   const ui=h(`<div>
     <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}" ${p.id===bomPicked?'selected':''}>${esc(p.name)}</option>`).join('')}</select><span class="grow"></span></div>
     <div class="field"><label for="bom">Parts list — one per line, quantity first or last (<code>2x XIAO ESP32-S3</code>, <code>SCD41 ×1</code>)</label><textarea id="bom" placeholder="2x XIAO ESP32-S3&#10;1 SCD41 breakout&#10;3 WS2812 strip segment&#10;M3 heat-set inserts x8">${esc(last)}</textarea></div>
-    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span>${S.canWrite?'<button class="btn" id="save">Save this BOM</button>':''}</div>
+    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span><button class="btn" id="save">Save this BOM</button></div>
     <div id="out" style="margin-top:14px"></div></div>`);
   m.append(ui);
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
@@ -624,9 +621,8 @@ function staleNote(){
   return el;
 }
 function renderScan(m){
-  const tb=h(`<div class="topbar"><h2>Pack</h2>${S.canWrite?`<button class="btn" id="toinbox">${ICONS.inbox} Inbox${inboxCount()?` <span class="count">${inboxCount()}</span>`:''}</button>`:''}</div>`);
+  const tb=h(`<div class="topbar"><h2>Pack</h2><button class="btn" id="toinbox">${ICONS.inbox} Inbox${inboxCount()?` <span class="count">${inboxCount()}</span>`:''}</button></div>`);
   m.append(tb); tb.querySelector('#toinbox')?.addEventListener('click',()=>go('inbox'));
-  if(!S.canWrite){ m.append(h('<div class="empty"><p>This view is read-only.</p></div>')); return; }
   clashBar(m, true);
   const conts=[...S.bins.values()].sort((x,y)=>(isBox(y)-isBox(x))||binCodeSort(x,y));
   let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
@@ -667,7 +663,7 @@ function renderScan(m){
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
-    editPart(base, {photoFile:null, stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }});
+    editPart(base, {stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -727,8 +723,6 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
 }
 
 // ------------------------------------------------------------------ sheets
-function picked(el,pid){ return el.querySelector('#'+pid+'-cam')?.files?.[0] || el.querySelector('#'+pid+'-pick')?.files?.[0] || null; }
-function wirePhoto(el){ for(const pid of ['f','p']) for(const k of ['cam','pick']){ const inp=el.querySelector('#'+pid+'-'+k); if(!inp) continue; inp.onchange=()=>{ const f=inp.files[0]; const other=el.querySelector('#'+pid+'-'+(k==='cam'?'pick':'cam')); if(other) other.value=''; const pv=el.querySelector('#'+pid+'-prev'); if(f&&pv){ pv.src=URL.createObjectURL(f); pv.hidden=false; } }; } }
 // While a sheet is open the page behind it is inert, so the keyboard stays in the sheet. Closing it hands the keyboard back
 // to whatever opened it.
 // A sheet is also a step in the browser's history, as in an Android app: the phone's Back closes it and leaves the page as
@@ -770,7 +764,7 @@ function sheet(html, onClose){
       if(toastNext && !openSheet && document.getElementById('toast').hidden){ const n=toastNext; toastNext=null; toast(...n); } }); // closed with nothing said
   }
   const title=bg.querySelector('.sheet h3'); if(title){ title.id='sheet-title'; bg.firstElementChild.setAttribute('aria-labelledby','sheet-title'); }
-  root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true); wirePhoto(bg);
+  root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true);
   // The keyboard goes to the first field, or in a sheet with none (a tag's, a photo's) to its main button, but not on a
   // touch screen, where a field's keyboard would pop up over half the sheet before anything needs typing: there the
   // sheet itself has it, so a screen reader starts at its heading.
@@ -803,7 +797,6 @@ function editBin(b, {code:toCode=false}={}){
     <div class="field"><label for="f-kind">Type</label><select id="f-kind"><option value="bin" ${b.kind!=='box'?'selected':''}>Bin (permanent storage)</option><option value="box" ${b.kind==='box'?'selected':''}>Moving box</option></select></div></div>
     <div class="field" id="f-sealedf" ${b.kind==='box'?'':'hidden'}><label for="f-sealed">Sealed</label><select id="f-sealed"><option value="" ${!b.sealed?'selected':''}>No</option><option value="1" ${b.sealed?'selected':''}>Yes — taped shut</option></select></div>
     <div class="field"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(b.notes||'')}"></div>
-    ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
     <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close; enterSaves(el);
   if(toCode){ const f=el.querySelector('#f-code'); f.focus(); f.select(); } // Rename: straight to the code
@@ -820,9 +813,8 @@ function editBin(b, {code:toCode=false}={}){
     // a code another bin has is refused only when it's typed here: one that already clashes (two devices made it) still saves
     const dup=(isNew||code.toLowerCase()!==String(b.code||'').toLowerCase()) && [...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ refuse(el,'#f-code',`Code ${code} already used`); return; }
     const typed={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim()};
-    const cur=!isNew && S.bins.get(b.id), {id:_, updatedAt:__, ...now}=cur||b, doc={...now, photo:now.photo||'', tagWritten:!!now.tagWritten, updatedAt:new Date().toISOString()};
+    const cur=!isNew && S.bins.get(b.id), {id:_, updatedAt:__, ...now}=cur||b, doc={...now, tagWritten:!!now.tagWritten, updatedAt:new Date().toISOString()};
     for(const k of Object.keys(BIN_FORM)) if(!cur || el.querySelector(BIN_FORM[k]).value!==asDrawn[k]) doc[k]=typed[k];
-    const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it
     try{ await S.db.doc('bins/'+b.id).set(doc); close(); toast(isNew?(doc.kind==='box'?'Box added':'Bin added'):'Saved'); if(isNew) go('bin',b.id); }catch(e){ writeFail(e); }
   };
@@ -879,8 +871,6 @@ function editPart(p, opts={}){
       <div class="field"><label for="p-img">Reference photo link</label><input id="p-img" type="url" value="${esc(p.img||'')}" placeholder="https://"></div>
       <div class="field"><label for="p-check">To check (leave empty once you have)</label><input id="p-check" value="${esc(p.check||'')}"></div>
     </details>
-    ${S.assets&&!opts.photoFile?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="p-cam">${ICONS.camera} Take photo<input id="p-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="p-pick">Choose photo<input id="p-pick" type="file" accept="image/*" class="sr"></label><img id="p-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
-    ${opts.photoFile?'<div class="tiny" style="margin-bottom:10px">The scanned photo will be attached.</div>':''}
     <div class="actions">${!isNew?'<button class="btn danger left" id="del">Delete</button>':''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close; enterSaves(el);
   const dotag=el.querySelector('#p-dotag')||{checked:false}, bagIn=el.querySelector('#p-bag'), saveBtn=el.querySelector('#save'), show=el.querySelector('#p-bagshow');
@@ -939,7 +929,6 @@ function editPart(p, opts={}){
     const un=cur && UNPACKED.get(p.id), backIn=!!un && isBox(nb) && nb.id===un.box && cur.binId===un.to;
     const from = backIn ? un.from : (oldB && !isBox(oldB) && isBox(nb)) ? oldB.code : isBox(oldB) && !isBox(nb) ? '' : keptFrom;
     if(!cur || from!==keptFrom) changes.from=from;
-    const pf=opts.photoFile||picked(el,'p'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); changes.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     const {id:_, updatedAt, ...rest}=cur||p, doc={...rest, ...changes};
     if(doc.tagWritten && BG.bagOf(doc)!==BG.bagOf(cur)) doc.tagWritten=changes.tagWritten=false; // no tag carries the new number until one is written
     // The tag sheet opens after saving where a tag can be written. Elsewhere (an iPhone, a laptop) it couldn't write one,
@@ -955,10 +944,9 @@ function editPart(p, opts={}){
 async function writePart(p){ const d={...p}; delete d.id; d.updatedAt=new Date().toISOString(); try{ await S.db.doc('parts/'+p.id).set(d); return true; }catch(e){ writeFail(e); return false; } }
 // With this browser's storage full, deleting can't make room (a deleted part is kept, marked deleted, so other devices
 // hear of it); dismissing what's waiting in the Inbox can.
-function writeFail(e){ if(e&&e.code==='invalid_argument'){ S.canWrite=false; toast('This view is read-only'); render(); } else if(e&&e.code==='quota_exceeded') toast('This browser’s storage is full, so that wasn’t saved.'+(INBOX.batches.length?' Dismiss what’s waiting in the Inbox to make room.':''),4500); else toast('Save failed — try again'); }
-async function shrink(file){
-  try{ const bmp=await createImageBitmap(file); const max=1280; const s=Math.min(1,max/Math.max(bmp.width,bmp.height)); const c=document.createElement('canvas'); c.width=Math.round(bmp.width*s); c.height=Math.round(bmp.height*s); c.getContext('2d').drawImage(bmp,0,0,c.width,c.height); return await new Promise(r=>c.toBlob(b=>r(b||file),'image/jpeg',.82)); }catch{ return file; }
-}
+// A part or bin deleted on another device since this screen was drawn (a sync brought the deletion in) can't be changed:
+// that's said, and the screen drawn again without it.
+function writeFail(e){ if(e&&e.code==='deleted'){ toast(`That ${e.kind==='bins'?'bin':'part'} was deleted on another device`,4000); render(); } else if(e&&e.code==='quota_exceeded') toast('This browser’s storage is full, so that wasn’t saved.'+(INBOX.batches.length?' Dismiss what’s waiting in the Inbox to make room.':''),4500); else toast('Save failed — try again'); }
 // opts.from 'pack': one bag after another (Pack, the Inbox), so the sheet's button says Skip the tag, then Next bag; from a
 // part's page or a bin's it says Close, then Done.
 function tagSheet(b, kind='bin', opts={}){
@@ -983,7 +971,7 @@ function tagSheet(b, kind='bin', opts={}){
   // The number was free when the sheet opened. If another part has taken it since (another tab, a sync), stop here
   // rather than put two bags on one number.
   const taken=()=>{ if(!newBag || ![...S.parts.values()].some(x=>x.id!==b.id && Number(x.bag)===newBag)) return false; close(); toast(`Bag ${bagStr(newBag)} has just been used. Tap Bag tag again for the next number.`,4000); return true; };
-  const claim=async()=>{ if(taken()) return false; if(!newBag) return true; try{ await S.db.doc('parts/'+b.id).update({bag:newBag}); }catch(e){ if(e?.code!=='invalid_argument'){ writeFail(e); return false; } } return true; };
+  const claim=async()=>{ if(taken()) return false; if(!newBag) return true; try{ await S.db.doc('parts/'+b.id).update({bag:newBag}); }catch(e){ if(e?.code!=='deleted'){ writeFail(e); return false; } } return true; };
   el.querySelector('#copy').onclick=async()=>{ if(!await claim()) return; copyText(url,'Link copied','Copy the tag link'); };
   const st=el.querySelector('#t-status'), tz=el.querySelector('#tz');
   // A write that fails partway (the sticker moved away too soon) starts again by itself, a few times: again is one of those.
@@ -1004,7 +992,7 @@ function tagSheet(b, kind='bin', opts={}){
       // A tick, and what to do next, long enough to take in (1.6 s); a tap anywhere closes it sooner.
       tz.className='tagzone ok'; tz.querySelector('.tz-icon').innerHTML=ICONS.check; showBtn(false);
       st.innerHTML = kind==='part' ? `<b>Tagged.</b> Write ${esc(label)} on the bag.` : '<b>Tagged.</b>';
-      const kept=await S.db.doc((kind==='part'?'parts/':'bins/')+b.id).update(newBag?{tagWritten:true, bag:newBag}:{tagWritten:true}).then(()=>true, e=>{ if(e?.code!=='invalid_argument') writeFail(e); return false; });
+      const kept=await S.db.doc((kind==='part'?'parts/':'bins/')+b.id).update(newBag?{tagWritten:true, bag:newBag}:{tagWritten:true}).then(()=>true, e=>{ if(e?.code!=='deleted') writeFail(e); return false; });
       el.querySelector('#done').textContent = opts.from==='pack' ? 'Next bag' : 'Done';
       let over=false; const finish=()=>{ if(over) return; over=true; clearTimeout(t); if(el.isConnected) close(); if(!kept) return; if(newBag) toast(`${label} tagged. Write ${label} on the bag.`,3500); else toast(`${label} tagged`); };
       const t=setTimeout(finish, 1600); el.parentElement?.addEventListener('click', finish);
@@ -1085,7 +1073,7 @@ function onTag(ev){
       if(hit && hit.item.id!==here?.item?.id) toast(`Close this to open ${hit.kind==='part'?(bagStr(hit.item.bag)||hit.item.name):hit.item.code}`,2500); return; }
     try{ navigator.vibrate?.(40); }catch{}
     go(t.view, t.arg);
-    if(t.old){ const hit=findTarget(t); if(hit && S.canWrite) setTimeout(()=>offerRewrite(hit),150); }
+    if(t.old){ const hit=findTarget(t); if(hit) setTimeout(()=>offerRewrite(hit),150); }
     return;
   }
   if(!open && !tagWait) toast('That tag isn’t one of yours');
@@ -1199,7 +1187,6 @@ function renderInbox(m){
   pruneInbox();
   const n=inboxCount();
   m.append(h(`<div class="topbar"><h2>Inbox</h2>${n?`<span class="tiny">${n} to check</span>`:''}</div>`));
-  if(!S.canWrite){ m.append(h('<div class="empty"><p>This view is read-only.</p></div>')); return; }
   for(const b of INBOX.batches) m.append(batchSection(b));
   if(usedAgain){ const u=usedAgain; const c=h(`<div class="note row" style="margin-bottom:14px"><span class="grow">You’ve already been through “${esc(u.name)}”.</span><button class="btn sm" id="again">Load it again</button></div>`); c.querySelector('#again').onclick=async()=>{ await takeBatch(u.text,{again:true}); render(); }; m.append(c); }
   if(!n) m.append(h(`<div class="empty"><h3>Nothing waiting</h3><p>Parts Claude reads off a photo, a receipt or a product page land here to check before they’re saved.</p></div>`));
@@ -1423,8 +1410,8 @@ function importJson(){
 // ------------------------------------------------------------------ boot
 window.addEventListener('hashchange',()=>{ if(linkCode()) takeLink(); else render(true); });
 if(history.state?.sheet) stepOff(); // reloaded on a sheet's step (a phone reopening a tab it put away), with no sheet now
-S.db=localDb; S.user=null; S.canWrite=true;
-S.sample=makeSample(); S.imgOk=!!S.sample; S.assets=null; S.downloads=null;
+S.db=localDb;
+S.sample=makeSample(); S.imgOk=!!S.sample;
 let got=0;
 // A save or a sync tells bins, parts and projects apart, and the screen is drawn once after all three (it was drawn
 // once for each, 1.5 s for a long Parts list on a slow phone). Settings shows nothing from the inventory, so a change

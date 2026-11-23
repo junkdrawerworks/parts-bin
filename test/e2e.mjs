@@ -579,6 +579,15 @@ await page.click('#main .empty #clearq'); await page.waitForSelector('.bin');
 await page.goto(base + '#part/p-no-such-part'); await page.waitForSelector('#main h3:has-text("Part not found")');
 assert.match(await page.textContent('#main .empty p'), /^This tag or link points at a part that no longer exists\.$/);
 await page.click('#main .empty #bk'); await page.waitForSelector('#cat');
+// a change to a part another device has just deleted (the sync bringing the deletion in lands as the button is tapped)
+// says so, and every button stays (it turned the whole page read-only for the visit and said "This view is read-only")
+await page.goto(base + '#part/p-bme280'); await page.waitForSelector('#checked');
+await page.evaluate(async () => { const { store } = await import('./js/store.js'); const x = store.doc.items.parts['p-bme280']; x.del = x.t + 1; });
+await page.click('#checked'); await page.waitForSelector('#toast:has-text("That part was deleted on another device")');
+await page.evaluate(async () => { const { store } = await import('./js/store.js'); store.reload(); }); // it's still in this browser's saved copy
+await page.waitForSelector('#checked'); assert.ok(await page.isVisible('#edit') && await page.isVisible('#bagtag'));
+assert.doesNotMatch(await page.textContent('#sidefoot'), /read-only/);
+await page.goto(base + '#scan'); await page.waitForSelector('#desc');
 
 // ---- a receipt adds to what's in stock, and a part that's already bagged isn't tagged again
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-receipt', name: 'Order 1234', made: '2026-11-23', source: 'receipt', items: [{ name: 'TCA9548A I2C multiplexer', qty: 3, match: tca.id }, { name: 'Mystery <b>board</b><img src=x onerror=window.__xss=1>', notes: '<i>hi</i>', volts: '5–32 V in', logic: '5 V tolerant' }] } }));

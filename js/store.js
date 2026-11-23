@@ -50,7 +50,7 @@ export const db = {
       async set(data) { const { updatedAt, ...rest } = data || {}; write(M.putItem(doc, kind, id, rest)); },
       async update(data) {
         const old = doc.items[kind][id];
-        if (!old || M.gone(old)) throw { code: 'invalid_argument', message: 'No such item' };
+        if (!old || M.gone(old)) throw { code: 'deleted', kind, message: 'That was deleted on another device.' }; // or in another tab
         const { t, updatedAt, ...base } = old; write(M.putItem(doc, kind, id, { ...base, ...data }));
       },
       async delete() { write(M.removeItem(doc, kind, id)); },

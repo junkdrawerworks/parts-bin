@@ -774,6 +774,18 @@ await page.evaluate(() => {
   localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' }));
 });
 for (const hash of ['#scan', '#inbox', '#parts', '#part/p-scd41', '#bins', '#bin/box-long', '#bom', '#part/p-long']) { await page.goto(base + hash); await page.waitForTimeout(150); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, hash + ' scrolls sideways on a phone'); }
+// and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
+// buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
+await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));
+await page.waitForSelector('.diff');
+await page.setViewportSize({ width: 195, height: 422 });
+for (const hash of ['#inbox', '#bom', '#part/p-scd41', '#part/p-long', '#bin/box-long']) {
+  if (hash !== '#inbox') { await page.goto(base + hash); await page.waitForTimeout(150); }
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, hash + ' scrolls sideways at 200% zoom');
+  if (hash === '#inbox') assert.ok(await page.evaluate(() => Math.min(...[...document.querySelectorAll('.diff .v')].map(v => v.getBoundingClientRect().width))) > 80, 'a suggested detail is squeezed at 200% zoom');
+}
+await page.setViewportSize({ width: 390, height: 844 });
+await page.goto(base + '#inbox'); page.once('dialog', d => d.accept()); await page.click('[data-a="drop"]'); await page.waitForSelector('text=Nothing waiting');
 // at the bottom of a screen, the footer's links show above the tab bar and can be tapped
 for (const hash of ['#bins', '#parts', '#settings', '#bin/bin-env']) {
   await page.goto(base + hash); await page.waitForTimeout(150);
@@ -790,11 +802,31 @@ for (const colorScheme of ['light', 'dark']) {
     const color = v => { const i = document.createElement('i'); i.style.color = `var(${v})`; document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return c; };
     const btn = getComputedStyle(document.querySelector('.btn.primary')), box = getComputedStyle(document.querySelector('.label.box'));
     return { 'grey on the page': ratio(color('--ink3'), color('--bg')), 'grey on a card': ratio(color('--ink3'), color('--panel')), 'a warning': ratio(color('--warn'), color('--warn-soft')),
-      'a teal button': ratio(btn.color, btn.backgroundColor), 'a box label': ratio(box.color, box.backgroundColor) };
+      'a teal button': ratio(btn.color, btn.backgroundColor), 'a box label': ratio(box.color, box.backgroundColor),
+      'a green have chip': ratio(color('--ok'), color('--ok-soft')), 'the line under a picked match': (() => {
+        const l = document.createElement('div'); l.className = 'matchlist'; l.innerHTML = '<button class="pick"><span><b>x</b><div class="s">#002 · Sensors</div></span></button>'; document.body.append(l);
+        const r = ratio(getComputedStyle(l.querySelector('.s')).color, getComputedStyle(l.querySelector('button')).backgroundColor); l.remove(); return r; })() };
   });
   for (const [what, r] of Object.entries(ratios)) assert.ok(r >= 4.5, `${colorScheme}: ${what} is ${r.toFixed(2)}:1`);
+  // a field's outline is what shows where to type, in a sheet as on the page (WCAG 2.2 SC 1.4.11, 3:1)
+  const field = await page.evaluate(() => {
+    const lum = c => c.match(/[\d.]+/g).slice(0, 3).map(v => v / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const q = getComputedStyle(document.getElementById('q')), [x, y] = [lum(q.borderTopColor), lum(q.backgroundColor)].sort((p, r) => r - p); return (x + 0.05) / (y + 0.05);
+  });
+  assert.ok(field >= 3, `${colorScheme}: a field's outline is ${field.toFixed(2)}:1`);
 }
 await page.emulateMedia({ colorScheme: 'light' });
+// keyboard focus shows all round a list row (the list cut off all but its bottom edge) and on Take photo and Choose
+// photo, whose file input is hidden inside the button (WCAG 2.2 SC 2.4.7)
+await page.goto(base + '#parts'); await page.waitForSelector('.list .item');
+await page.focus('#q');
+for (let i = 0; i < 30 && !(await page.evaluate(() => document.activeElement.matches('.list .item'))); i++) await page.keyboard.press('Tab');
+assert.deepEqual(await page.evaluate(() => { const c = getComputedStyle(document.activeElement); return [document.activeElement.matches('.list .item'), c.outlineStyle, parseFloat(c.outlineOffset) < 0]; }), [true, 'solid', true], 'a focused row’s ring is cut off');
+await page.evaluate(() => { const r = document.createElement('div'); r.id = 'ringtest'; r.innerHTML = '<button class="btn">a</button><label class="btn" for="rt-file">Take photo<input id="rt-file" type="file" class="sr"></label>'; document.getElementById('main').prepend(r); });
+await page.focus('#ringtest button'); await page.keyboard.press('Tab');
+assert.equal(await page.evaluate(() => document.activeElement.id), 'rt-file');
+assert.equal(await page.$eval('#ringtest label', l => getComputedStyle(l).outlineStyle), 'solid', 'Take photo shows no focus');
+await page.evaluate(() => document.getElementById('ringtest').remove());
 
 // ---- unpacking a box: the bin picked under Unpack into stays picked from bag to bag, and the page keeps its place
 await page.evaluate(() => {

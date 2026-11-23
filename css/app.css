@@ -6,22 +6,22 @@
 @font-face{font-family:"JetBrains Mono";font-weight:400 600;font-display:swap;src:url("../fonts/jetbrains-mono-500.woff2") format("woff2")}
 
 :root{
-  --bg:#F2F1EC; --panel:#FFFFFF; --panel2:#E9E8E2; --ink:#1E201D; --ink2:#5F635C; --ink3:#666A63; --line:#D6D5CE;
+  --bg:#F2F1EC; --panel:#FFFFFF; --panel2:#E9E8E2; --ink:#1E201D; --ink2:#5F635C; --ink3:#666A63; --line:#D6D5CE; --field-line:#8A8D86;
   --accent:#1B6F70; --accent-ink:#135859; --accent-soft:#D9ECEB; --on-accent:#FFFFFF;
   --label:#1E201D; --label-ink:#F6F5F0;
-  --ok:#2E7D4F; --ok-soft:#DCEFE3; --warn:#8F5E14; --warn-soft:#F6EBD3; --bad:#B23A3A; --bad-soft:#F5DEDE;
+  --ok:#2A7549; --ok-soft:#DCEFE3; --warn:#8F5E14; --warn-soft:#F6EBD3; --bad:#B23A3A; --bad-soft:#F5DEDE;
   --shadow:0 1px 2px rgba(20,22,18,.08), 0 6px 18px -8px rgba(20,22,18,.18);
   --r:6px;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#151716; --panel:#1E211F; --panel2:#262A27; --ink:#E9E8E1; --ink2:#A7ABA3; --ink3:#90948C; --line:#333734;
+  --bg:#151716; --panel:#1E211F; --panel2:#262A27; --ink:#E9E8E1; --ink2:#A7ABA3; --ink3:#90948C; --line:#333734; --field-line:#70746D;
   --accent:#4FB3B4; --accent-ink:#7CCFCF; --accent-soft:#1D3535; --on-accent:#161816;
   --label:#F0EFE8; --label-ink:#161816;
   --ok:#5FBF87; --ok-soft:#1E3529; --warn:#E0A64A; --warn-soft:#3A2E17; --bad:#E06B6B; --bad-soft:#3E2020;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 20px -8px rgba(0,0,0,.6);
 }}
 :root[data-theme="dark"]{
-  --bg:#151716; --panel:#1E211F; --panel2:#262A27; --ink:#E9E8E1; --ink2:#A7ABA3; --ink3:#90948C; --line:#333734;
+  --bg:#151716; --panel:#1E211F; --panel2:#262A27; --ink:#E9E8E1; --ink2:#A7ABA3; --ink3:#90948C; --line:#333734; --field-line:#70746D;
   --accent:#4FB3B4; --accent-ink:#7CCFCF; --accent-soft:#1D3535; --on-accent:#161816;
   --label:#F0EFE8; --label-ink:#161816;
   --ok:#5FBF87; --ok-soft:#1E3529; --warn:#E0A64A; --warn-soft:#3A2E17; --bad:#E06B6B; --bad-soft:#3E2020;
@@ -33,8 +33,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Barlow",syst
 h1,h2,h3{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-weight:600;margin:0;text-wrap:balance}
 code,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
 button{font:inherit;color:inherit;cursor:pointer}
-input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;width:100%}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--field-line);border-radius:var(--r);padding:8px 10px;width:100%}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* Take photo and Choose photo are labels round a hidden file input: the ring goes on the button you see */
+label.btn:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
 textarea{min-height:120px;resize:vertical}
 select{max-width:100%}
 a{color:var(--accent-ink)}
@@ -118,6 +120,7 @@ a{color:var(--accent-ink)}
 
 /* ---- lists ---- */
 .list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden}
+.item:focus-visible{outline-offset:-2px} /* inside the row: .list cuts off anything outside it */
 .item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 14px;border-bottom:1px solid var(--line);align-items:center;background:none;border-left:0;border-right:0;border-top:0;text-align:left;width:100%;color:inherit}
 .item:last-child{border-bottom:0}
 .item:hover{background:var(--panel2)}
@@ -190,6 +193,7 @@ a{color:var(--accent-ink)}
 .matchlist button{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .matchlist button.pick{border-color:var(--accent);background:var(--accent-soft)}
 .matchlist .s{font-size:12.5px;color:var(--ink3)}
+.matchlist button.pick .s{color:var(--ink2)}
 #print-root{display:none}
 @media print{
   body{background:#fff;color:#000}
@@ -276,6 +280,15 @@ a{color:var(--accent-ink)}
 .diff .v{overflow-wrap:anywhere}
 .diff .v s{color:var(--ink3)}
 .diff .v.warn{color:var(--warn)}
+/* a phone zoomed to 200% (about 195 px wide): each detail's name over its value, and long buttons wrap, so nothing
+   squeezes to a letter a line or pushes the page sideways */
+@media(max-width:340px){
+  .diff label{grid-template-columns:auto minmax(0,1fr);gap:2px 10px}
+  .diff .v{grid-column:2}
+  .btn{white-space:normal;text-align:left}
+  .binhead{grid-template-columns:72px minmax(0,1fr);overflow-wrap:anywhere}
+  .qty input{width:60px}
+}
 details.more{border:1px solid var(--line);border-radius:var(--r);padding:0 12px;margin-bottom:12px}
 details.more summary{cursor:pointer;padding:10px 0;font-weight:600;font-size:14px;color:var(--ink2)}
 details.more[open] summary{margin-bottom:6px}

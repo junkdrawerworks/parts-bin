@@ -199,8 +199,9 @@ function retype(m,{fields,focus,caret}){
   const at=i=>{ const e=document.getElementById(i); return e && m.contains(e) ? e : null; };
   for(const [i,v] of fields){ const e=at(i); if(e && e.value!==v){ e.value=v; e.dispatchEvent(new Event('input',{bubbles:true})); } }
   const f=focus && at(focus);
-  if(f && document.activeElement!==f){ f.focus({preventScroll:true}); if(caret) try{ f.setSelectionRange(...caret); }catch{} }
+  if(f && document.activeElement!==f){ refocusing=true; try{ f.focus({preventScroll:true}); }finally{ refocusing=false; } if(caret) try{ f.setSelectionRange(...caret); }catch{} }
 }
+let refocusing=false; // while retype() gives a field the keyboard back
 function renderNav(){
   const cur = heldCode && linkCode()===heldCode ? 'scan' : {bin:'bins',part:'parts',inbox:'scan'}[S.route.view] || S.route.view;
   const waiting = inboxCount();
@@ -293,11 +294,13 @@ function partRow(p, showBin, extra=''){
 }
 
 // ---- bag numbers on more than one part
-function clashBar(m){
+// short: one line, as on Pack, where the field to type in should sit as high as it can
+function clashBar(m, short=false){
   const c=bagClashes(); if(!c.size) return;
   const nums=[...c.keys()], list=nums.slice(0,6).map(bagStr).join(', ')+(nums.length>6?` and ${nums.length-6} more`:'');
-  const el=h(`<div class="checknote clashbar"><div><b>${nums.length===1?`Bag ${list} is`:`Bags ${list} are each`} on more than one part.</b> Two devices gave out the same number. Keep the number on the bag with the tag.</div><button class="btn sm" id="showclash">Sort them out</button></div>`);
-  el.querySelector('#showclash').onclick=()=>{ const here=S.route.view==='parts'; localSet('sr.cat','__clash'); S.q=''; if(here) render(); else go('parts'); };
+  const el=short ? h(`<div class="checknote clashbar short"><div><b>${nums.length===1?`Bag ${bagStr(nums[0])} is on ${c.get(nums[0]).length} parts`:`${nums.length} bag numbers are on more than one part`}.</b> <a href="#parts" id="showclash">Sort them out</a></div></div>`)
+    : h(`<div class="checknote clashbar"><div><b>${nums.length===1?`Bag ${list} is`:`Bags ${list} are each`} on more than one part.</b> Two devices gave out the same number. Keep the number on the bag with the tag.</div><button class="btn sm" id="showclash">Sort them out</button></div>`);
+  el.querySelector('#showclash').onclick=e=>{ e.preventDefault(); const here=S.route.view==='parts'; localSet('sr.cat','__clash'); S.q=''; if(here) render(); else go('parts'); };
   m.append(el);
 }
 function gapNote(m){
@@ -575,7 +578,7 @@ function renderScan(m){
   const tb=h(`<div class="topbar"><h2>Pack</h2>${S.canWrite?`<button class="btn" id="toinbox">${ICONS.inbox} Inbox${inboxCount()?` <span class="count">${inboxCount()}</span>`:''}</button>`:''}</div>`);
   m.append(tb); tb.querySelector('#toinbox')?.addEventListener('click',()=>go('inbox'));
   if(!S.canWrite){ m.append(h('<div class="empty"><p>This view is read-only.</p></div>')); return; }
-  clashBar(m);
+  clashBar(m, true);
   const conts=[...S.bins.values()].sort((x,y)=>(isBox(y)-isBox(x))||binCodeSort(x,y));
   let dest=localGet('sr.packbox',''); if(!S.bins.has(dest)) dest=conts.length===1?conts[0].id:'';
   const nb=nextBag();
@@ -586,8 +589,11 @@ function renderScan(m){
   head.querySelector('#dest').onchange=e=>{ localSet('sr.packbox',e.target.value); };
   head.querySelector('#newbox').onclick=()=>{ localSet('sr.newkind','box'); editBin(null); };
   head.querySelector('#newbin').onclick=()=>{ localSet('sr.newkind','bin'); editBin(null); };
+  // How Pack works, in full until this browser has packed a bag, then folded away to one line, so the field to type in
+  // sits higher on a phone (it's this browser's own note, kept in try/catch: without it, the help shows in full)
+  const help=`Bag it and ${S.imgOk?'photograph it, or ':''}type what it is. Pick the matching part (or a new one), check the count, save, then hold the bag's sticker to the top of the phone. ${S.imgOk?'':'To skip the typing, send Claude a photo of the bags and open the link it replies with: they land in the Inbox, filled in.'}`;
   const ui=h(`<div>
-    <div class="note" style="margin-bottom:12px">Bag it and ${S.imgOk?'photograph it, or ':''}type what it is. Pick the matching part (or a new one), check the count, save, then hold the bag's sticker to the top of the phone. ${S.imgOk?'':'To skip the typing, send Claude a photo of the bags and open the link it replies with: they land in the Inbox, filled in.'}</div>
+    ${localGet('pb.packed',false)?`<details class="more packhelp"><summary>How Pack works</summary><p class="muted" style="margin:0 0 10px">${help}</p></details>`:`<div class="note" style="margin-bottom:12px">${help}</div>`}
     ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px"><label class="btn primary" for="file">Take photo<input id="file" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="file2">Choose photo<input id="file2" type="file" accept="image/*" class="sr"></label></div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
     <div class="field" style="margin-top:12px"><label for="desc">${S.imgOk?'Or type it':'What is it?'}</label><input id="desc" placeholder="e.g. BME280, or 'soldering iron'" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"></div>
     <div class="row">${S.sample?'<button class="btn" id="identify">Identify</button>':''}<span id="status" class="tiny"></span></div>
@@ -612,7 +618,7 @@ function renderScan(m){
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
-    editPart(base, {photoFile:null, stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ reset(); render(); }});
+    editPart(base, {photoFile:null, stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ localSet('pb.packed',true); reset(); render(); }});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -640,6 +646,15 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
   ui.querySelector('#identify')?.addEventListener('click', identify);
   // type-ahead over the inventory, no AI needed
   const desc=ui.querySelector('#desc'); let tt, listedFor=null; // listedFor: what the matches showing were found for
+  // On a phone the keyboard covers the lower half of the screen, and the matches go under the field: the field goes to the
+  // top as it's tapped, with room kept below it so it can (kept once made, so nothing moves as a match is tapped). Not
+  // when it has the keyboard back after the screen is drawn again (a sync).
+  desc.addEventListener('focus',()=>{
+    if(refocusing || !matchMedia('(max-width:760px)').matches) return;
+    res.classList.add('room');
+    const top=()=>{ if(document.activeElement===desc) desc.closest('.field').scrollIntoView({block:'start'}); };
+    top(); setTimeout(top,350); // and again once the keyboard is up, which can scroll the page itself
+  });
   desc.oninput=()=>{ clearTimeout(tt); tt=setTimeout(()=>localList(desc.value.trim()),120); };
   // Enter picks the first part listed that's named by every word typed, and otherwise a new part: a part listed for its bag
   // number or its notes isn't what's in the bag, and opening it would save the count over its own. (On a phone the list is

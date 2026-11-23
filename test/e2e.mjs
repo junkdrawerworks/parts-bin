@@ -119,6 +119,7 @@ assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bi
 
 // ---- Pack: type, pick the existing part, save, and the tag is written in the same flow
 await page.goto(base + '#scan');
+assert.match(await page.textContent('#main .note'), /^Bag it and type what it is/); assert.equal(await page.locator('details.packhelp').count(), 0);
 await page.selectOption('#dest', 'bin-env');
 await page.fill('#desc', 'bme');
 await page.waitForSelector('.matchlist [data-id="p-bme280"]');
@@ -143,6 +144,9 @@ await page.waitForFunction(() => !document.querySelector('.sheet'), null, { time
 assert.ok(Date.now() - okAt > 1000, 'the tag sheet closed before "Tagged." could be read');
 const bme = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280']);
 assert.equal(bme.qty, 4); assert.equal(bme.bag, 1); assert.equal(bme.tagWritten, true);
+// once this browser has packed a bag, how Pack works folds away to one line, so the field sits higher
+assert.equal(await page.textContent('details.packhelp summary'), 'How Pack works'); assert.equal(await page.locator('#main .note').count(), 0);
+assert.match(await page.textContent('details.packhelp'), /Bag it and type what it is/);
 // next bag number moves on, with the description and its matches cleared for it
 assert.match(await page.textContent('.packhead .big'), /#002/);
 assert.equal(await page.inputValue('#desc'), ''); assert.equal(await page.locator('.matchlist').count(), 0);
@@ -993,6 +997,14 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
   await page.click('.sheet #done'); assert.equal(await page.locator('.sheet').count(), 0, 'a sheet lingers as it closes');
 }
 await page.emulateMedia({ reducedMotion: 'no-preference' });
+// Pack with the keyboard up (a 470 px high screen stands in for it): tapping the field takes it to the top, so at least
+// three matches show under it and above the keyboard (it sat 270 px down, with one or two showing)
+await page.setViewportSize({ width: 390, height: 470 });
+await page.goto(base + '#scan'); await page.waitForSelector('#desc'); await page.tap('#desc'); await page.keyboard.type('s'); await page.waitForSelector('.matchlist');
+await page.waitForTimeout(450);
+assert.ok(await page.$eval('#desc', e => e.getBoundingClientRect().top) < 60, 'Pack’s field stays low with the keyboard up');
+assert.ok(await page.$$eval('.matchlist button', rs => rs.filter(r => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; }).length) >= 3, 'fewer than three matches show above the keyboard');
+await page.setViewportSize({ width: 390, height: 844 });
 // and on a phone zoomed to 200% (195 px wide): suggested details read a word a line at most, not a letter, and long
 // buttons wrap (WCAG 2.2 SC 1.4.10, Reflow)
 await page.goto(base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-zoom', source: 'details', items: [{ id: 'p-scd41', mpn: 'SCD41-D-R2', addr: '0x29', volts: '2.6–5.5 V', logic: '3.3 V' }] } }));
@@ -1392,6 +1404,7 @@ await desk.goto(base);
   await page.waitForSelector(`.clashbar:has-text("#${pad(n)}")`);
   assert.match(await page.textContent('#toast'), new RegExp(`Bag #${pad(n)} is now on more than one part`));
   await page.goto(base + '#scan'); await page.waitForSelector('.clashbar'); // where the next number is handed out
+  assert.ok(await page.$eval('.clashbar', e => e.classList.contains('short') && e.getBoundingClientRect().height < 50), 'Pack’s bag number note is more than one line');
   await page.click('.clashbar #showclash'); await page.waitForSelector('.item');
   assert.equal(await page.evaluate(() => location.hash), '#parts');
   assert.deepEqual(await page.locator('.item .t').allTextContents(), [tp.name, 'Buzzer module'], 'the part with the tag first');

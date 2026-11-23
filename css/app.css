@@ -203,6 +203,11 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .packhead .big{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:40px;line-height:1;font-variant-numeric:tabular-nums}
 .packhead .lbl{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:600}
 .matchlist{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+/* Pack on a phone: the field to type in goes to the top as it's tapped (with room below it to scroll that far), so the
+   matches show above the keyboard */
+@media(max-width:760px){ .field:has(#desc){scroll-margin-top:8px} #result.room{min-height:calc(100vh - 160px)} }
+.clashbar.short{padding:7px 12px}
+.clashbar.short a{padding-block:8px;font-weight:600}
 .matchlist button{text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .matchlist button.pick{border-color:var(--accent);background:var(--accent-soft)}
 .matchlist .s{font-size:12.5px;color:var(--ink3)}
@@ -333,6 +338,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
   .btn{white-space:normal;text-align:left}
   .binhead{grid-template-columns:72px minmax(0,1fr);overflow-wrap:anywhere}
   .qty input{width:60px}
+  .packhead{grid-template-columns:minmax(0,1fr)} /* Next bag under what it's packing into, not over its buttons */
+  .packhead>div:last-child{text-align:left!important}
 }
 details.more{border:1px solid var(--line);border-radius:var(--r);padding:0 12px;margin-bottom:12px}
 details.more summary{cursor:pointer;padding:10px 0;font-weight:600;font-size:14px;color:var(--ink2)}

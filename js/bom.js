@@ -108,8 +108,10 @@ const VALUES = { capacitor: [/^(\d+)([pnu])(\d*)$/i, (m, a, u, b) => `${a}${b ? 
 function tableRow(cells, cols) {
   const at = k => (cols[k] != null ? String(cells[cols[k]] ?? '').trim() : '');
   if (at('dnp') && !/^(?:no?|false|0|-)$/i.test(at('dnp'))) return null;
-  const n = Number(at('qty').replace(/^(\d{1,3}(?:,\d{3})+)$/, m => m.replace(/,/g, '')));
-  const qty = Number.isFinite(n) && n > 0 ? n : 1;
+  const qc = at('qty').replace(/^(\d{1,3}(?:,\d{3})+)$/, m => m.replace(/,/g, '')), n = Number(qc);
+  // a count typed into a sheet as a line would have it ("2x", "3 pcs", "0.5 m") is read as that line's count is
+  let qty = Number.isFinite(n) && n > 0 ? n : 1, unit = '';
+  if (qc && !Number.isFinite(n)) { const c = count(qc + ' part'); if (c.qty > 0) { qty = c.qty; unit = c.unit || ''; } }
   let name = '', alt = null;
   if (at('value')) {
     // the designators' letter names the kind a bare value needs: "C1,C2" and 2.2uF are 2.2uF capacitors
@@ -125,7 +127,7 @@ function tableRow(cells, cols) {
     if (d) alt = [pn, d];
   } else name = at('desc');
   if (!name) return null;
-  return alt ? { qty, name, alt } : { qty, name };
+  return { qty, ...(unit ? { unit } : {}), name, ...(alt ? { alt } : {}) };
 }
 function readLine(l) {
   if (/:$/.test(l)) return { qty: 1, name: l.slice(0, -1).trim(), heading: true };

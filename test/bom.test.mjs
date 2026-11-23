@@ -502,4 +502,9 @@ test('a list that only looks like an export is read as before', () => {
   assert.deepEqual(parseBom('Note: these come from Adafruit\n2 BME280'), [{ qty: 1, name: 'Note: these come from Adafruit' }, { qty: 2, name: 'BME280' }]);
   // a blank line ends a table: what follows is read line by line
   assert.deepEqual(parseBom('Qty,Description\n2,BME280 breakout\n\n1 SCD41'), [{ qty: 2, name: 'BME280 breakout' }, { qty: 1, name: 'SCD41' }]);
+  // a count typed into a sheet's column as a line would have it is read as the line's count is (each was 1)
+  assert.deepEqual(parseBom('Qty\tName\n2x\tBME280\n3 pcs\tM3 nut\n0.5 m\thookup wire\n50cm\theat shrink\n1,000\t10k resistor\nlots\tzip tie'), [
+    { qty: 2, name: 'BME280' }, { qty: 3, name: 'M3 nut' }, { qty: 0.5, unit: 'm', name: 'hookup wire' }, { qty: 0.5, unit: 'm', name: 'heat shrink' },
+    { qty: 1000, name: '10k resistor' }, { qty: 1, name: 'zip tie' },
+  ]);
 });

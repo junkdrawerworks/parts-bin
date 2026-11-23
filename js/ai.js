@@ -47,8 +47,9 @@ export function makeSample() {
         headers: { 'content-type': 'application/json', 'x-api-key': ai.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         // Room for the thinking as well as the answer: the default model thinks first (adaptive, effort high, when
         // `thinking` isn't sent), and that counts against max_tokens. 1,500 could be used up before the answer began.
-        // No effort is sent: the model can be changed in Settings, and some older models refuse it.
-        body: JSON.stringify({ model: ai.model, max_tokens: 16000, messages: [{ role: 'user', content }] }),
+        // No effort is sent: the model can be changed in Settings, and some older models refuse it. A long BOM asks for more
+        // (opts.maxTokens), as its answer has a line for each of its lines.
+        body: JSON.stringify({ model: ai.model, max_tokens: opts.maxTokens || 16000, messages: [{ role: 'user', content }] }),
       });
     } catch { throw { code: 'network', message: 'Couldn’t reach the Anthropic API.' }; }
     if (r.status === 401) throw { code: 'not_granted', message: 'The API key was refused. Check it in Settings.' };

@@ -717,6 +717,9 @@ function nameBom({title, name='', button='Save', except=''}, done){
     if(await done(n)) close();
   };
 }
+// Smarter matching's answer has a line for each BOM line, after the model's thinking: room for that grows with the list.
+let smartBusy=false;
+const smartTokens=n=>Math.min(32000, 16000+Math.max(0,n-100)*40);
 function renderBom(m){
   m.append(h('<div class="topbar"><h2>BOM check</h2></div>'));
   const saved=[...S.projects.values()].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
@@ -725,7 +728,7 @@ function renderBom(m){
   const ui=h(`<div>
     <div class="row" style="margin-bottom:8px"><select id="proj" aria-label="Saved BOMs" style="width:auto"><option value="">Saved BOMs…</option>${saved.map(p=>`<option value="${p.id}" ${p.id===cur?.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><span class="grow"></span>${cur?'<button class="btn sm" id="rename">Rename…</button><button class="btn sm danger" id="delbom">Delete</button>':''}</div>
     <div class="field"><label for="bom">Parts list — one per line, quantity first or last (<code>2x XIAO ESP32-S3</code>, <code>SCD41 ×1</code>)</label><textarea id="bom" placeholder="2x XIAO ESP32-S3&#10;1 SCD41 breakout&#10;3 WS2812 strip segment&#10;M3 heat-set inserts x8">${esc(last)}</textarea></div>
-    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?'<button class="btn" id="smart">Smarter matching</button>':''}<span class="grow"></span>${cur?`<button class="btn" id="update" ${last===cur.text?'disabled':''}>Save changes</button><button class="btn" id="saveas">Save as new…</button>`:'<button class="btn" id="savebom">Save this BOM</button>'}</div>
+    <div class="row"><button class="btn primary" id="check">Check against inventory</button>${S.sample?`<button class="btn" id="smart" ${smartBusy?'disabled':''}>Smarter matching</button>`:''}<span class="grow"></span>${cur?`<button class="btn" id="update" ${last===cur.text?'disabled':''}>Save changes</button><button class="btn" id="saveas">Save as new…</button>`:'<button class="btn" id="savebom">Save this BOM</button>'}</div>
     <div id="out" style="margin-top:14px"></div></div>`);
   m.append(ui);
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
@@ -807,18 +810,29 @@ function renderBom(m){
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }
   ui.querySelector('#check').onclick=()=>run();
+  // One request at a time (each is billed to the key): the button is off until the answer is in, through a redraw too.
   ui.querySelector('#smart')?.addEventListener('click', async()=>{
+    if(smartBusy) return;
     const all=parseBom(ta.value), rows=all.filter(r=>!r.heading); if(!rows.length) return run(); // headings aren't asked about
+    smartBusy=true; ui.querySelector('#smart').disabled=true;
     out.innerHTML='<div class="think">Matching against your inventory…</div>';
     const inv=[...S.parts.values()].map(p=>({id:p.id,name:p.name,mpn:p.mpn||'',tags:p.tags||[],category:p.category||''}));
     try{
-      const res=await S.sample.json(`You match a maker's bill of materials against their parts inventory. Electronics/hardware knowledge applies: "XIAO S3" matches "Seeed XIAO ESP32-S3"; "M3x8 SHCS" matches "M3 x 8mm socket head cap screw"; a generic name matches a specific compatible part. Do NOT match different parts that merely share a word (a BME280 is not a BMP390; a 1.8" TFT is not a 2.0" TFT).
+      const res=await S.sample.json(`You match a maker's bill of materials against their parts inventory. Electronics/hardware knowledge applies: "XIAO S3" matches "Seeed XIAO ESP32-S3"; "M3x8 SHCS" matches "M3 x 8mm socket head cap screw"; a generic name matches a specific compatible part. Do NOT match different parts that merely share a word (a BME280 is not a BMP390; a 1.8" TFT is not a 2.0" TFT). When nothing in the inventory is the part a line asks for, its id is null.
 INVENTORY (JSON): ${JSON.stringify(inv)}
 BOM lines (JSON): ${JSON.stringify(rows)}
-Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<inventory id or null>", "confidence": 0-1}]`, {modelTier:'quick'});
-      const items=rows.map((r,i)=>{ const hit=Array.isArray(res)&&res[i]&&res[i].id&&S.parts.get(res[i].id); return {...r, m: hit?{p:hit, conf:Number(res[i].confidence||0.7)}:matchLine(r,S.parts.values())}; });
+Reply with only a JSON array, one entry per BOM line in the same order: [{"line": <the line's position in the list, from 0>, "id": "<inventory id, or null>", "confidence": 0-1}]`, {maxTokens:smartTokens(rows.length)});
+      if(!Array.isArray(res)) throw {code:'invalid_json'};
+      // Each answer by its line (or its place, from an answer without one). Claude's "nothing here" stands, so a line it
+      // says isn't in the inventory shows as missing; only a line it left out, or gave an id that isn't here, is matched plainly.
+      const by=new Map(); res.forEach((x,i)=>{ if(x && typeof x==='object'){ const k=Number.isInteger(x.line)?x.line:i; if(!by.has(k)) by.set(k,x); } });
+      const items=rows.map((r,i)=>{ const a=by.get(i);
+        if(a && 'id' in a && (a.id==null || a.id==='')) return {...r, m:null};
+        const hit=a?.id!=null && S.parts.get(String(a.id));
+        return {...r, m: hit?{p:hit, conf:Number(a.confidence||0.7)}:matchLine(r,S.parts.values())}; });
       run(all.map(r=>r.heading?{...r, m:null}:items[rows.indexOf(r)]));
-    }catch(e){ if(['not_granted','cut_off','refused'].includes(e.code)) toast(e.message+' Used plain matching.',4000); else toast('Smart matching unavailable, used plain matching'); run(); }
+    }catch(e){ toast(['not_granted','cut_off','refused'].includes(e.code)?e.message+' Used plain matching.':e.code==='invalid_json'?'Claude’s answer couldn’t be read. Used plain matching.':'Smart matching unavailable, used plain matching',4000); run(); }
+    finally{ smartBusy=false; const b=document.getElementById('smart'); if(b) b.disabled=false; }
   });
   // A list with no lines to check isn't saved (an empty box was saved as a BOM), and the one saved is picked.
   const listed=()=>{ if(parseBom(ta.value).some(r=>!r.heading)) return true; toast('Paste a parts list first'); ta.focus(); return false; };
@@ -909,7 +923,7 @@ function staleNote(){
 }
 // The bags saved in Pack on this visit, newest last, and what's typed in its field: a trip to a bag and back (Back) finds
 // it as it was left.
-const PACKED=[]; let packDraft='';
+const PACKED=[]; let packDraft=''; let identBusy=false; // a photo being identified, through a redraw of Pack
 // How a box or bin reads in Pack's picker: how full it is, too (BOX 01 · Bench · 23 bags).
 function packLabel(c){
   const n=partsInBin(c.id).length, twins=codeTwins(c), where=twins.length && c.location && twins.some(x=>(x.location||'')!==c.location) ? c.location : '';
@@ -951,7 +965,7 @@ function renderScan(m){
     ${localGet('pb.packed',false)?`<details class="more packhelp"><summary>How Pack works</summary><p class="muted" style="margin:0 0 10px">${help}</p></details>`:`<div class="note" style="margin-bottom:12px">${help}</div>`}
     ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px"><label class="btn primary" for="file">Take photo<input id="file" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="file2">Choose photo<input id="file2" type="file" accept="image/*" class="sr"></label></div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
     <div class="field" style="margin-top:12px"><label for="desc">${S.imgOk?'Or type it':'What is it?'}</label><input id="desc" placeholder="e.g. BME280, or 'soldering iron'" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"></div>
-    <div class="row">${S.sample?'<button class="btn" id="identify">Identify</button>':''}<span id="status" class="tiny"></span></div>
+    <div class="row">${S.sample?`<button class="btn" id="identify" ${identBusy?'disabled':''}>Identify</button>`:''}<span id="status" class="tiny"></span></div>
     <div id="result" style="margin-top:14px"></div></div>`);
   m.append(ui);
   // in the matches' place under the field, so on a phone it shows above the keyboard; the matches go over it as you type
@@ -985,6 +999,8 @@ function renderScan(m){
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
+    if(identBusy){ toast('Still identifying the last one'); return; } // each one is billed to the key
+    identBusy=true; const btn=ui.querySelector('#identify'); if(btn) btn.disabled=true;
     st.innerHTML='<span class="think">Identifying…</span>';
     const inv=[...S.parts.values()].map(p=>({id:p.id,name:p.name,cat:p.category||'',qty:p.qty??0}));
     const cats=[...new Set(inv.map(p=>p.cat).filter(Boolean))];
@@ -1005,7 +1021,8 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
       res.querySelector('.matchlist')?.parentElement?.remove(); res.insertBefore(box, res.querySelector('.packed')); listedFor=desc||null;
       box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
       wireAgain(box, j);
-    }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
+    }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : e.code==='invalid_json' ? 'The answer couldn’t be read. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
+    finally{ identBusy=false; const b=document.getElementById('identify'); if(b) b.disabled=false; }
   }
   ui.querySelector('#identify')?.addEventListener('click', identify);
   // type-ahead over the inventory, no AI needed

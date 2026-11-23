@@ -1606,6 +1606,70 @@ await ai.goto(base + '#inbox'); await ai.waitForSelector('text=Fill in details')
 assert.equal(await ai.locator('text=Every part has some details already').count(), 0);
 await aiCtx.close();
 
+// ---- Smarter matching and photo identification with the stand-in API: Claude's "nothing in the inventory is this"
+// stands (the plain matcher's guess was shown instead, as a sure match), a second tap while waiting sends no second
+// request, an answer that can't be read says so (it fell back without a word), and a long list gets more room to answer
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: {}, parts: {
+    'p-scd41': { name: 'SCD41', category: 'Sensors', qty: 3, unit: 'pcs', tags: [], t: 1 },
+    'p-bme': { name: 'BME280 (Adafruit)', category: 'Sensors', qty: 5, unit: 'pcs', tags: [], t: 1 } } } });
+  const sCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await sCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('parts-bin.ai', JSON.stringify({ key: 'sk-ant-not-a-real-key', model: '' })); } }, seed);
+  // says: the answer's text; hold: a promise the answer waits for; asked: every request
+  let says = '', hold = null; const asked = [];
+  await sCtx.route('https://api.anthropic.com/**', async r => {
+    if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' } });
+    const body = r.request().postDataJSON(); asked.push(body);
+    if (hold) await hold;
+    return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: body.model, stop_reason: 'end_turn', content: [{ type: 'text', text: says }] }) });
+  });
+  const sp = await sCtx.newPage();
+  sp.problems = []; sp.on('pageerror', e => sp.problems.push(e.message));
+  await sp.goto(base + '#bom'); await sp.waitForSelector('#smart');
+  // "BME280 breakout" plainly matches the BME280 (Adafruit); Claude says nothing here is one, and the line shows as missing
+  says = JSON.stringify([{ line: 0, id: null, confidence: 0.9 }, { line: 1, id: 'p-scd41', confidence: 0.95 }]);
+  let release; hold = new Promise(f => { release = f; });
+  await sp.fill('#bom', '1 BME280 breakout\n2 CO2 sensor');
+  await sp.click('#smart');
+  await sp.waitForFunction(() => document.querySelector('#smart').disabled, null, { timeout: 3000 });
+  await sp.locator('#smart').click({ force: true }).catch(() => {}); await sp.locator('#smart').dispatchEvent('click');
+  release(); hold = null;
+  await sp.waitForSelector('.bom-summary');
+  assert.equal(asked.length, 1, 'a second tap while waiting sent no second request');
+  assert.equal(await sp.isDisabled('#smart'), false, 'on again once the answer is in');
+  assert.equal(await sp.locator('.bom-table tbody tr').nth(0).getAttribute('data-st'), 'missing', 'Claude’s no match is kept');
+  assert.equal(await sp.locator('.bom-table tbody tr').nth(1).getAttribute('data-st'), 'have');
+  assert.equal(asked[0].max_tokens, 16000);
+  // an answer that isn't the list asked for says so, and plain matching is used
+  says = 'I could not work that out.';
+  await sp.click('#smart');
+  await sp.waitForSelector('#toast:has-text("Claude’s answer couldn’t be read. Used plain matching.")');
+  await sp.waitForSelector('.bom-summary');
+  assert.equal(await sp.locator('.bom-table tbody tr').nth(0).getAttribute('data-st'), 'have', 'plain matching');
+  assert.equal(await sp.locator('.bom-table tbody tr').nth(1).getAttribute('data-st'), 'missing', 'plain matching');
+  // a long list asks for more room (16,000 was fixed, whatever the length)
+  says = '[]';
+  await sp.fill('#bom', Array.from({ length: 300 }, (_, i) => `1 Part number ${i + 1}`).join('\n'));
+  await sp.click('#smart'); await sp.waitForSelector('.bom-summary');
+  assert.equal(asked.at(-1).max_tokens, 16000 + 200 * 40);
+  // Identify: off while it waits, and an unreadable answer says so, with the part to type in
+  await sp.goto(base + '#scan'); await sp.waitForSelector('#identify');
+  says = 'Looks like a sensor of some kind.'; hold = new Promise(f => { release = f; });
+  const n = asked.length;
+  await sp.fill('#desc', 'BME280'); await sp.click('#identify');
+  await sp.waitForFunction(() => document.querySelector('#identify').disabled, null, { timeout: 3000 });
+  await sp.locator('#identify').dispatchEvent('click');
+  release(); hold = null;
+  await sp.waitForSelector('.sheet #p-name');
+  assert.equal(asked.length, n + 1, 'one request');
+  assert.equal(await sp.textContent('#status'), 'The answer couldn’t be read. Try again, or fill it in by hand.');
+  assert.equal(await sp.inputValue('#p-name'), 'BME280');
+  await sp.click('.sheet #cancel');
+  assert.equal(await sp.isDisabled('#identify'), false);
+  assert.deepEqual(sp.problems, []);
+  await sCtx.close();
+}
+
 // ---- in a browser that can't write tags, a bag's tag sheet says tags need Chrome on Android and offers the link to copy.
 // (It used to offer Tag Along, which needs NFC too and didn't read the link it was given, and opening it took the number.)
 const noNfcCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });

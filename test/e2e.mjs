@@ -718,6 +718,43 @@ await laptop.page.evaluate(() => document.querySelector('#cloud').click());
 await laptop.page.waitForFunction(() => { const x = JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-scd41']; return x && !(x.del >= x.t); }, null, { timeout: 8000 });
 await page.evaluate(() => { document.getElementById('toast').hidden = true; });
 
+// ---- a part deleted before a device's first sync, or while Drive was off, stays deleted when Drive comes on (it came
+// back from the Drive copy for good: a first sync used to keep everything on both sides). Two devices of their own, on
+// an account of their own.
+{
+  const A = await device(), B = await device();
+  for (const d of [A, B]) await d.page.evaluate(() => localStorage.setItem('__who', 'firsts'));
+  const theFile = () => g.files().find(f => f.owner === 'firsts' && f.appProperties?.partsbin === 'sync');
+  const there = id => { const f = theFile(); return f && JSON.parse(f.body).items.parts[id]; };
+  const here = (pg, id) => pg.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const t0 = Date.now() - 3600000, seed = { app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: {
+    'f-keep': { name: 'Kept part', qty: 1, t: t0 }, 'f-off': { name: 'Deleted with Drive off', qty: 2, t: t0 }, 'f-new': { name: 'Deleted before the first sync', qty: 3, t: t0 } } } };
+  await A.page.evaluate(d => localStorage.setItem('parts-bin', JSON.stringify(d)), seed);
+  await A.page.goto(base + '#settings'); await A.page.click('[data-a="on"]');
+  await until(() => there('f-new') && there('f-off'), 'the first device’s parts to reach Drive');
+  // a new device with its own copy of the inventory (a backup loaded before Drive was on there), a part deleted in it
+  await B.page.evaluate(d => { d.items.parts['f-new'] = { t: d.items.parts['f-new'].t, del: Date.now() }; localStorage.setItem('parts-bin', JSON.stringify(d)); }, seed);
+  await B.page.goto(base + '#settings'); await B.page.click('[data-a="on"]');
+  await until(() => gone(there('f-new')), 'the new device’s deletion to reach Drive');
+  assert.ok(gone(await here(B.page, 'f-new')), 'it stays deleted on the new device');
+  await A.page.evaluate(() => document.querySelector('#cloud').click());
+  await until(async () => gone(await here(A.page, 'f-new')), 'the deletion to reach the first device');
+  // Drive off on the first device, a part deleted, Drive on again
+  await A.page.goto(base + '#settings'); await A.page.waitForSelector('[data-a="off"]');
+  await A.page.click('[data-a="off"]'); await A.page.click('[data-a="off"]'); await A.page.waitForSelector('[data-a="on"]');
+  await A.page.goto(base + '#part/f-off'); await A.page.click('#edit');
+  A.page.once('dialog', d => d.accept()); await A.page.click('.sheet #del'); await A.page.waitForFunction(() => location.hash === '#parts');
+  assert.ok(!gone(there('f-off')), 'nothing went to Drive while it was off');
+  await A.page.goto(base + '#settings'); await A.page.click('[data-a="on"]');
+  await until(() => gone(there('f-off')), 'the deletion made with Drive off to reach Drive');
+  await A.page.waitForFunction(() => document.querySelector('#cloud')?.dataset.s === 'ok', null, { timeout: 8000 });
+  assert.ok(gone(await here(A.page, 'f-off')), 'it stays deleted on the device it was deleted on');
+  assert.ok(!gone(await here(A.page, 'f-keep')) && !gone(there('f-keep')), 'the part nobody deleted is still there');
+  await A.page.goto(base + '#parts'); await A.page.waitForSelector('.item:has-text("Kept part")');
+  assert.equal(await A.page.locator('.item:has-text("Deleted")').count(), 0);
+  for (const d of [A, B]) { assert.deepEqual(d.page.problems, [], 'problems on the first-sync devices'); await d.ctx.close(); }
+}
+
 // ---- a Drive request that never answers (a stalled connection) is given up, and the chip turns red instead of staying on
 // "Syncing" until a reload; once the connection is back, Sync now works
 await page.goto(base + '#part/' + iron.id); await page.waitForSelector('#inc');

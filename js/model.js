@@ -87,7 +87,8 @@ function newer(x, y) {
   return asText(x) >= asText(y);
 }
 
-// first: this device's first sync with this copy. Then nothing on either side counts as removed.
+// first: a file loaded by hand (a backup, an export). Then nothing on either side counts as removed: a file never deletes
+// anything here by itself. Every sync with Drive, a device's first included, merges without it.
 export function mergeDocs(local, remote, { first = false } = {}) {
   const out = blankDoc();
   for (const kind of KINDS) {

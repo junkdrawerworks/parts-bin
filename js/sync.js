@@ -124,13 +124,13 @@ async function run(tries, lost = false, waited = false) {
     let file = files[0] || null, remote = file ? await download(file.id) : null;
     // Two devices that each made the file at the same moment: fold the extras into the first and bin them.
     for (const extra of files.slice(1)) {
-      remote = mergeDocs(remote, await download(extra.id), { first: true });
+      remote = mergeDocs(remote, await download(extra.id));
       await api('PATCH', `drive/v3/files/${extra.id}`, JSON.stringify({ trashed: true }), 'application/json');
     }
-    // A device's first sync with this file (or a file made fresh after the old one was deleted) takes
-    // the union: nothing on either side counts as removed.
-    const first = !file || st.fileId !== file.id;
-    const merged = remote ? mergeDocs(local, remote, { first }) : local, out = canon(merged);
+    // A device's first sync with this file (a new device, Drive turned on again, a file made fresh after the old one was
+    // deleted) merges as every other sync does: a part deleted on one side after the other side last changed it stays
+    // deleted. Loading a backup file is the way to bring one back (store.importText).
+    const merged = remote ? mergeDocs(local, remote) : local, out = canon(merged);
     if (!file) file = await create(out);
     else if (canon(remote) !== out || files.length > 1) {
       // Another device may have saved since we read it; then start over with its version.

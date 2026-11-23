@@ -11,7 +11,7 @@ test('newer edit wins, item by item', () => {
   assert.equal(m.items.parts.x.qty, 4);
   assert.equal(m.items.parts.y.qty, 3);
 });
-test('a deletion reaches the other copy, unless it is the first sync', () => {
+test('a deletion reaches the other copy, unless it comes from a file loaded by hand', () => {
   const a = doc({ x: { name: 'BME280', t: 10, del: 30 } });
   const b = doc({ x: { name: 'BME280', t: 20 } });
   assert.ok(M.gone(M.mergeDocs(a, b).items.parts.x));

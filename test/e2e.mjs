@@ -2487,22 +2487,27 @@ await desk.goto(base);
 // rows of bins to a screen); on a laptop it keeps its picture box
 {
   const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
-    bins: { 'b-env': { code: 'ENV', name: 'Environmental sensors and breakouts', location: 'Workroom', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', location: 'Workroom', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', sealed: true, t: 1 } },
-    parts: { 'p-a': { name: 'SHT31', binId: 'b-env', qty: 1, minQty: 2, unit: 'pcs', tags: [], t: 1 } } } });
+    bins: { 'b-env': { code: 'ENV', name: 'Environmental sensors and breakouts', location: 'Workroom', t: 1 }, 'b-pwr': { code: 'PWR', name: 'Power', location: 'Workroom', t: 1 }, 'box-1': { code: 'BOX 01', kind: 'box', name: 'Bench', sealed: true, t: 1 }, 'b-grid': { code: 'GRIDFINITY-A12', name: 'Small stuff', location: 'Shed', t: 1 } },
+    parts: { 'p-a': { name: 'SHT31', binId: 'b-env', qty: 1, minQty: 2, unit: 'pcs', tags: [], t: 1 }, 'p-g': { name: 'Header pins', binId: 'b-grid', qty: 1, minQty: 2, unit: 'pcs', tags: [], t: 1 } } } });
   for (const [w, hgt, phone] of [[390, 844, true], [1280, 800, false]]) {
     const tCtx = await browser.newContext({ viewport: { width: w, height: hgt }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone, serviceWorkers: 'block' });
     await tCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, seed);
     const tp = await tCtx.newPage();
     await tp.goto(base + '#bins'); await tp.waitForSelector('.bin');
     const tiles = await tp.locator('.bin').evaluateAll(els => els.map(e => ({ h: e.getBoundingClientRect().height, w: e.scrollWidth - e.clientWidth, photo: getComputedStyle(e.querySelector('.photo')).display !== 'none', text: e.innerText.replace(/\s+/g, ' ').trim() })));
-    assert.equal(tiles.length, 3);
+    assert.equal(tiles.length, 4);
     for (const t of tiles) {
       assert.equal(t.photo, !phone, t.text);
-      if (phone) assert.ok(t.h <= 80, `${t.text}: ${t.h} px`); else assert.ok(t.h > 150, `${t.text}: ${t.h} px`);
+      if (phone) assert.ok(t.h <= (t.text.startsWith('GRIDFINITY') ? 100 : 80), `${t.text}: ${t.h} px`); else assert.ok(t.h > 150, `${t.text}: ${t.h} px`);
       assert.equal(t.w, 0, 'nothing runs out of the tile: ' + t.text);
     }
+    // a long label code puts the count under it, each count on one line, rather than squeezing "1 part" a word to a line
+    // under the label
+    const grid = await tp.locator('.bin:has-text("GRIDFINITY")').evaluate(e => { const l = e.querySelector('.label').getBoundingClientRect(), m = e.querySelector('.meta').getBoundingClientRect();
+      return { apart: l.right <= m.left || l.bottom <= m.top, lines: [...e.querySelectorAll('.meta span')].map(s => s.getClientRects().length) }; });
+    assert.ok(grid.apart, 'the label and the count overlap'); assert.deepEqual(grid.lines, [1, 1]);
     if (phone) { // two to a row, as before
-      const xs = await tp.locator('.bins').nth(1).locator('.bin').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top)));
+      const xs = await tp.locator('.bins:has-text("PWR") .bin').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top)));
       assert.equal(xs[0], xs[1]);
     }
     await tCtx.close();

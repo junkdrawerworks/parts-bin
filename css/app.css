@@ -188,6 +188,7 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .bom-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 .bom-table td.n{font-family:"JetBrains Mono",monospace;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bom-table th.n{text-align:right} /* over its numbers */
+.bom-table .entries .at{white-space:nowrap}
 .bom-table tr.sect th{padding:18px 8px 6px;color:var(--ink2)} /* a heading from the pasted list */
 .bom-table tbody tr.sect:first-child th{padding-top:10px}
 .bom-summary{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
@@ -221,6 +222,7 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
   .bom-table td:nth-child(4) .label{font-size:11.5px;padding:0 5px}
   .bom-table td:nth-child(4) .bagno{font-size:11.5px}
   .bom-table td:nth-child(4) .tiny{display:inline;margin-left:3px}
+  .bom-table td:nth-child(4):has(.entries){white-space:normal} /* a part in two bins: each bin's bags on a line */
   .bom-table td:nth-child(5){grid-area:1/5;justify-self:end}
   /* missing: no second line (the cells stay, out of sight, so a screen reader's columns still line up) */
   .bom-table tbody tr{position:relative}
@@ -401,6 +403,7 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .built label.off{cursor:default;color:var(--ink3)}
 .built .bn{overflow-wrap:anywhere}
 .built .bn small{display:block;font-size:12px;color:var(--warn)}
+.built .bn small.entries{color:var(--ink2)} /* which bags a part kept in two entries is taken from */
 .built .bq{font-family:"JetBrains Mono",monospace;font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .diff{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .diff label{display:grid;grid-template-columns:auto 92px minmax(0,1fr);gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer}

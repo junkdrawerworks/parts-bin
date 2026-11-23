@@ -3,7 +3,7 @@ import { db as localDb, store } from './store.js';
 import { drive } from './sync.js';
 import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
-import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece } from './bom.js';
+import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece, together, takeFrom } from './bom.js';
 import * as BG from './bags.js';
 import { partsCsv } from './csv.js';
 import { LONG, gone } from './model.js';
@@ -724,6 +724,13 @@ function zoomMine(p, src){
 function aName(n){ n=String(n||'').trim(); const w=n.split(/\s/)[0]||'';
   const an=/^[aeiou]/i.test(w) && !/^(?:uni|use|usb|eu|one)/i.test(w) || /^8|^1[18](?:\D|$|\d{2})/.test(w) || /^[FHLMNRS](?:[A-Z0-9]|$)/.test(w) || /^X[0-9]/.test(w);
   return (an?'an ':'a ')+n; }
+// Where a part kept in more than one entry is: each bag, after its bin's code where that changes ("ENV #001 #007"), each
+// bin with its bags kept on one line, so on a phone the second bin goes under the first rather than out of sight.
+function entriesAt(all){ const at=[];
+  for(const p of all){ const b=binOf(p), k=b?b.id:'', bag=p.bag?`<span class="bagno">${bagStr(p.bag)}</span>`:'<span class="tiny">no bag</span>';
+    if(at.length && at[at.length-1].k===k) at[at.length-1].h+=' '+bag;
+    else at.push({k, h:(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+' '+bag}); }
+  return `<span class="entries">${at.map(x=>`<span class="at">${x.h}</span>`).join(' ')}</span>`; }
 let bomOnly=''; // the lines shown, by status (have, check, short, missing), or '' for all of them: a tap on a count above the results
 // The saved BOM in the box, picked or just saved: it stays picked through a redraw, an edit to the list and a reload, until
 // another is picked, "Saved BOMs…" is, or it's deleted. Save changes writes the list in the box over it.
@@ -766,11 +773,12 @@ function renderBom(m){
   ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); pickBom(p?p.id:''); bomOnly=''; if(p){ ta.value=p.text; localSet('sr.bom',p.text); bomSay=true; } render(); };
   function run(rows, quiet){
     localSet('sr.bom',ta.value);
-    const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchLine(r,S.parts.values())}));
+    // a part kept in two entries (another bag of it, packed later) is one stock: each line found either has both (bom.js together)
+    const items=together(rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchLine(r,S.parts.values())})), S.parts.values());
     if(!items.some(r=>!r.heading)){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
     // lines for the same part are checked against its stock together, and each says so when they're short
     // (a near match isn't counted in its part's need, nor had: see below)
-    const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || r.m.near || stock(r)<need.get(r.m.p.id).qty;
+    const need=needs(items), stock=r=>r.m.have??Number(r.m.p.qty||0), lacks=r=>!r.m || r.m.near || stock(r)<need.get(r.m.p.id).qty;
     const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
     // A near match (the part found has another value or variant than the line: a 10k resistor for "1k resistor") isn't
     // counted as had: it says check, and goes on the shopping list with what was found, in case it's the wrong part.
@@ -780,17 +788,18 @@ function renderBom(m){
       if(r.heading) return `<tr class="sect"><th colspan="5" scope="colgroup">${esc(r.name)}</th></tr>`; // a heading in the list, over the lines after it
       let st, cls, where='', note='';
       if(!r.m){ st='missing'; cls='bad'; missing++; }
-      else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
+      else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=r.m.all?.length>1 ? entriesAt(r.m.all) : (b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
         if(near(r)){ st='check'; cls='warn'; check++; }
         else if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
       const unit=r.unit||unitOf(r);
-      return `<tr data-st="${st.split(' ')[0]}"><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
+      return `<tr data-st="${st.split(' ')[0]}"><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty({...r.m.p, qty:stock(r)})):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
     // The pick list: the parts on hand for this, one bin a line (bins by code, bags by number, then the parts not in a bin),
-    // so gathering a build is a walk to each bin once: "ENV: 2× BME280 (Adafruit) #001, 1× SCD41 #002".
+    // so gathering a build is a walk to each bin once: "ENV: 2× BME280 (Adafruit) #001, 1× SCD41 #002". A part in two
+    // entries is taken from the first bag, then the next, as Built it takes it: "3× BME280 #001, 1× BME280 #007".
     const picks=new Map();
-    for(const r of items) if(r.m && !near(r) && !lacks(r) && !picks.has(r.m.p.id)) picks.set(r.m.p.id,{p:r.m.p, qty:need.get(r.m.p.id).qty, unit:unitOf(r)});
-    const byBin=new Map(); for(const x of picks.values()){ const b=binOf(x.p)||null, k=b?b.id:''; if(!byBin.has(k)) byBin.set(k,{b,xs:[]}); byBin.get(k).xs.push(x); }
+    for(const r of items) if(r.m && !near(r) && !lacks(r) && !picks.has(r.m.p.id)) picks.set(r.m.p.id,{qty:need.get(r.m.p.id).qty, unit:unitOf(r), from:takeFrom(r.m.all||[r.m.p], need.get(r.m.p.id).qty)});
+    const byBin=new Map(); for(const {unit,from} of picks.values()) for(const [p,qty] of from){ const b=binOf(p)||null, k=b?b.id:''; if(!byBin.has(k)) byBin.set(k,{b,xs:[]}); byBin.get(k).xs.push({p,qty,unit}); }
     const bagNo=x=>BG.bagOf(x.p)||Infinity;
     const pick=[...byBin.values()].sort((a,b)=>(!a.b)-(!b.b) || (a.b&&b.b?binCodeSort(a.b,b.b):0)).map(({b,xs})=>`${b?b.code:'No bin'}: ${xs.sort((x,y)=>(bagNo(x)-bagNo(y))||byName(x.p.name,y.p.name)).map(x=>`${x.unit?`${x.qty} ${x.unit}`:`${x.qty}×`} ${x.p.name}${x.p.bag?' '+bagStr(x.p.bag):''}`).join(', ')}`);
     const pickBtn=idn=>pick.length?`<button class="btn sm" id="${idn}">Copy pick list</button>`:'';
@@ -800,7 +809,7 @@ function renderBom(m){
     if(!short && !missing && !check){
       bomOnly='';
       const ids=new Set(), bins=[], loose=new Set();
-      for(const r of items) if(r.m){ ids.add(r.m.p.id); const b=binOf(r.m.p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); }
+      for(const r of items) if(r.m){ ids.add(r.m.p.id); const from=picks.get(r.m.p.id)?.from; for(const [p] of from?.length?from:[[r.m.p]]){ const b=binOf(p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); } }
       const and=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1], n=ids.size;
       const where=[bins.length?'in '+and(bins.map(b=>`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`)):'', loose.size?(bins.length?`${loose.size} not in a bin`:'not in a bin'):''].filter(Boolean).join('; ');
       sum=`<div class="bom-summary allhave"><span><b>You have everything for this.</b> ${many(n,'part')}${where?', '+where:''}</span><span class="grow"></span>${pickBtn('picktop')}</div>`;
@@ -896,8 +905,9 @@ Reply with only a JSON array, one entry per BOM line in the same order: [{"line"
 
 // "Built it": a checked BOM's parts taken out of stock in one go, instead of a tap on − on each part's page after a build.
 // One row a part, with what the lines for it need between them and its count before and after; a line short of stock
-// takes only what's there, and a part found by a loose or near match starts unticked. Confirm writes each part once,
-// from its count as it is by then, and Undo puts back what was taken.
+// takes only what's there, and a part found by a loose or near match starts unticked. A part kept in two entries (bags)
+// is one row, and is taken from the first bag, then the next. Confirm writes each entry once, from its count as it is by
+// then, and Undo puts back what was taken.
 const round3=x=>Math.round(x*1000)/1000;
 function builtSheet(items){
   drive.pull(); // what other devices have taken since this device's last sync
@@ -906,13 +916,13 @@ function builtSheet(items){
   const sure=needs(items), all=needs(items,true), rows=[], seen=new Set();
   for(const r of items){
     if(!r.m || seen.has(r.m.p.id)) continue; seen.add(r.m.p.id);
-    const p=S.parts.get(r.m.p.id)||r.m.p, stock=Number(p.qty||0), mixed=sure.has(p.id), n=(mixed?sure:all).get(p.id).qty, take=round3(Math.max(0,Math.min(n,stock)));
-    rows.push({p, take, stock, after:round3(stock-take), short:n>stock, loose:items.some(x=>x.m?.p.id===p.id && x.m.conf<0.8 && !(mixed && x.m.near))});
+    const ps=(r.m.all||[r.m.p]).map(e=>S.parts.get(e.id)||e), p=ps[0], stock=round3(ps.reduce((n,e)=>n+Number(e.qty||0),0)), mixed=sure.has(p.id), n=(mixed?sure:all).get(p.id).qty, take=round3(Math.max(0,Math.min(n,stock)));
+    rows.push({p, ps, take, stock, after:round3(stock-take), short:n>stock, loose:items.some(x=>x.m?.p.id===p.id && x.m.conf<0.8 && !(mixed && x.m.near))});
   }
   const q=(p,v)=>esc(fmtQty({...p, qty:v}));
   const {el,close}=sheet(`<h3>Built it: take these from stock</h3>
     <p class="muted">Each part ticked has what this list needs taken off its count. A loose or near match starts unticked.</p>
-    <div class="built">${rows.map((x,i)=>`<label${x.take?'':' class="off"'}><input type="checkbox" data-i="${i}"${!x.take?' disabled':x.loose?'':' checked'}><span class="bn">${esc(x.p.name)}${x.loose?' <span class="chip">fuzzy</span>':''}${x.short?`<small>${x.take?`only ${q(x.p,x.stock)} in stock`:'none in stock'}</small>`:''}</span><span class="bq">${q(x.p,x.stock)} → ${q(x.p,x.after)}</span></label>`).join('')}</div>
+    <div class="built">${rows.map((x,i)=>`<label${x.take?'':' class="off"'}><input type="checkbox" data-i="${i}"${!x.take?' disabled':x.loose?'':' checked'}><span class="bn">${esc(x.p.name)}${x.loose?' <span class="chip">fuzzy</span>':''}${x.short?`<small>${x.take?`only ${q(x.p,x.stock)} in stock`:'none in stock'}</small>`:''}${x.ps.length>1?`<small class="entries">${x.ps.length} entries: ${x.ps.map(e=>e.bag?bagStr(e.bag):'no bag').join(', ')}</small>`:''}</span><span class="bq">${q(x.p,x.stock)} → ${q(x.p,x.after)}</span></label>`).join('')}</div>
     <div class="actions"><button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Take from stock</button></div>`);
   el.querySelector('#cancel').onclick=close;
   const boxes=[...el.querySelectorAll('.built input')], go=el.querySelector('#save');
@@ -920,17 +930,21 @@ function builtSheet(items){
   boxes.forEach(b=>b.onchange=count); count();
   go.onclick=async()=>{
     const took=[];
-    for(const b of boxes.filter(b=>b.checked)){
-      const x=rows[b.dataset.i], cur=S.parts.get(x.p.id); if(!cur) continue; // deleted meanwhile
-      const have=Number(cur.qty||0), take=round3(Math.min(x.take,have)); if(take<=0) continue;
-      try{ await S.db.doc('parts/'+x.p.id).update({qty:round3(have-take)}); }catch(e){ writeFail(e); break; }
-      took.push({id:x.p.id, take});
+    let parts=0;
+    each: for(const b of boxes.filter(b=>b.checked)){
+      const x=rows[b.dataset.i], cur=x.ps.map(e=>S.parts.get(e.id)).filter(Boolean); // one deleted meanwhile is passed over
+      let any=false;
+      for(const [e,take] of takeFrom(cur, x.take)){
+        try{ await S.db.doc('parts/'+e.id).update({qty:round3(Number(e.qty||0)-take)}); }catch(err){ writeFail(err); if(any) parts++; break each; }
+        took.push({id:e.id, take}); any=true;
+      }
+      if(any) parts++;
     }
     close(); if(!took.length) return;
-    toast(`${many(took.length,'part')} taken from stock`,1800,{label:'Undo', run:async()=>{
+    toast(`${many(parts,'part')} taken from stock`,1800,{label:'Undo', run:async()=>{
       for(const t of took){ const cur=S.parts.get(t.id); if(!cur) continue;
         try{ await S.db.doc('parts/'+t.id).update({qty:round3(Number(cur.qty||0)+t.take)}); }catch(e){ writeFail(e); return; } }
-      toast(`${many(took.length,'part')} put back in stock`);
+      toast(`${many(parts,'part')} put back in stock`);
     }});
   };
 }

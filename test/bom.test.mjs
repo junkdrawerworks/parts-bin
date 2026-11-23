@@ -1,7 +1,7 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory.  node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf, asPiece, matchLine } from '../js/bom.js';
+import { norm, parseBom, matchPart, isPartNumber, shortBy, needs, inPartUnit, unitOf, asPiece, matchLine, together, takeFrom, stockKey } from '../js/bom.js';
 
 test('norm folds the ways a name can be typed', () => {
   // search, bags and BOM check all read names through it
@@ -507,4 +507,25 @@ test('a list that only looks like an export is read as before', () => {
     { qty: 2, name: 'BME280' }, { qty: 3, name: 'M3 nut' }, { qty: 0.5, unit: 'm', name: 'hookup wire' }, { qty: 0.5, unit: 'm', name: 'heat shrink' },
     { qty: 1000, name: '10k resistor' }, { qty: 1, name: 'zip tie' },
   ]);
+});
+
+test('a part kept in two entries is one stock', () => {
+  // Pack's "another bag of it": BME280 with 3 in bag #001 and 5 in #007. Matched to one entry, "4 BME280" said short 1.
+  const a = { id: 'a', name: 'BME280', qty: 3, unit: 'pcs', bag: 1 }, b = { id: 'b', name: 'bme280 ', qty: 5, bag: 7 };
+  const other = { id: 'o', name: 'BME280', mpn: 'BME280-X', qty: 9, bag: 2 }, metres = { id: 'w', name: 'BME280', unit: 'm', qty: 4 };
+  const loose = { id: 'l', name: 'BME280', qty: 1 }, parts = [b, other, loose, a, metres];
+  const [r] = together([{ qty: 4, name: 'BME280', m: { p: b, conf: 1, near: false } }], parts);
+  assert.deepEqual(r.m.all.map(p => p.id), ['a', 'b', 'l'], 'by bag number, an entry with no bag last; another part number or unit is another part');
+  assert.equal(r.m.p, a); assert.equal(r.m.have, 9); assert.equal(r.m.conf, 1);
+  assert.deepEqual([...needs([r])], [['a', { qty: 4, lines: 1 }]]);
+  // two lines that found different entries are one need
+  const two = together([{ qty: 2, m: { p: a } }, { qty: 2, m: { p: b } }, { qty: 1, m: null }], parts);
+  assert.deepEqual([...needs(two)], [['a', { qty: 4, lines: 2 }]]);
+  assert.equal(two[2].m, null);
+  assert.notEqual(stockKey({ id: 'x', name: '' }), stockKey({ id: 'y', name: '' }), 'parts with no name aren’t one');
+  // taken from the first bag, then the next
+  assert.deepEqual(takeFrom(r.m.all, 4).map(([p, n]) => [p.id, n]), [['a', 3], ['b', 1]]);
+  assert.deepEqual(takeFrom(r.m.all, 2).map(([p, n]) => [p.id, n]), [['a', 2]]);
+  assert.deepEqual(takeFrom([{ id: 'e', qty: 0 }, ...r.m.all], 20).map(([p, n]) => [p.id, n]), [['a', 3], ['b', 5], ['l', 1]], 'an empty entry and more than there is');
+  assert.deepEqual(takeFrom([{ id: 'h', qty: 0.3 }, { id: 'i', qty: 0.3 }], 0.4).map(([, n]) => n), [0.3, 0.1]);
 });

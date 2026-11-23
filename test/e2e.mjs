@@ -553,6 +553,26 @@ await page.waitForFunction(n => document.querySelector('.bom-table tbody tr:firs
 await page.click('#toast button:has-text("Undo")');
 await page.waitForSelector('#toast:has-text("2 parts put back in stock")');
 assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-scd41')], [bme0, scd0]);
+// a part kept in two entries (Pack's "another bag of it") is one stock: the line has what they hold between them (matched
+// to one entry it said short, and went on the shopping list), the pick list and Built it take the first bag, then the next
+await inject('p-bme2', { name: 'BME280 (Adafruit)', qty: 4, unit: 'pcs', binId: 'bin-env', bag: 7 });
+await page.fill('#bom', `${bme0 + 2} BME280\n1 SCD41`); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => c.textContent)), ['have', 'have']);
+assert.deepEqual(await page.$$eval('.bom-table tbody tr:first-child td', ts => [ts[2].textContent, ts[3].textContent]), [String(bme0 + 4), 'ENV #001 #007']);
+assert.equal(await page.textContent('.bom-summary'), 'You have everything for this. 2 parts, in ENVCopy pick list');
+await page.evaluate(() => { window.__shared = ''; });
+await page.click('.bom-summary #picktop');
+await page.waitForFunction(t => window.__shared === t, `ENV: ${bme0}× BME280 (Adafruit) #001, 2× BME280 (Adafruit) #007, 1× SCD41`, { timeout: 2000 }).catch(async () => assert.fail('pick list: ' + await page.evaluate(() => window.__shared)));
+await page.click('#out #built'); await page.waitForSelector('.sheet .built');
+assert.deepEqual(await page.$$eval('.sheet .built label', ls => ls.map(l => [l.querySelector('.bn').textContent, l.querySelector('.bq').textContent, l.querySelector('input').checked])), [
+  ['BME280 (Adafruit)2 entries: #001, #007', `${bme0 + 4} → 2`, true], ['SCD41', `${scd0} → ${scd0 - 1}`, true]]);
+await page.click('.sheet #save');
+await page.waitForSelector('#toast:has-text("2 parts taken from stock")');
+assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-bme2'), await qtyOf('p-scd41')], [0, 2, scd0 - 1]);
+await page.click('#toast button:has-text("Undo")');
+await page.waitForSelector('#toast:has-text("2 parts put back in stock")');
+assert.deepEqual([await qtyOf('p-bme280'), await qtyOf('p-bme2'), await qtyOf('p-scd41')], [bme0, 4, scd0]);
+await inject('p-bme2', null);
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
 
 // ---- Inbox: a link from Claude brings parts to check; each is saved and tagged from its card

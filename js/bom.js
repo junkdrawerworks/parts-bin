@@ -1,5 +1,6 @@
 // BOM check: reading a pasted parts list, and finding each line in the inventory. Search uses norm() too.
 // No page code, so tests run it in Node.
+import { bagOf } from './bags.js';
 
 // Lower case, with anything but letters, digits, dots and plus signs read as a space: "ESP32-S3" is "esp32 s3". Unicode
 // is folded first, so CO₂ is co2 and a full-width ＥＳＰ３２ is esp32; µ (or μ) is u, so 100µF is 100uf; and an ohm after a
@@ -335,6 +336,36 @@ export function needs(items, withNear = false) {
     if (!r.m || (r.m.near && !withNear)) continue;
     const n = out.get(r.m.p.id) || { qty: 0, lines: 0 };
     out.set(r.m.p.id, { qty: Math.round((n.qty + inPartUnit(r)) * 1000) / 1000, lines: n.lines + 1 });
+  }
+  return out;
+}
+
+// One part kept in more than one entry: Pack's "It's another bag of it" makes a second entry, with the same name, part
+// number and unit, for each bag of it (BME280 with 3 in bag #001 and 5 in #007). BOM check counts them as one stock, so
+// "4 BME280" is had (matched to one entry, it said short 1 with 8 in stock). A line found any of them is given all of
+// them: p, the first (by bag number, an entry with no bag last); all, each in that order; have, their count between them.
+// A name that's blank stays its own.
+const unitKey = u => { const s = String(u || '').trim().toLowerCase(); return s === 'pcs' ? '' : s; };
+export const stockKey = p => (norm(p.name) ? [norm(p.name), norm(p.mpn), unitKey(p.unit)].join('|') : 'id:' + p.id);
+const bagNo = p => bagOf(p) || Number.MAX_SAFE_INTEGER;
+export function together(items, parts) {
+  const by = new Map();
+  for (const p of parts) { const k = stockKey(p); if (!by.has(k)) by.set(k, []); by.get(k).push(p); }
+  for (const ps of by.values()) ps.sort((a, b) => bagNo(a) - bagNo(b));
+  return items.map(r => {
+    if (!r.m) return r;
+    const ps = by.get(stockKey(r.m.p)) || [], all = ps.some(p => p.id === r.m.p.id) ? ps : [r.m.p];
+    return { ...r, m: { ...r.m, p: all[0], all, have: Math.round(all.reduce((n, p) => n + (Number(p.qty) || 0), 0) * 1000) / 1000 } };
+  });
+}
+// What a need takes from each entry of its stock: all the first bag has, then the next one's, until it's covered.
+// [[part, how many], …], leaving out an entry it doesn't reach or that has none.
+export function takeFrom(all, need) {
+  const out = []; let left = Math.round(need * 1000) / 1000;
+  for (const p of all) {
+    if (left <= 0) break;
+    const t = Math.round(Math.min(left, Math.max(0, Number(p.qty) || 0)) * 1000) / 1000;
+    if (t > 0) { out.push([p, t]); left = Math.round((left - t) * 1000) / 1000; }
   }
   return out;
 }

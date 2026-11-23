@@ -179,7 +179,8 @@ function render(back=false){
 // A sticker whose number no part has now (renumbered, or its part deleted): where to look instead.
 let wantSearch=false;
 function noBag(m, n){
-  const e=h(`<div class="empty"><h3>No bag ${esc(bagStr(n))}</h3><p>No part has bag ${esc(bagStr(n))} now. It may have been renumbered or deleted.</p><div class="row" style="justify-content:center"><button class="btn primary" id="find">${ICONS.search} Search parts</button><button class="btn" id="bk">All bins</button></div></div>`);
+  const num=Number.isSafeInteger(n) && n>=1; // #bag/1x names no number at all
+  const e=h(`<div class="empty">${num?`<h3>No bag ${esc(bagStr(n))}</h3><p>No part has bag ${esc(bagStr(n))} now. It may have been renumbered or deleted.</p>`:'<h3>No bag number</h3><p>That tag doesn’t name a bag number.</p>'}<div class="row" style="justify-content:center"><button class="btn primary" id="find">${ICONS.search} Search parts</button><button class="btn" id="bk">All bins</button></div></div>`);
   e.querySelector('#find').onclick=()=>{ S.q=''; wantSearch=true; go('parts'); };
   e.querySelector('#bk').onclick=()=>go('bins');
   m.append(e);
@@ -972,11 +973,21 @@ function tagSheet(b, kind='bin', opts={}){
 // Once NFC is allowed for the site it starts by itself; the first time, the NFC button asks.
 let reading=null, lastWrite=0, tagWait=null; // tagWait: while a tag sheet is open, the last tag read ({url, at})
 const OLD_HOSTS=/(^|\.)claude\.ai$/;
+// Every address Parts Bin has written on a tag: the page's own, its own address (parts-bin.junkdrawer.works), its old one
+// (junkdrawer.works/parts-bin/, and GitHub's address for it), and the Stockroom artifact's on claude.ai. Another project's
+// tag (kerf.junkdrawer.works/#part/…, someone.github.io/thing/#bag/001) isn't one, though it reads #part/ or #bag/ too.
+function ourTag(url){
+  const host=url.hostname.replace(/^www\./,''), path=url.pathname, bare=x=>x.replace(/index\.html$/,'');
+  if(bare(url.origin+path)===bare(APP_URL)) return true;
+  if(!/^https?:$/.test(url.protocol)) return false;
+  if(host==='parts-bin.junkdrawer.works') return true;
+  return (host==='junkdrawer.works' || /^[a-z0-9-]+\.github\.io$/.test(host)) && /^\/parts-bin(\/|$)/.test(path);
+}
 function tagTarget(u){
   let url; try{ url=new URL(u); }catch{ return null; }
   const m=/^#(bag|bin|part)\/(.+)$/.exec(url.hash); if(!m) return null;
   const old=OLD_HOSTS.test(url.hostname);
-  if(!old && !(url.origin+url.pathname===APP_URL || /junkdrawer\.works$|github\.io$/.test(url.hostname))) return null;
+  if(!old && !ourTag(url)) return null;
   return { view:m[1], arg:decodeURIComponent(m[2]), old, url:u };
 }
 function findTarget(t){

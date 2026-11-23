@@ -257,6 +257,26 @@ await page.waitForSelector('.sheet:has-text("Update this tag?")');
 assert.match(await page.textContent('.sheet p.muted'), /Rewrite it to open Parts Bin instead\. It’ll become bag #00\d\. Keep it at the top of the phone\.$/);
 await page.click('.sheet #later'); await page.waitForFunction(() => !document.querySelector('.sheet'));
 await page.goto(base + '#bins');
+// another project's tag is left alone, though it reads #part/ or #bag/ as well: another junkdrawer.works tool's,
+// someone's GitHub page, a look-alike address (they opened here, as Part not found, or as a bin or bag of yours)
+for (const u of ['https://kerf.junkdrawer.works/#part/abc', 'https://brickyard.junkdrawer.works/#bin/bin-env', 'https://someone.github.io/thing/#bag/001', 'https://notjunkdrawer.works/parts-bin/#bag/001']) {
+  await page.goto(base + '#parts'); await page.goto(base + '#bins'); await page.waitForFunction(() => window.__reader?.onreading);
+  await page.evaluate(u => window.__read(u), u);
+  await page.waitForSelector('#toast:not([hidden]):has-text("That tag isn’t one of yours")');
+  assert.equal(await page.evaluate(() => location.hash), '#bins', u + ' opened here');
+}
+// every address Parts Bin has written on a tag still opens it: its own, its old one at junkdrawer.works/parts-bin/ (and
+// GitHub's address for that), with or without index.html
+for (const [u, head] of [['https://junkdrawer.works/parts-bin/#bag/001', 'BME280'], ['https://parts-bin.junkdrawer.works/#bin/bin-env', 'Environmental'], ['https://junkdrawerworks.github.io/parts-bin/#bag/001', 'BME280'], ['https://www.junkdrawer.works/parts-bin/index.html#part/p-scd41', 'SCD41'], [base + 'index.html#bin/bin-env', 'Environmental']]) {
+  await page.goto(base + '#bins'); await page.waitForFunction(() => window.__reader?.onreading);
+  await page.evaluate(u => window.__read(u), u);
+  await page.waitForSelector(`h2:has-text("${head}")`);
+}
+// a bag link with no number in it says so (it read "No bag " and "No part has bag  now")
+await page.goto(base + '#bag/1x'); await page.waitForSelector('.empty h3');
+assert.equal(await page.textContent('.empty h3'), 'No bag number'); assert.equal(await page.textContent('.empty p'), 'That tag doesn’t name a bag number.');
+assert.equal(await page.locator('.empty #find').count(), 1);
+await page.goto(base + '#bins');
 // someone else's link is left alone
 await page.evaluate(() => window.__read('https://example.com/#bag/001'));
 await page.waitForSelector('text=That tag isn’t one of yours');

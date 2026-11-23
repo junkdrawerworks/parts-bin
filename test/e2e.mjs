@@ -69,6 +69,13 @@ const fakeNfc = () => {
   if (navigator.clipboard) navigator.clipboard.writeText = async t => { window.__shared = t; };
 };
 
+// The README's phone shots, written only when asked (SHOTS=1 npm test), so a plain run leaves the repo as it was. A shot
+// waits for any message to go first, so none is caught on the picture.
+const shot = async (pg, name) => {
+  await pg.waitForFunction(() => document.getElementById('toast').hidden, null, { timeout: 8000 });
+  if (process.env.SHOTS === '1') await pg.screenshot({ path: join(root, `docs/${name}.png`) });
+};
+
 const g = fakeGoogle();
 const browser = await pw.chromium.launch();
 // Every file a page asks this server for, on every device: each one has to be in the offline copy (checked at the end).
@@ -133,7 +140,7 @@ await page.waitForSelector('#tz.wait');
 await page.evaluate(() => window.__tap());
 await page.waitForFunction(() => !document.querySelector('.sheet'));
 assert.match((await page.evaluate(() => window.__written))[1], /#bag\/002$/);
-await page.screenshot({ path: join(root, 'docs/phone-pack.png') });
+await shot(page, 'phone-pack');
 
 // ---- Parts → + Part: a new part goes into a new bag and is tagged on save
 await page.goto(base + '#parts');
@@ -236,14 +243,16 @@ await page.waitForTimeout(3000);
 await page.evaluate(() => window.__read('https://example.com/#bag/001'));
 await page.waitForSelector('text=That tag isn’t one of yours');
 assert.equal(await page.evaluate(() => location.hash), '#bins');
+// and the message is about Bins, so it goes when another screen opens (it stayed up over BOM check)
 
 // ---- BOM check against the inventory
 await page.goto(base + '#bom');
+assert.ok(await page.evaluate(() => document.getElementById('toast').hidden), 'the tag message followed onto BOM check');
 await page.selectOption('#proj', 'proj-x');
 await page.waitForSelector('.bom-summary');
 const summary = await page.textContent('.bom-summary');
 assert.match(summary, /2 have/); assert.match(summary, /1 missing/);
-await page.screenshot({ path: join(root, 'docs/phone-bom.png') });
+await shot(page, 'phone-bom');
 // a list typed but not checked yet stays through another screen, a reload, and Save as project
 await page.fill('#bom', '1 SCD41\n2 heat-set inserts');
 await page.click('#tabbar [data-go="parts"]'); await page.waitForSelector('#cat');
@@ -277,11 +286,12 @@ const photoLink = base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptes
 await page.goto(photoLink);
 await page.waitForSelector('.batch .card.inb');
 assert.equal(await page.evaluate(() => location.hash), '#inbox', 'the long code is gone from the address');
+assert.ok(await page.isVisible('#toast:has-text("3 from Claude to check")'), 'the message about the batch went with the link');
 assert.equal(await page.textContent('.batch .section-h .tiny'), 'From a photo · 3 left', 'no date when the batch has none');
 assert.equal(await page.locator('.card.inb').count(), 3);
 assert.equal(await page.textContent('#tabbar .badge'), '3');
 await page.waitForFunction(() => document.querySelector('.card.inb[data-k="i0"] img.ref')?.naturalWidth > 0);
-await page.screenshot({ path: join(root, 'docs/phone-inbox.png') });
+await shot(page, 'phone-inbox');
 // the part Claude matched is offered first; picking it opens that record with its blanks filled, ready to tag
 await page.click('.card.inb[data-k="i0"] button.pick');
 await page.waitForSelector('.sheet #p-name');
@@ -549,7 +559,7 @@ assert.equal((await part(iron.id)).qty, ironQty + 2);
 // ---- phone basics
 await page.goto(base + '#bins');
 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'the page scrolls sideways on a phone');
-await page.screenshot({ path: join(root, 'docs/phone-bins.png') });
+await shot(page, 'phone-bins');
 // the Drive button in the corner doesn't sit on top of a page's own buttons
 const clear = sel => page.evaluate(sel => { const r = e => e.getBoundingClientRect(), c = r(document.querySelector('#cloud-m')), x = r(document.querySelector(sel)); return c.width > 0 && (x.right <= c.left || x.bottom <= c.top); }, sel);
 await page.goto(base + '#part/p-bme280');

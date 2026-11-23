@@ -1,4 +1,4 @@
-// Link preview card:  node tools/screenshots.mjs   (README phone shots come from npm test)
+// Link preview card:  node tools/screenshots.mjs   (README phone shots come from SHOTS=1 npm test)
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';

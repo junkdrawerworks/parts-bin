@@ -40,7 +40,8 @@ It's a static site: plain HTML, CSS and JavaScript, with no build step.
 ```sh
 npx http-server -p 8080 -c-1 .   # then open http://localhost:8080
 npm test                         # merge rules, then the page in Chromium with a pretend NFC reader and Drive
-node tools/screenshots.mjs       # og.png (the README phone shots come from npm test)
+SHOTS=1 npm test                 # the same, and regenerates the README phone shots (docs/phone-*.png)
+node tools/screenshots.mjs       # og.png, which shows docs/phone-bom.png (run it after SHOTS=1 npm test)
 node tools/make-icons.mjs        # PNG icons from icon.svg
 ```
 

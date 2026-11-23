@@ -35,6 +35,7 @@ function parseHash(){ const h=location.hash.replace(/^#\/?/,''); const [view,...
 // it goes to the page the sheet was on. While Parts Bin is stepping back off a closed sheet, the page opens once that lands.
 function go(view,arg){
   const u = arg ? `#${view}/${arg}` : `#${view}`;
+  if(toastFresh) toastCarry=true; // "Deleted …", then Parts: the message goes with it
   if(isStepping()) nextPage=u; else if(!openSheet && history.state?.sheet) location.replace(u); else location.hash=u;
 }
 // Whether there's a page of Parts Bin's to go back to. A sheet that has closed leaves its step ahead of this one, and
@@ -42,7 +43,12 @@ function go(view,arg){
 function canGoBack(){ return window.navigation ? navigation.canGoBack : history.length>1; }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function id(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
-function toast(msg,ms=1800){ const t=document.getElementById('toast'), say=document.getElementById('say'); t.textContent=say.textContent=msg; t.hidden=false; clearTimeout(t._t); t._t=setTimeout(()=>{ t.hidden=true; say.textContent=''; },ms); }
+// A message is about the screen it was shown on, so it goes when another screen opens (a tag read on Bins doesn't follow
+// you to BOM check), unless it was shown on the way there: toast() then go() in one go, or keepToast().
+let toastFresh=false, toastCarry=false;
+function toast(msg,ms=1800){ const t=document.getElementById('toast'), say=document.getElementById('say'); t.textContent=say.textContent=msg; t.hidden=false; toastCarry=false; toastFresh=true; queueMicrotask(()=>{ toastFresh=false; }); clearTimeout(t._t); t._t=setTimeout(hideToast,ms); }
+function hideToast(){ const t=document.getElementById('toast'); clearTimeout(t._t); t.hidden=true; document.getElementById('say').textContent=''; toastCarry=false; }
+function keepToast(){ if(!document.getElementById('toast').hidden) toastCarry=true; }
 function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; }
 function fmtQty(p){ return (p.qty ?? 0) + (p.unit && p.unit!=='pcs' ? ' '+p.unit : ''); }
 function binOf(p){ return p.binId ? S.bins.get(p.binId) : null; }
@@ -98,6 +104,7 @@ function render(){
   const v=S.route.view;
   const held=!!heldCode && linkCode()===heldCode;
   if(linkCode() && !held){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
+  if(!same){ if(toastCarry) toastCarry=false; else hideToast(); }
   shown=key;
   if(v==='inbox' || held) renderInbox(m);
   else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else noBag(m, n); }
@@ -827,7 +834,7 @@ async function takeLink(){
   const c=linkCode(); if(!c) return false;
   if(await takeBatch(c)){ heldCode=''; history.replaceState(null,'',location.pathname+location.search+'#inbox'); } // the code is long, and reloading shouldn't read it twice
   else heldCode=c;
-  render(); return true;
+  keepToast(); render(); return true;
 }
 async function takeBatch(text, {again=false}={}){
   let b=null; try{ b=IN.cleanBatch(await IN.read(text)); }catch{}
@@ -1041,7 +1048,7 @@ function importJson(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='application/json,.json';
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;
     const text=await f.text();
-    if(/^\s*\{\s*"partsbin"/.test(text)){ if(await takeBatch(text)){ if(S.route.view==='inbox') render(); else go('inbox'); } return; }
+    if(/^\s*\{\s*"partsbin"/.test(text)){ if(await takeBatch(text)){ keepToast(); if(S.route.view==='inbox') render(); else go('inbox'); } return; }
     try{ const {changed:n, back}=store.importText(text);
       // what came back that was deleted here is said apart from the rest: an old backup loaded to rescue one part brings
       // back every part deleted since it was saved

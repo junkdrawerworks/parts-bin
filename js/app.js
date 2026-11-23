@@ -101,13 +101,13 @@ function searchParts(q){
   const all=[...S.parts.values()], bm=String(q||'').trim().match(/^#?0*(\d{1,4})$/);
   const bag=bm?all.filter(p=>Number(p.bag)===Number(bm[1])):[];
   const t=norm(q).split(' ').filter(Boolean); if(!t.length) return all;
-  const found=all.filter(p=>!bag.includes(p)).map(p=>{
+  const hits=all.filter(p=>!bag.includes(p)).map(p=>{
     const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name, p.bag&&!bm?('bag '+p.bag+' '+String(p.bag).padStart(3,'0')):''].join(' ')); // another bag's number isn't a match for a bare one
     const flat=hay.replace(/ /g,''), name=norm(p.name), nameFlat=name.replace(/ /g,'');
     let score=0; for(const w of t){ if(!hay.includes(w) && !flat.includes(w)) return null; score += name.includes(w)||nameFlat.includes(w)?2:1; if(name.startsWith(w)) score+=2; }
     return {p,score};
   }).filter(Boolean).sort((a,b)=>b.score-a.score||a.p.name.localeCompare(b.p.name)).map(x=>x.p);
-  return [...bag, ...found];
+  return [...bag, ...hits];
 }
 function searchBins(q){
   const t=norm(q); if(!t) return [...S.bins.values()].sort(binCodeSort);
@@ -192,7 +192,7 @@ function topbar(m, title, extra=''){
   const el=h(`<div class="topbar"><h2>${esc(title)}</h2><div class="search">${ICONS.search}<input id="q" type="search" aria-label="Search" placeholder="Search parts, bins, bag numbers…" value="${esc(S.q)}" autocomplete="off"></div>${NFC_OK&&!FRAMED?`<button class="btn icon${reading?' on':''}" id="readtag" aria-label="Tap a tag to open it" aria-pressed="${!!reading}" title="Tap a tag to open it">${ICONS.nfc}</button>`:''}${extra}</div>`);
   m.append(el);
   el.querySelector('#readtag')?.addEventListener('click', readTag);
-  const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(q.isConnected) redrawResults(m, el); },160); };
+  const q=el.querySelector('#q'); let t; q.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{ S.q=q.value; if(!q.isConnected) return; found=null; redrawResults(m, el); if(S.q.trim() && found) said(found); },160); };
   return el;
 }
 // Typing in search draws again only what's under the top bar. The search box stays as it is, with the keyboard and the
@@ -248,8 +248,12 @@ function noBinSection(m){
   r.querySelector('#nobin').onclick=()=>{ localSet('sr.cat','__nobin'); S.q=''; go('parts'); };
   m.append(r);
 }
+// What a search found, said once it's drawn: "3 parts, 1 bin".
+let found=null;
+const many=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 function renderSearchResults(m){
   const bins=searchBins(S.q), parts=searchParts(S.q);
+  found=`${many(parts.length,'part')}, ${many(bins.length,'bin')}`;
   if(bins.length){ m.append(h(`<div class="section-h"><h3>Bins</h3><span class="tiny">${bins.length}</span></div>`)); const l=h('<div class="list"></div>'); for(const b of bins) l.append(binRow(b)); m.append(l); }
   m.append(h(`<div class="section-h"><h3>Parts</h3><span class="tiny">${parts.length}</span></div>`));
   if(!parts.length) m.append(h('<div class="empty"><p>No parts match.</p></div>'));
@@ -407,6 +411,7 @@ function renderParts(m){
   else if(cur==='__low') parts=parts.filter(isLow); else if(cur==='__unbagged') parts=parts.filter(p=>!p.bag); else if(cur==='__bagged') parts=parts.filter(p=>p.bag); else if(cur==='__nobin') parts=parts.filter(p=>!binOf(p)); else if(cur==='__check') parts=parts.filter(p=>p.check); else if(cur) parts=parts.filter(p=>p.category===cur);
   if(cur==='__bagged') parts.sort((a,b)=>Number(a.bag)-Number(b.bag));
   else if(!S.q && cur!=='__clash') parts.sort((a,b)=>a.name.localeCompare(b.name));
+  found=many(parts.length,'part');
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
   if(!parts.length){ m.append(h(`<div class="empty"><p>${S.parts.size?'No parts match.':'No parts here yet. Add one, or use Pack to bag and tag them as you go.'}</p></div>`)); return; }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
@@ -431,7 +436,8 @@ function renderPartPage(m, pid){
   if(S.canWrite){
     const q=h(`<div class="row" style="margin:6px 0 14px"><label class="muted" for="qv">Quantity</label><div class="qty"><button class="btn icon" id="dec" aria-label="Use one">−</button><input id="qv" type="number" min="0" step="any" value="${esc(p.qty??0)}"><button class="btn icon" id="inc" aria-label="Add one">+</button></div><span class="tiny">${esc(p.unit||'pcs')}${p.minQty!=null&&p.minQty!==''?` · reorder at ${esc(p.minQty)}`:''}</span></div>`);
     m.append(q);
-    const inp=q.querySelector('#qv'); const save=async(v)=>{ v=Math.max(0,Number(v)); if(!isFinite(v)) return; inp.value=v; if(v!==Number(p.qty||0) && !await writePart({...p, qty:v})) inp.value=p.qty??0; }; // a count stops at zero; a refused one goes back
+    // a count stops at zero; a refused one goes back; a saved one is said, as the keyboard stays on the button
+    const inp=q.querySelector('#qv'); const save=async(v)=>{ v=Math.max(0,Number(v)); if(!isFinite(v)) return; inp.value=v; if(v===Number(p.qty||0)) return; if(await writePart({...p, qty:v})) said(`${v} ${p.unit||'pcs'}`); else inp.value=p.qty??0; };
     // one fewer or one more, without the float's leftovers: 1.1 m less one is 0.1 m, not 0.10000000000000009
     const step=d=>save(Number((Number(inp.value)+d).toPrecision(12)));
     q.querySelector('#dec').onclick=()=>step(-1); q.querySelector('#inc').onclick=()=>step(1);
@@ -474,7 +480,7 @@ function renderBom(m){
   const ta=ui.querySelector('#bom'), out=ui.querySelector('#out');
   ta.oninput=()=>localSet('sr.bom',ta.value); // kept as it's typed, so another screen, a reload or a redraw doesn't lose it
   ui.querySelector('#proj').onchange=e=>{ const p=S.projects.get(e.target.value); if(p){ ta.value=p.text; localSet('sr.bom',p.text); run(); } };
-  function run(rows){
+  function run(rows, quiet){
     localSet('sr.bom',ta.value);
     const items=rows||parseBom(ta.value).map(r=>({...r, m:r.heading?null:matchPart(r.name,S.parts.values())}));
     if(!items.length){ out.innerHTML='<div class="empty"><p>Paste a parts list first.</p></div>'; return; }
@@ -488,13 +494,14 @@ function renderBom(m){
       if(!r.m){ st='missing'; cls='bad'; missing++; }
       else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
         if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
-      return `<tr><td class="n">${r.qty}${esc(u(r.unit||unitOf(r)))}</td><td>${esc(r.name)}${r.m?`<div class="tiny">→ ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
+      return `<tr><td class="n">${r.qty}${esc(u(r.unit||unitOf(r)))}</td><td>${esc(r.name)}${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
-    out.innerHTML=`<div class="bom-summary"><span class="chip ok">${have} have</span><span class="chip warn">${short} short</span><span class="chip bad">${missing} missing</span></div><div class="tablewrap"><table class="bom-table"><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
+    out.innerHTML=`<div class="bom-summary"><span class="chip ok">${have} have</span><span class="chip warn">${short} short</span><span class="chip bad">${missing} missing</span></div><div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th>Need</th><th>Item</th><th>Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
     const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${r.name}`); // 0.2 m heat shrink, 1 × BME280
     out.querySelector('#copy')?.addEventListener('click',()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
+    if(!quiet) said(`${have} have, ${short} short, ${missing} missing`); // the table is drawn below the button, out of hearing
   }
   ui.querySelector('#check').onclick=()=>run();
   ui.querySelector('#smart')?.addEventListener('click', async()=>{
@@ -514,7 +521,7 @@ Reply with only a JSON array, same order and length as the BOM lines: [{"id": "<
     const name=prompt('Project name for this BOM:', ''); if(!name) return;
     const pid=id(); try{ await S.db.doc('projects/'+pid).set({name, text:ta.value, updatedAt:new Date().toISOString()}); toast('Saved'); }catch(e){ writeFail(e); }
   });
-  if(last) run();
+  if(last) run(null, true); // the list left from last time, checked again as the screen opens: its heading is what's said
 }
 
 // ---- Pack (scan-in with a sticky destination container)

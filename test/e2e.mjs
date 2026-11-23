@@ -305,7 +305,9 @@ await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('parts-bin
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check');
 assert.equal(await page.textContent('.bom-table .chip.warn'), 'short 0.2 m');
 assert.equal(await page.textContent('.bom-table tbody td.n'), '0.3 m');
-assert.equal(await page.textContent('.bom-table tbody td:nth-child(2)'), 'heat shrink tubing 3mm→ Heat shrink tubing 3mm');
+// the arrow to the part it matched is read as "matched to", not "right arrow", and the table is named
+assert.equal(await page.textContent('.bom-table tbody td:nth-child(2)'), 'heat shrink tubing 3mm→matched to Heat shrink tubing 3mm');
+assert.equal(await page.getByRole('table', { name: 'BOM check results' }).count(), 1);
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '0.2 m heat shrink tubing 3mm');
 // a line in centimetres against a part kept in metres, and a count with no unit, which is the part's
@@ -329,6 +331,8 @@ await page.fill('#bom', 'Electronics\n1 SCD41\nSGP30\nHardware Supplies\n2 heat-
 assert.deepEqual(await page.$$eval('.bom-table tbody tr.sect th', ts => ts.map(t => [t.textContent, t.colSpan, t.scope])), [['Electronics', 5, 'colgroup'], ['Hardware Supplies', 5, 'colgroup'], ['For this build you’ll need', 5, 'colgroup']]);
 assert.equal(await page.$$eval('.bom-table tbody tr:not(.sect)', rs => rs.length), 3);
 assert.match(await page.textContent('.bom-summary'), /^2 have0 short1 missing$/);
+// and the summary is said, as the table is drawn out of hearing below the button
+await page.waitForFunction(() => document.getElementById('say').textContent === '2 have, 0 short, 1 missing', null, { timeout: 2000 }).catch(() => assert.fail('BOM check said nothing'));
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × SGP30');
 await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#check'); // the list the clipboard check uses later
@@ -1780,6 +1784,7 @@ await desk.goto(base);
   const found = async q => { await sp.fill('#q', q); await sp.waitForTimeout(400); return sp.locator('#main .list .item .t').allTextContents(); }; // after search's pause
   // typed without the dash (ESP32-S3 is "esp32 s3" to search), and CO₂ with a plain 2 (the ₂ was a space)
   assert.deepEqual(await found('esp32s3'), ['Seeed XIAO ESP32-S3']);
+  assert.equal(await sp.textContent('#say'), '1 part', 'what search found is said');
   assert.deepEqual((await found('co2')).sort(), ['MH-Z19B CO2 sensor', 'SCD41 CO₂ sensor']);
   assert.deepEqual((await found('10k')).sort(), ['10 kΩ potentiometer', '10kΩ resistor']);
   // bag 220's part comes first, and the parts with 220 in their names after it (only bag 220's showed)
@@ -1787,6 +1792,10 @@ await desk.goto(base);
   assert.deepEqual(await found('#220'), ['10kΩ resistor', '220uF capacitor', '220Ω resistors']);
   // and another bag's number in it isn't a match: bag 22 is the BME280, which has no 22 in its name
   assert.deepEqual(await found('22'), ['BME280', '220uF capacitor', '220Ω resistors']);
+  assert.equal(await sp.textContent('#say'), '3 parts');
+  // on Bins, the bins it found too
+  await sp.goto(base + '#bins'); await sp.fill('#q', 'shelf'); await sp.waitForFunction(() => document.getElementById('say').textContent === '8 parts, 1 bin');
+  await sp.fill('#q', 'esp32s3'); await sp.waitForFunction(() => document.getElementById('say').textContent === '1 part, 0 bins');
   assert.deepEqual(sp.problems, [], 'problems while searching');
   await sCtx.close();
 }
@@ -1828,6 +1837,10 @@ await desk.goto(base);
   await lp.goto(base + '#part/p7'); await lp.waitForSelector('#inc');
   assert.equal(await draws(() => lp.click('#inc')), 1, 'a save drew the part page more than once');
   assert.equal(await lp.inputValue('#qv'), '71');
+  // the new count is said, as the keyboard stays on the button and nothing else moves
+  await lp.waitForFunction(() => document.getElementById('say').textContent === '71 pcs', null, { timeout: 2000 }).catch(() => assert.fail('Add one said nothing'));
+  await lp.focus('#dec'); await lp.keyboard.press('Enter');
+  await lp.waitForFunction(() => document.getElementById('say').textContent === '70 pcs', null, { timeout: 2000 }).catch(() => assert.fail('Use one said nothing'));
   // on a phone, a sheet opens without the keyboard (it popped up over half the sheet) and Save is in reach at the bottom
   // of the screen without scrolling the long part sheet
   await lp.click('#edit'); await lp.waitForSelector('.sheet #p-name');

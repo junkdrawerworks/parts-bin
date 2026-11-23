@@ -74,7 +74,7 @@ test('merging in any order, with clocks set wrong and edits stamped the same, en
       // a backup loaded back into the copy it came from changes nothing, and says so
       if (seed % 4 === 0) {
         mem[KEY] = M.canon(drive); store.reload();
-        assert.deepEqual(store.importText(store.backup()), { changed: 0, back: 0 }, `seed ${seed}: loading its own backup changed something`);
+        assert.deepEqual(store.importText(store.backup()), { changed: 0, back: 0, there: [] }, `seed ${seed}: loading its own backup changed something`);
         assert.equal(M.canon(store.doc), M.canon(drive), `seed ${seed}: loading its own backup changed the copy`);
       }
     }

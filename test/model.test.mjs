@@ -103,14 +103,14 @@ test('a part deleted here and loaded back from a backup stays, even after a sync
   await db.doc('parts/p-scd41').delete();
   const tombstone = store.doc; // what Drive and the other devices now hold
   await db.doc('parts/p-bme280').update({ qty: 6 });
-  assert.deepEqual(store.importText(backup), { changed: 0, back: 1 }, 'the BME280 here is newer than the file’s, so only the SCD41 changes');
+  assert.deepEqual(store.importText(backup), { changed: 0, back: 1, there: [] }, 'the BME280 here is newer than the file’s, so only the SCD41 changes');
   const back = store.doc.items.parts['p-scd41'];
   assert.ok(!M.gone(back) && !('del' in back) && back.t > tombstone.items.parts['p-scd41'].del);
   assert.equal(store.doc.items.parts['p-bme280'].qty, 6);
   // the next ordinary sync, with Drive still holding the deletion, keeps it, either way round
   assert.ok(!M.gone(M.mergeDocs(store.doc, tombstone).items.parts['p-scd41']));
   assert.ok(!M.gone(M.mergeDocs(tombstone, store.doc).items.parts['p-scd41']));
-  assert.deepEqual(store.importText(backup), { changed: 0, back: 0 }, 'loading it again changes nothing');
+  assert.deepEqual(store.importText(backup), { changed: 0, back: 0, there: [] }, 'loading it again changes nothing');
 });
 test('a long saved BOM and long notes keep every character, through saving, loading and merging', () => {
   const text = Array.from({ length: 150 }, (_, i) => `"R${i}","10k","Resistor_SMD:R_0603_1608Metric","https://example.com/ds/${i}"`).join("\n").slice(0, 6000);
@@ -153,14 +153,14 @@ test('loading a backup counts only the parts and bins it adds or changes, not de
   const live = { a: { name: 'SCD41', qty: 3, t: 10 }, b: { name: 'BME280', qty: 5, t: 10 }, c: { name: 'SGP30', qty: 1, t: 10 } };
   const dead = Object.fromEntries([1, 2, 3, 4, 5].map(i => ['d' + i, { name: 'Old ' + i, t: 10, del: 20 }]));
   const backup = JSON.stringify(doc({ ...live, ...dead }));
-  assert.deepEqual(store.importText(backup), { changed: 3, back: 0 }, 'three parts arrive (it said 8)');
+  assert.deepEqual(store.importText(backup), { changed: 3, back: 0, there: [] }, 'three parts arrive (it said 8)');
   assert.equal(Object.keys(store.doc.items.parts).length, 8, 'the deletions still travel with it');
   // the same parts, and newer deletions: nothing on screen changes
   const newer = JSON.stringify(doc({ ...live, b: { ...live.b, t: 15 }, ...Object.fromEntries(Object.entries(dead).map(([id, x]) => [id, { ...x, del: 30 }])), d6: { name: 'Old 6', t: 5, del: 6 } }));
-  assert.deepEqual(store.importText(newer), { changed: 0, back: 0 });
+  assert.deepEqual(store.importText(newer), { changed: 0, back: 0, there: [] });
   assert.equal(store.doc.items.parts.d1.del, 30); assert.equal(store.doc.items.parts.b.t, 15);
   // a changed part counts, and so does one back from a deletion here
-  assert.deepEqual(store.importText(JSON.stringify(doc({ a: { name: 'SCD41', qty: 4, t: 40 }, d1: { name: 'Old 1', t: 50 } }))), { changed: 1, back: 1 });
+  assert.deepEqual(store.importText(JSON.stringify(doc({ a: { name: 'SCD41', qty: 4, t: 40 }, d1: { name: 'Old 1', t: 50 } }))), { changed: 1, back: 1, there: [] });
 });
 test('a deleted part keeps only its two times, and an old copy’s deleted parts are cut down to them as it loads', async () => {
   const d = M.removeItem(M.putItem(M.blankDoc(), 'parts', 'x', { name: 'SCD41', qty: 3, notes: 'n'.repeat(5000) }), 'parts', 'x');
@@ -187,4 +187,16 @@ test('a deleted part keeps only its two times, and an old copy’s deleted parts
   assert.doesNotMatch(mem['parts-bin'], /Gone/);
   assert.equal(mem['parts-bin'], M.canon(trimmed));
   assert.equal(store.doc.items.parts.p.qty, 5);
+});
+test('loading a backup lists the parts it has as deleted that are still here and unchanged since, and deletes none', async () => {
+  const mem = {};
+  globalThis.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+  const { store } = await import('../js/store.js?there');
+  mem['parts-bin'] = M.canon(doc({ a: { name: 'SCD41', t: 10 }, b: { name: 'BME280', t: 10 }, c: { name: 'SGP30', t: 40 }, e: { t: 5, del: 8 } }));
+  store.reload();
+  // a and b were deleted on the device the file came from; c too, but it was changed here after; e is deleted on both
+  const file = JSON.stringify(doc({ a: { t: 10, del: 20 }, b: { name: 'BME280', t: 10 }, c: { t: 10, del: 30 }, e: { t: 5, del: 9 }, f: { t: 1, del: 2 } }));
+  const r = store.importText(file);
+  assert.deepEqual(r, { changed: 0, back: 0, there: [{ id: 'a', del: 20 }] });
+  for (const id of ['a', 'b', 'c']) assert.ok(!M.gone(store.doc.items.parts[id]), id + ' is still here: a file never deletes anything by itself');
 });

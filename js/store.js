@@ -82,7 +82,8 @@ export const store = {
   backup: () => JSON.stringify({ ...JSON.parse(M.canon(doc)), saved: new Date().toISOString() }, null, 1),
   // Merges a file in item by item, so nothing here is lost. Returns how many items it added or changed, and how many of
   // those were deleted here and come back from the file. Those get a new time: the deletion is still on Drive and on other
-  // devices, and with the file's old time the next sync would delete them again.
+  // devices, and with the file's old time the next sync would delete them again. there: the parts the file has as deleted
+  // on the device it came from that are still here, unchanged since ({ id, del }), for the page to offer to delete too.
   importText(text) {
     let raw; try { raw = JSON.parse(text); } catch { throw new Error('That file isn’t JSON.'); }
     const incoming = M.fromImport(raw);
@@ -90,6 +91,11 @@ export const store = {
     if (!n) throw new Error('That file doesn’t hold any bins, parts or projects.');
     const merged = M.mergeDocs(doc, incoming, { first: true });
     let changed = 0, back = 0;
+    const there = [];
+    for (const [id, x] of Object.entries(incoming.items.parts)) {
+      const here = Object.hasOwn(doc.items.parts, id) && doc.items.parts[id];
+      if (M.gone(x) && here && !M.gone(here) && (here.t || 0) <= x.del) there.push({ id, del: x.del });
+    }
     for (const k of M.KINDS) for (const [id, m] of Object.entries(merged.items[k])) {
       const here = doc.items[k][id];
       if (M.gone(here) && !M.gone(m)) { const { del, ...x } = m; merged.items[k][id] = { ...x, t: M.stamp(here) }; back++; }
@@ -99,6 +105,6 @@ export const store = {
       else if (!M.gone(m) && (!here || body(m) !== body(here))) changed++;
     }
     write(merged);
-    return { changed, back };
+    return { changed, back, there };
   },
 };

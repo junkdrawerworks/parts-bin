@@ -769,6 +769,27 @@ await page.evaluate(() => { document.getElementById('toast').hidden = true; });
   for (const d of [A, B]) { assert.deepEqual(d.page.problems, [], 'problems on the first-sync devices'); await d.ctx.close(); }
 }
 
+// ---- a backup from another device that has parts deleted there: loading it deletes nothing, and offers to delete here
+// the ones not changed here since (moving a backup between two devices without Drive kept every part deleted on the first)
+{
+  const D = await device(), t0 = Date.now() - 3600000;
+  await D.page.evaluate(d => localStorage.setItem('parts-bin', JSON.stringify(d)), { app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: {
+    'k-a': { name: 'Deleted there', qty: 1, t: t0 }, 'k-b': { name: 'Changed here since', qty: 1, t: t0 + 50000 }, 'k-c': { name: 'Still everywhere', qty: 1, t: t0 } } } });
+  await D.page.goto(base + '#settings'); await D.page.reload(); await D.page.waitForSelector('#imp');
+  const fromThere = join(tmp, 'from-there.json');
+  await writeFile(fromThere, JSON.stringify({ app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: {
+    'k-a': { t: t0, del: t0 + 10000 }, 'k-b': { t: t0, del: t0 + 10000 }, 'k-c': { name: 'Still everywhere', qty: 1, t: t0 }, 'k-d': { name: 'New from there', qty: 2, t: t0 } } } }));
+  const [ch] = await Promise.all([D.page.waitForEvent('filechooser'), D.page.click('#imp')]);
+  await ch.setFiles(fromThere);
+  await D.page.waitForSelector('#toast:has-text("Loaded: 1 item added or updated. This file has 1 part deleted on the device it came from; it’s still here.")');
+  const kept = () => D.page.evaluate(() => Object.fromEntries(Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.parts).map(([id, x]) => [id, !(x.del >= (x.t || 0))])));
+  assert.deepEqual(await kept(), { 'k-a': true, 'k-b': true, 'k-c': true, 'k-d': true }, 'loading it deleted nothing');
+  await D.page.click('#toast button:has-text("Delete that one too")');
+  await D.page.waitForSelector('#toast:has-text("Deleted 1 part")');
+  assert.deepEqual(await kept(), { 'k-a': false, 'k-b': true, 'k-c': true, 'k-d': true }, 'only the part not changed here since was deleted');
+  assert.deepEqual(D.page.problems, []); await D.ctx.close();
+}
+
 // ---- a Drive request that never answers (a stalled connection) is given up, and the chip turns red instead of staying on
 // "Syncing" until a reload; once the connection is back, Sync now works
 await page.goto(base + '#part/' + iron.id); await page.waitForSelector('#inc');

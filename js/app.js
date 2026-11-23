@@ -5,7 +5,7 @@ import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
 import * as IN from './inbox.js';
 import { norm, parseBom, matchPart, shortBy, needs, unitOf } from './bom.js';
 import * as BG from './bags.js';
-import { LONG } from './model.js';
+import { LONG, gone } from './model.js';
 // ------------------------------------------------------------------ state
 const S = {
   db: null, sample: null,
@@ -1398,13 +1398,28 @@ function importJson(){
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return;
     const text=await f.text();
     if(/^\s*\{\s*"partsbin"/.test(text)){ if(await takeBatch(text)){ keepToast(); if(S.route.view==='inbox') render(); else go('inbox'); } return; }
-    try{ const {changed:n, back}=store.importText(text);
+    try{ const {changed:n, back, there}=store.importText(text);
       // what came back that was deleted here is said apart from the rest: an old backup loaded to rescue one part brings
       // back every part deleted since it was saved
       const said=[n?`${n} item${n===1?'':'s'} added or updated`:'', back?`${back} brought back that ${back===1?'was':'were'} deleted here`:''].filter(Boolean).join(', ');
-      toast(said?`Loaded: ${said}`:'Nothing new in that file',back?5000:3000); go('bins'); }
+      // A file never deletes anything here by itself. The parts it has as deleted on the device it came from, still here
+      // and unchanged since, are offered: one tap deletes them here too.
+      const k=there.length;
+      if(k) toast(`${said?`Loaded: ${said}.`:'Nothing new in that file.'} This file has ${k} part${k===1?'':'s'} deleted on the device it came from; ${k===1?'it’s':'they’re'} still here.`, 12000, {label:k===1?'Delete that one too':`Delete those ${k} too`, run:()=>deleteThere(there)});
+      else toast(said?`Loaded: ${said}`:'Nothing new in that file',back?5000:3000);
+      go('bins'); }
     catch(e){ toast(e.message||'Couldn’t read that file',4000); } };
   inp.click();
+}
+
+// Deletes here the parts a loaded file had as deleted, each only if it hasn't changed here since it was deleted there.
+async function deleteThere(list){
+  let n=0;
+  for(const {id,del} of list){
+    const x=store.doc.items.parts[id]; if(!x || gone(x) || (x.t||0)>del) continue;
+    try{ await S.db.doc('parts/'+id).delete(); n++; }catch(e){ writeFail(e); return; }
+  }
+  toast(n?`Deleted ${n} part${n===1?'':'s'}`:'Nothing deleted: those parts have changed here since');
 }
 
 // ------------------------------------------------------------------ boot

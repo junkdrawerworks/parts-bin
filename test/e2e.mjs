@@ -27,11 +27,14 @@ const server = createServer((req, res) => {
   if (net === 'stalled') { held.push([req, res]); return; }
   serve(req, res);
 }).listen(0);
-async function serve(req, res) {
+// driveAt: a server whose sync.js lets the stand-in Drive be used from its address, for a device with an offline copy
+// (routes can't reach what a service worker fetches).
+async function serve(req, res, driveAt = '') {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (path.endsWith('/')) path += 'index.html';
   let body;
   try { body = await readFile(join(root, path)); } catch { res.writeHead(404); res.end(); return; }
+  if (driveAt && path === '/js/sync.js') body = Buffer.from(String(body).replace("['https://parts-bin.junkdrawer.works', 'https://junkdrawer.works']", `['https://parts-bin.junkdrawer.works', '${driveAt}']`));
   if (release && path === '/sw.js') body = Buffer.from(String(body).replace(/const FILES = '[0-9a-f]*'/, "const FILES = 'next'"));
   if (release && path === '/index.html') body = Buffer.concat([body, Buffer.from('<!-- the next release -->\n')]);
   const etag = `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
@@ -1988,6 +1991,48 @@ await desk.goto(base);
   assert.deepEqual(await tp.$$eval('#dest option', os => os.slice(1).map(o => o.textContent)), ['BOX 01', 'BOX 02 · Kitchen stuff', 'C1 · Cables']);
   assert.deepEqual(tp.problems, [], 'problems with two boxes on one code');
   await tCtx.close();
+}
+
+// ---- Drive on and no signal: opened from the offline copy, with Google's sign-in script not loading, the cloud button
+// and Settings said Google had signed you out ("Tap to sign in to Google again", "Google Drive: not synced") though the
+// sign-in was minutes old. They say it's offline, and a change made meanwhile reaches Drive once the signal's back.
+{
+  let down = false, cut = false;
+  const dServer = createServer((req, res) => { if (down) { req.socket.destroy(); return; } serve(req, res, dOrigin); });
+  await new Promise(r => dServer.listen(0, r));
+  const dOrigin = `http://localhost:${dServer.address().port}`, dBase = dOrigin + '/';
+  const dCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await g.install(dCtx);
+  await dCtx.route(/^https:\/\/(accounts\.google\.com|www\.googleapis\.com)\//, r => (cut ? r.abort('internetdisconnected') : r.fallback()));
+  const dp = await dCtx.newPage();
+  dp.problems = []; dp.on('pageerror', e => dp.problems.push(e.message));
+  await dp.goto(dBase);
+  await dp.evaluate(() => { localStorage.setItem('__who', 'offbench'); localStorage.setItem('parts-bin', JSON.stringify({ app: 'parts-bin', v: 1, items: { bins: {}, projects: {}, parts: { 'p-n': { name: 'Nano', qty: 5, unit: 'pcs', t: 1 } } } })); });
+  await dp.goto(dBase + '#settings'); await dp.reload();
+  await dp.click('[data-a="on"]');
+  await dp.waitForFunction(() => /Last synced/.test(document.querySelector('#drivecard')?.textContent || ''), null, { timeout: 10000 });
+  await dp.waitForFunction(() => navigator.serviceWorker?.controller, null, { timeout: 10000 });
+  const theFile = () => g.files().find(f => f.owner === 'offbench' && f.appProperties?.partsbin === 'sync' && !f.trashed);
+  assert.equal(JSON.parse(theFile().body).items.parts['p-n'].qty, 5);
+  const chip = () => dp.evaluate(() => { const b = document.querySelector('#cloud-m'); return b.dataset.s + ' | ' + b.title; });
+  // no signal, and opened again
+  down = cut = true; await dCtx.setOffline(true);
+  const gisFailed = dp.waitForEvent('requestfailed', r => r.url().startsWith('https://accounts.google.com/gsi/client'), { timeout: 10000 });
+  await dp.goto(dBase + '#bins'); await dp.reload(); await gisFailed; await dp.waitForTimeout(300);
+  assert.match(await chip(), /^offline \| Offline\. Changes are kept on this device/, 'opened with no signal');
+  await dp.goto(dBase + '#part/p-n'); await dp.waitForSelector('#inc'); await dp.click('#inc');
+  await dp.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-n'].qty === 6); await dp.waitForTimeout(1800);
+  assert.match(await chip(), /^offline \| /, 'after a change with no signal');
+  await dp.goto(dBase + '#settings'); await dp.waitForSelector('#drivecard [data-a="now"]'); await dp.waitForTimeout(500);
+  const card = (await dp.textContent('#drivecard')).replace(/\s+/g, ' ');
+  assert.match(card, /^ ?Saved to Google Drive .*Offline\. Changes are kept on this device and go to Drive when you’re back online\./);
+  assert.doesNotMatch(card, /not synced|sign in|signs you out/i); assert.doesNotMatch(await chip(), /sign in/i);
+  // the signal's back: the change goes to Drive by itself
+  down = cut = false; await dCtx.setOffline(false);
+  await until(() => JSON.parse(theFile().body).items.parts['p-n'].qty === 6, 'the change made with no signal to reach Drive');
+  await dp.waitForFunction(() => document.querySelector('#cloud-m').dataset.s === 'ok', null, { timeout: 10000 });
+  assert.deepEqual(dp.problems, [], 'problems with Drive on and no signal');
+  await dCtx.close(); dServer.close();
 }
 
 // ---- works offline once it has been opened: every screen, the inventory and the fonts, with no network at all. The

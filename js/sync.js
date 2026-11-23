@@ -197,7 +197,15 @@ function loadGis() {
   const s = document.createElement('script');
   s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
   s.onload = init;
-  s.onerror = () => { gisLoading = false; setStatus(st.on ? 'tap' : 'off', 'Google sign-in didn’t load. Check the connection.'); };
+  // Google's sign-in script is only needed to sign in. With a good sign-in, syncing goes on without it, and whatever the
+  // last sync said stands (it's tried again when a sign-in is next needed). With no signal it says so, not that Google
+  // signed you out.
+  s.onerror = () => {
+    gisLoading = false;
+    if (st.on && live()) return;
+    if (st.on && navigator.onLine === false) setStatus('offline', OFFLINE);
+    else setStatus(st.on ? 'tap' : 'off', 'Google sign-in didn’t load. Check the connection.');
+  };
   document.head.append(s);
 }
 function init() {

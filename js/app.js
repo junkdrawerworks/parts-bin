@@ -54,6 +54,8 @@ function id(){ return Math.random().toString(36).slice(2,10)+Date.now().toString
 // A message is about the screen it was shown on, so it goes when another screen opens (a tag read on Bins doesn't follow
 // you to BOM check), unless it was shown on the way there: toast() then go() in one go, or keepToast().
 let toastFresh=false, toastCarry=false;
+// One to show once the message showing has faded (a batch done, said after its last bag's "tagged"), on the same screen.
+let toastNext=null;
 // It fades in and out (the class), and #say reads it out for a screen reader. act: a button on it ({label, run}), such as
 // Undo; it stays longer then, and while the keyboard is on the button.
 function toast(msg,ms=1800,act=null){
@@ -62,7 +64,7 @@ function toast(msg,ms=1800,act=null){
   t.classList.toggle('act',!!act);
   clearTimeout(t._t); t.hidden=false; void t.offsetWidth; t.classList.add('on');
   toastCarry=false; toastFresh=true; queueMicrotask(()=>{ toastFresh=false; });
-  const fade=()=>{ if(t.contains(document.activeElement)){ t._t=setTimeout(fade,1000); return; } t.classList.remove('on'); t._t=setTimeout(hideToast,200); };
+  const fade=()=>{ if(t.contains(document.activeElement)){ t._t=setTimeout(fade,1000); return; } t.classList.remove('on'); t._t=setTimeout(()=>{ hideToast(); if(toastNext && !openSheet){ const n=toastNext; toastNext=null; toast(...n); } },200); };
   t._t=setTimeout(fade,ms);
 }
 // gone at once (another screen has opened), or at the end of the fade
@@ -156,7 +158,7 @@ function render(back=false){
   const v=S.route.view;
   const held=!!heldCode && linkCode()===heldCode;
   if(linkCode() && !held){ m.append(h('<div class="empty"><p class="think" style="justify-content:center">Opening the batch…</p></div>')); return; }
-  if(!same){ if(toastCarry) toastCarry=false; else hideToast(); }
+  if(!same){ if(toastCarry) toastCarry=false; else { hideToast(); toastNext=null; } }
   shown=key;
   if(v==='inbox' || held) renderInbox(m);
   else if(v==='bag'){ const n=Number(S.route.arg); const hit=BG.opens(S.parts.values(), n); if(hit) renderPartPage(m, hit.id); else noBag(m, n); }
@@ -741,7 +743,8 @@ function sheet(html, onClose){
     if(back && back!==document.body) back.focus({preventScroll:true});
     // Off the sheet's step, unless Back has left it already, another sheet has taken it over, or a page opened from the
     // sheet has replaced it: all of those happen before this runs.
-    queueMicrotask(()=>{ if(!openSheet && !isStepping() && history.state?.sheet===me.id) stepOff(); });
+    queueMicrotask(()=>{ if(!openSheet && !isStepping() && history.state?.sheet===me.id) stepOff();
+      if(toastNext && !openSheet && document.getElementById('toast').hidden){ const n=toastNext; toastNext=null; toast(...n); } }); // closed with nothing said
   }
   const title=bg.querySelector('.sheet h3'); if(title){ title.id='sheet-title'; bg.firstElementChild.setAttribute('aria-labelledby','sheet-title'); }
   root.append(bg); document.querySelectorAll(BEHIND).forEach(e=>e.inert=true); wirePhoto(bg);
@@ -1118,7 +1121,18 @@ function lacksDetails(p){ return !(p.iface||[]).length && !p.volts && !p.img && 
 let INBOX = IN.loadInbox(), usedAgain = null;
 function inboxCount(){ return IN.count(INBOX); }
 // After a card is saved, skipped or applied. Where the Inbox can't be written, the card may come back after a reload.
-function keepInbox(){ if(!IN.saveInbox(INBOX)) toast('This browser’s storage is full, so the Inbox couldn’t note that, and it may show again after a reload. Dismiss a batch to make room.',5000); }
+function keepInbox(){ if(IN.saveInbox(INBOX)) return true; toast('This browser’s storage is full, so the Inbox couldn’t note that, and it may show again after a reload. Dismiss a batch to make room.',5000); return false; }
+// What's been done with each batch on this visit, counted as its items are dealt with (after IN.resolve), so its last one
+// can say what came of it: “Order from Pimoroni” done: 1 updated, 1 saved, 1 skipped. '' while some are left.
+const TALLY=new Map();
+function batchDone(b, add){
+  const t=TALLY.get(b.id)||{updated:0, saved:0, skipped:0}; for(const k in add) t[k]+=add[k]; TALLY.set(b.id,t);
+  if(INBOX.batches.some(x=>x.id===b.id)) return '';
+  TALLY.delete(b.id);
+  return `“${b.name||SOURCES[b.source]}” done: ${Object.entries(t).filter(([,k])=>k).map(([w,k])=>`${k} ${w}`).join(', ')}`;
+}
+// A card skipped says which (and the batch, after its last), on screen as well as to a screen reader (toast() says it too).
+function skipped(b, keys, name){ IN.resolve(INBOX,b.id,keys); const fin=batchDone(b,{skipped:keys.length}); if(keepInbox()) toast(fin||'Skipped '+name, fin?3500:1800); }
 // The fields unticked on each suggestion's card, by batch and item, so drawing the Inbox again (after a save, a sync, a
 // change in another tab) leaves them unticked, and Apply all leaves them out. Forgotten once the suggestion is dealt with.
 const UNTICKED=new Map();
@@ -1200,7 +1214,7 @@ function batchSection(b){
   if(lost.length){
     const n=lost.length, note=h(`<div class="note lost" style="margin-bottom:14px"><p>${n} suggestion${n===1?' is':'s are'} for ${n===1?'a part that isn’t':'parts that aren’t'} in this browser’s inventory. If another device has ${n===1?'it':'them'}, sync here first and ${n===1?'it':'they'}’ll show up; otherwise skip ${n===1?'it':'them'}.</p>
       ${lost.map(x=>`<div class="row" data-k="${esc(x.k)}"><span class="grow">${x.name?esc(x.name):`<span class="mono">${esc(x.id)}</span>`}</span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(x.name||x.id)}">Skip</button></div>`).join('')}</div>`);
-    note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ settled(b,[r.dataset.k]); IN.resolve(INBOX,b.id,[r.dataset.k]); keepInbox(); render(); });
+    note.querySelectorAll('[data-k]').forEach(r=>r.querySelector('[data-a="skip"]').onclick=()=>{ const x=lost.find(y=>y.k===r.dataset.k); settled(b,[r.dataset.k]); skipped(b,[r.dataset.k],x?.name||x?.id||''); render(); });
     sec.append(note);
   }
   return sec;
@@ -1246,7 +1260,7 @@ function newCard(b,x){
       <button type="button" data-id=""><span><b>${cands.length?'It’s a different part':'Add it'}</b>${cands.length?'<div class="s">Not one of these</div>':''}</span><span class="chip warn">new part</span></button></div>
     <div class="row"><span class="tiny grow">${cands.length?'Pick the row that’s in the bag.':'Opens filled in, to check and save.'}</span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(x.name)}">Skip</button></div></div>`);
   el.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openFromInbox(b,x,btn.dataset.id?S.parts.get(btn.dataset.id):null));
-  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); said('Skipped '+x.name); toCard(next); };
+  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); skipped(b,[x.k],x.name); render(); toCard(next); };
   return el;
 }
 // Opens the usual part sheet, filled in. A part that's already listed keeps its record: blanks are filled, nothing it
@@ -1268,7 +1282,7 @@ function openFromInbox(b,x,matched){
     const bin=b.bin && [...S.bins.values()].find(z=>z.code.toLowerCase()===b.bin.toLowerCase()), dest=localGet('sr.packbox','');
     if(bin) base.binId=bin.id; else if(S.bins.has(dest)) base.binId=dest;
   }
-  editPart(base,{from:'pack', tag:!matched||!matched.bag, uncounted:!matched && x.qty==null, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); }});
+  editPart(base,{from:'pack', tag:!matched||!matched.bag, uncounted:!matched && x.qty==null, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); const fin=batchDone(b,{saved:1}); keepInbox(); render(); if(fin) toastNext=[fin,3500]; }});
 }
 function updateCard(b,x){
   const p=S.parts.get(x.id), d=IN.diff(p,x), bin=binOf(p);
@@ -1286,7 +1300,7 @@ function updateCard(b,x){
     <div class="diff">${d.map(r=>`<label${r.full?' class="off"':''}><input type="checkbox" data-k="${r.k}"${r.full?' disabled':untickedOf(b,x).has(r.k)?'':' checked'}><span class="k">${esc(r.label)}</span><span class="v${r.k==='check'||r.full?' warn':''}">${to(r)}</span></label>`).join('')}</div>
     <div class="row"><span class="grow"></span><button class="btn sm" data-a="skip" aria-label="Skip ${esc(p.name)}">Skip</button><button class="btn primary sm" data-a="apply" aria-label="Apply to ${esc(p.name)}">Apply</button></div></div>`);
   el.querySelectorAll('.diff input').forEach(i=>i.onchange=()=>{ const u=untickedOf(b,x); if(i.checked) u.delete(i.dataset.k); else u.add(i.dataset.k); });
-  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); settled(b,[x.k]); IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); said('Skipped '+p.name); toCard(next); };
+  el.querySelector('[data-a="skip"]').onclick=()=>{ const next=cardAfter(el); settled(b,[x.k]); skipped(b,[x.k],p.name); render(); toCard(next); };
   el.querySelector('[data-a="apply"]').onclick=()=>applyUpdates(b,[{x, keys:ticked(b,x)}], cardAfter(el));
   return el;
 }
@@ -1303,9 +1317,9 @@ async function applyUpdates(b, list, next=null){
   }
   try{ for(const [pid,data] of changes) await S.db.doc('parts/'+pid).update(data); }
   catch(e){ writeFail(e); render(); return; }
-  const parts=changes.size;
-  settled(b,list.map(q=>q.x.k)); IN.resolve(INBOX,b.id,list.map(q=>q.x.k)); keepInbox();
-  toast(parts?`Updated ${parts} part${parts===1?'':'s'}`:'Nothing applied');
+  const parts=changes.size, keys=list.map(q=>q.x.k), took=list.filter(q=>changes.has(q.x.id)).length;
+  settled(b,keys); IN.resolve(INBOX,b.id,keys); const fin=batchDone(b,{updated:took, skipped:keys.length-took});
+  if(keepInbox()) toast(fin || (parts===1?`Updated ${S.parts.get([...changes.keys()][0])?.name||'1 part'}`:parts?`Updated ${parts} parts`:'Nothing applied'), fin?3500:1800);
   render(); toCard(next);
 }
 // After a card is skipped or applied, the keyboard goes on to the next card's heading (or the first card left, or the
@@ -1367,6 +1381,7 @@ function exportJson(){
   const d=new Date(), two=n=>String(n).padStart(2,'0'); // today where you are (toISOString is the date in UTC)
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`parts-bin-${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}.json`;
   document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  toast('Backup saved: '+a.download, 3500); // a phone's download can go by unseen
 }
 function importJson(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='application/json,.json';

@@ -469,9 +469,10 @@ await page.click('.sheet #save'); await page.waitForSelector('#toast:has-text("C
 assert.ok(await page.$('.sheet #p-qty'), 'the sheet stays open'); assert.equal(await page.evaluate(() => document.activeElement.id), 'p-qty');
 assert.equal(await partNamed('Unmarked purple board'), undefined);
 await page.click('.sheet #cancel'); await page.waitForFunction(() => !document.querySelector('.sheet'));
-// skipping takes a card out and saves nothing
+// skipping takes a card out and saves nothing; the batch's last card says what came of the batch (it went with no word)
 await page.click('.card.inb[data-k="i2"] [data-a="skip"]');
 await page.waitForSelector('text=Nothing waiting');
+await page.waitForSelector('#toast:has-text("“Bench photo” done: 2 saved, 1 skipped")');
 assert.equal(await page.locator('#tabbar .badge').count(), 0);
 assert.equal(await partNamed('Unmarked purple board'), undefined);
 // the same link again, on a fresh load, doesn't bring the batch back unless asked
@@ -498,6 +499,7 @@ assert.equal(await page.locator('.card.inb').count(), 1, 'a part that already sa
 assert.deepEqual(await page.locator('.diff .k').allTextContents(), ['Part number', 'Interface', 'I2C address', 'Supply', 'Tags', 'Notes']);
 await page.uncheck('.diff input[data-k="notes"]');
 await page.click('[data-a="apply"]');
+await page.waitForSelector('#toast:has-text("Updated BME280 (Adafruit)")'); // which part, not "Updated 1 part"
 // a suggestion for a part this browser doesn't have is kept and explained, until it's dismissed
 await page.waitForSelector('.note.lost');
 assert.equal(await page.locator('.card.inb').count(), 0); assert.equal(await page.textContent('#tabbar .badge'), '2');
@@ -1381,6 +1383,8 @@ await tz.goto(base + '#settings');
 await tz.clock.setFixedTime(new Date('2026-10-14T02:30:00Z')); // 22:30 on 13 October in New York
 const [backup] = await Promise.all([tz.waitForEvent('download'), tz.click('#exp')]);
 assert.equal(backup.suggestedFilename(), 'parts-bin-2026-10-13.json');
+// and it says so, by name: a phone's download can go by unseen
+await tz.waitForSelector('#toast:has-text("Backup saved: parts-bin-2026-10-13.json")');
 await tzCtx.close();
 
 // ---- every control has a name a screen reader can say, a sheet is named by its heading, and toasts are announced
@@ -1955,8 +1959,9 @@ await desk.goto(base);
   await ip.getByRole('button', { name: 'Skip Rotary encoder' }).focus(); await ip.keyboard.press('Enter');
   await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 2);
   assert.equal(await at(), 'BH1750 light sensor (GY-302)');
-  // said on the next frame, once the card has gone
+  // on screen too (only a screen reader was told), and said once
   await ip.waitForFunction(() => document.getElementById('say').textContent === 'Skipped Rotary encoder', null, { timeout: 2000 }).catch(() => assert.fail('Skip didn’t say what it skipped'));
+  assert.ok(await ip.isVisible('#toast:has-text("Skipped Rotary encoder")'), 'Skip showed nothing');
   // Apply the same
   await ip.getByRole('button', { name: 'Apply to BH1750 light sensor (GY-302)' }).focus(); await ip.keyboard.press('Enter');
   await ip.waitForFunction(() => document.querySelectorAll('.card.inb').length === 1);

@@ -22,6 +22,31 @@ test('a part name can start with a digit', () => {
   ]);
 });
 
+test('a size is part of the name, not a count', () => {
+  // a pin header's rows by pins and a screw's size by length: 1x40 is one 40-pin header, M3x8 one size of screw
+  assert.deepEqual(parseBom('Pin header 1x40\nFemale header 2x20\nScrews M3x8\nSocket head M2.5x6\n2 Header 1x8\nM3x8'), [
+    { qty: 1, name: 'Pin header 1x40' }, { qty: 1, name: 'Female header 2x20' }, { qty: 1, name: 'Screws M3x8' },
+    { qty: 1, name: 'Socket head M2.5x6' }, { qty: 2, name: 'Header 1x8' }, { qty: 1, name: 'M3x8' },
+  ]);
+  // a part number with a count after it still counts
+  assert.deepEqual(parseBom('SCD41x2\nWS2812x10\n74HC595*3'), [{ qty: 2, name: 'SCD41' }, { qty: 10, name: 'WS2812' }, { qty: 3, name: '74HC595' }]);
+  // and a word ending in x isn't a count
+  assert.deepEqual(parseBom('Junction Box2'), [{ qty: 1, name: 'Junction Box2' }]);
+});
+
+test('a count marked at the end beats a number at the start', () => {
+  assert.deepEqual(parseBom('18650 cells×2\n18650 cells x2\n7805 regulator ×3'), [
+    { qty: 2, name: '18650 cells' }, { qty: 2, name: '18650 cells' }, { qty: 3, name: '7805 regulator' },
+  ]);
+});
+
+test('a long number before one word is the part’s name', () => {
+  assert.deepEqual(parseBom('555 timer\n7805 regulator\n18650 cells\n2 555 timer\n3 timer\n12 resistors\n100 M3 screws'), [
+    { qty: 1, name: '555 timer' }, { qty: 1, name: '7805 regulator' }, { qty: 1, name: '18650 cells' }, { qty: 2, name: '555 timer' },
+    { qty: 3, name: 'timer' }, { qty: 12, name: 'resistors' }, { qty: 100, name: 'M3 screws' },
+  ]);
+});
+
 test('a list pasted with bullets keeps its counts', () => {
   assert.deepEqual(parseBom('- 2x XIAO ESP32-S3\n• 1 SCD41\n* M3 heat-set inserts x8\n-'), [
     { qty: 2, name: 'XIAO ESP32-S3' }, { qty: 1, name: 'SCD41' }, { qty: 8, name: 'M3 heat-set inserts' },

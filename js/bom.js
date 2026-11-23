@@ -7,18 +7,21 @@ export const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9.+]+/g, 
 // One part per line (or per ;), with its count first or last: "2x XIAO ESP32-S3", "SCD41 ×1". Lines starting with # are
 // skipped, and a bullet in front is dropped. A name can start with a digit (1N4148, 74HC595, 18650 cells), so each way of
 // writing a count says which side the count is on, and a marked count (2x, x8, ×2, ", 5") is believed before a bare
-// number at the start: "18650 cells ×2" is two 18650 cells.
+// number at the start: "18650 cells×2" is two 18650 cells. A size isn't a count: a pin header's 1x40 and a screw's M3x8
+// are part of the name. Nor is a long number before a single word, with no other count: "555 timer" is one 555.
 const N = '(\\d+(?:\\.\\d+)?)';
-const COUNTS = [ // [pattern, the count's group, the name's group]
+const SIZE = /(^|\s)M?\d+(\.\d+)?$/i; // what comes before the x of a size: a bare number (1x40) or an M size (M2.5x6)
+const COUNTS = [ // [pattern, the count's group, the name's group, unless(match) it's not a count after all]
   [new RegExp(`^${N}\\s*[x×*]\\s+(.+)$`, 'i'), 1, 2], // 2x name, 2 x name
   [new RegExp(`^(.+?)\\s+[x×*]\\s*${N}$`, 'i'), 2, 1], // name x8, name × 2
   [new RegExp(`^(.+?)\\s*[,\\t]\\s*${N}$`), 2, 1], // name, 5 (or a tab, from a spreadsheet)
-  [new RegExp(`^${N}\\s+(.+)$`), 1, 2], // 3 name
-  [new RegExp(`^(.+?)[x×*]\\s*${N}$`, 'i'), 2, 1], // name×2
+  // name×2, SCD41x2; not a size, and not a word that ends in x (Box2)
+  [new RegExp(`^(.+?)(?:[×*]|(?<![a-z])x)\\s*${N}$`, 'i'), 2, 1, m => SIZE.test(m[1])],
+  [new RegExp(`^${N}\\s+(.+)$`), 1, 2, m => /^\d{3,}$/.test(m[1]) && !/\s/.test(m[2])], // 3 name; not 555 timer
 ];
 export function parseBom(text) {
   return String(text || '').split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).map(l => l.replace(/^[-•*]\s*/, '')).filter(Boolean).map(l => {
-    for (const [re, q, n] of COUNTS) { const m = re.exec(l); if (m) return { qty: Number(m[q]), name: m[n].trim() }; }
+    for (const [re, q, n, unless] of COUNTS) { const m = re.exec(l); if (m && !unless?.(m)) return { qty: Number(m[q]), name: m[n].trim() }; }
     return { qty: 1, name: l };
   });
 }

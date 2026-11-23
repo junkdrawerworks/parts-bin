@@ -128,10 +128,19 @@ assert.equal(await page.inputValue('#p-bag'), '1');
 await page.fill('#p-qty', '4');
 await page.click('.sheet #save');
 await page.waitForSelector('#tz.wait'); // listening for the sticker without another tap
+// one bag after another: the way out says Skip the tag, and Write says it's waiting (a tap on it starts again)
+assert.equal(await page.textContent('.sheet #done'), 'Skip the tag');
+assert.equal((await page.textContent('.sheet #write')).trim(), 'Waiting for the sticker…');
 assert.ok(await page.evaluate(() => window.__tap()));
 await page.waitForSelector('#tz.ok');
+const okAt = Date.now();
 assert.match((await page.evaluate(() => window.__written))[0], /#bag\/001$/);
-await page.waitForFunction(() => !document.querySelector('.sheet'));
+// a tick, what to do next, and Next bag; it closes by itself in about 1.6 s
+assert.equal(await page.textContent('#t-status'), 'Tagged. Write #001 on the bag.');
+assert.equal(await page.locator('#tz .tz-icon path[d="M5 12.5l4.5 4.5L19 7"]').count(), 1);
+await page.waitForFunction(() => document.querySelector('.sheet #done')?.textContent === 'Next bag');
+await page.waitForFunction(() => !document.querySelector('.sheet'), null, { timeout: 2500 });
+assert.ok(Date.now() - okAt > 1000, 'the tag sheet closed before "Tagged." could be read');
 const bme = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280']);
 assert.equal(bme.qty, 4); assert.equal(bme.bag, 1); assert.equal(bme.tagWritten, true);
 // next bag number moves on, with the description and its matches cleared for it
@@ -213,12 +222,21 @@ assert.equal(await page.evaluate(() => window.__tap()), false, 'nothing was wait
 await page.evaluate(id => { const d = JSON.parse(localStorage.getItem('parts-bin')); delete d.items.parts.stolen; delete d.items.parts[id]; localStorage.setItem('parts-bin', JSON.stringify(d)); dispatchEvent(new StorageEvent('storage', { key: 'parts-bin' })); }, second);
 await page.waitForTimeout(100);
 await page.goto(base + '#part/' + spareId);
-// tagging it again keeps its number
+// tagging it again keeps its number. From a part's page there's no next bag: the sheet says Close, then Done
 await page.click('text=Bag tag');
+assert.equal(await page.textContent('.sheet #done'), 'Close');
 await page.click('.sheet #write');
 await page.waitForSelector('#tz.wait');
+assert.equal((await page.textContent('.sheet #write')).trim(), 'Waiting for the sticker…');
+await page.click('.sheet #write'); assert.ok(await page.evaluate(() => window.__waiting()), 'a tap on Waiting stopped it listening');
 await page.evaluate(() => window.__tap());
+await page.waitForSelector('#tz.ok');
+await page.waitForFunction(() => document.querySelector('.sheet #done')?.textContent === 'Done');
+// a tap anywhere closes it sooner, and the message after it still shows
+const tapAt = Date.now(); await page.click('.sheet h3');
 await page.waitForFunction(() => !document.querySelector('.sheet'));
+assert.ok(Date.now() - tapAt < 1000, 'a tap left the tag sheet open');
+await page.waitForSelector('#toast:has-text("#004 tagged")');
 assert.equal((await page.evaluate(() => window.__written)).at(-1), base + '#bag/004');
 assert.equal((await spare()).bag, 4);
 
@@ -364,7 +382,8 @@ await page.fill('#bom', '0.3 m heat shrink tubing 3mm'); await page.click('#chec
 const IN = await import('../js/inbox.js');
 const part = id => page.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
 const partNamed = name => page.evaluate(name => Object.entries(JSON.parse(localStorage.getItem('parts-bin')).items.parts).map(([id, x]) => ({ id, ...x })).find(x => x.name === name), name);
-const tapTag = async () => { await page.waitForSelector('#tz.wait'); await page.evaluate(() => window.__tap()); await page.waitForFunction(() => !document.querySelector('.sheet')); };
+// one bag after another, as in Pack: Skip the tag, then Next bag (from a part's page: Close, then Done)
+const tapTag = async (one = false) => { await page.waitForSelector('#tz.wait'); assert.equal(await page.textContent('.sheet #done'), one ? 'Close' : 'Skip the tag'); await page.evaluate(() => window.__tap()); await page.waitForFunction(t => document.querySelector('.sheet #done')?.textContent === t, one ? 'Done' : 'Next bag'); await page.waitForFunction(() => !document.querySelector('.sheet')); };
 const photoLink = base + '#' + await IN.encode({ partsbin: 1, batch: { id: 'ptest-photo', name: 'Bench photo', source: 'photo', bin: 'ENV', items: [
   { name: 'SCD41 CO2 sensor', qty: 3, match: 'p-scd41', mpn: 'SCD41', iface: ['I2C'], addr: '0x62', volts: '2.4–5.5 V', logic: '3.3 V', img: 'https://img.test/scd41.png', check: 'Bench Identifier Port A should name it SCD41 at 0x62.' },
   { name: 'TCA9548A I2C multiplexer', qty: 2, category: 'Sensors', iface: 'iic', addr: '0x70–0x77', img: 'https://img.test/missing.png', onclick: 'alert(1)' },
@@ -1363,7 +1382,7 @@ await desk.goto(base);
   assert.equal(await page.textContent('#renumber'), `New number: #${pad(nb)}`);
   await page.click('#renumber'); await page.waitForSelector('.sheet #p-bag');
   assert.equal(await page.inputValue('#p-bag'), String(nb)); assert.ok(await page.isChecked('#p-dotag'));
-  await page.click('.sheet #save'); await tapTag();
+  await page.click('.sheet #save'); await tapTag(true);
   assert.equal((await page.evaluate(() => window.__written)).at(-1), base + '#bag/' + pad(nb));
   assert.equal((await part('p-clash')).bag, nb); assert.equal((await part(tid)).bag, n);
   await page.waitForFunction(() => !document.querySelector('.clash'));

@@ -27,6 +27,7 @@ const ICONS = {
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>',
   camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 13l2.5-8h11L20 13v6H4z"/><path d="M4 13h5a3 3 0 006 0h5"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
 };
 // An icon is drawn beside words that say what it is, so a screen reader leaves it out.
 for(const k in ICONS) ICONS[k]=ICONS[k].replace('<svg ','<svg aria-hidden="true" focusable="false" ');
@@ -610,7 +611,7 @@ function renderScan(m){
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
-    editPart(base, {photoFile:null, stay:true, tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ reset(); render(); }});
+    editPart(base, {photoFile:null, stay:true, from:'pack', tag:!BG.bagOf(matched)||!matched.tagWritten, afterSave:()=>{ reset(); render(); }});
   }
   async function identify(){
     const desc=ui.querySelector('#desc').value.trim(); if(!file&&!desc){ toast('Add a photo or a description'); return; }
@@ -882,7 +883,7 @@ function editPart(p, opts={}){
     try{ if(cur) await S.db.doc('parts/'+p.id).update(changes); else await S.db.doc('parts/'+p.id).set(doc); close(); if(backIn) UNPACKED.delete(p.id);
       if(newNo) drive.push(); // a new bag number goes to the other devices straight away, so they don't give it out too
       if(!tagNow) toast(newNo ? `Bag ${bagStr(finalBag)} saved. Write ${bagStr(finalBag)} on the bag.` : isNew?'Part added':'Saved', newNo?3500:1800);
-      opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true}); }catch(e){ writeFail(e); }
+      opts.afterSave?.({...doc,id:p.id}); if(tagNow) tagSheet({...doc,id:p.id},'part',{auto:true, from:opts.from}); }catch(e){ writeFail(e); }
   };
 }
 async function writePart(p){ const d={...p}; delete d.id; d.updatedAt=new Date().toISOString(); try{ await S.db.doc('parts/'+p.id).set(d); return true; }catch(e){ writeFail(e); return false; } }
@@ -892,6 +893,8 @@ function writeFail(e){ if(e&&e.code==='invalid_argument'){ S.canWrite=false; toa
 async function shrink(file){
   try{ const bmp=await createImageBitmap(file); const max=1280; const s=Math.min(1,max/Math.max(bmp.width,bmp.height)); const c=document.createElement('canvas'); c.width=Math.round(bmp.width*s); c.height=Math.round(bmp.height*s); c.getContext('2d').drawImage(bmp,0,0,c.width,c.height); return await new Promise(r=>c.toBlob(b=>r(b||file),'image/jpeg',.82)); }catch{ return file; }
 }
+// opts.from 'pack': one bag after another (Pack, the Inbox), so the sheet's button says Skip the tag, then Next bag; from a
+// part's page or a bin's it says Close, then Done.
 function tagSheet(b, kind='bin', opts={}){
   // A part tagged from its own page may not be in a numbered bag yet. It gets the next number here, so the tag
   // carries the bag link; the number is saved with the part once the tag is written or its link is copied.
@@ -909,7 +912,7 @@ function tagSheet(b, kind='bin', opts={}){
       : kind==='part'&&b.bag?`<p class="muted">Write <b>${esc(bagStr(b.bag))}</b> on the bag too, so it can be found without a phone.</p>`:''}
     <div class="tagzone" id="tz"><div class="tz-icon">${ICONS.nfc}</div><div id="t-status" role="status">${native?'Stick a blank sticker on, then hold it to the <b>top edge of the phone</b>.':'Tags need Chrome on Android. Open Parts Bin there to write this one, or copy its link.'}</div></div>
     <div class="row" style="margin-top:12px">${native?`<button class="btn primary" id="write">${ICONS.nfc} Write tag</button>`:''}<button class="btn" id="copy">Copy link</button></div>
-    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':kind==='part'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(tagWait===wait) tagWait=null; if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
+    <div class="actions"><button class="btn" id="done">${newBag?'Cancel':opts.from==='pack'?'Skip the tag':'Close'}</button></div>`, ()=>{ ctl?.abort(); if(tagWait===wait) tagWait=null; if(written) lastWrite=Date.now(); if(opts.auto && !written && kind==='part' && b.bag) toast(`Saved as bag ${bagStr(b.bag)}`); }); // straight after a save, closed with no tag: the save still says so
   el.querySelector('#done').onclick=close;
   // The number was free when the sheet opened. If another part has taken it since (another tab, a sync), stop here
   // rather than put two bags on one number.
@@ -919,24 +922,30 @@ function tagSheet(b, kind='bin', opts={}){
   const st=el.querySelector('#t-status'), tz=el.querySelector('#tz');
   // A write that fails partway (the sticker moved away too soon) starts again by itself, a few times: again is one of those.
   let tries=0, retry=0;
+  // The Write button says it's waiting while it is, and a tap on it then starts again. btnText: what it says otherwise.
+  let btnText='Write tag';
+  const showBtn=waiting=>{ const w=el.querySelector('#write'); if(w) w.innerHTML=`${ICONS.nfc} ${waiting?'Waiting for the sticker…':esc(btnText)}`; };
   async function write(overwrite=false, again=false){
     clearTimeout(retry);
     if(!el.isConnected || taken()) return;
     if(!again) tries=0;
     ctl?.abort(); ctl=new AbortController();
-    tz.className='tagzone wait'; st.removeAttribute('title'); if(!again) st.innerHTML='Hold the sticker to the <b>top edge of the phone</b>…';
+    tz.className='tagzone wait'; st.removeAttribute('title'); if(!again) st.innerHTML='Hold the sticker to the <b>top edge of the phone</b>…'; showBtn(true);
     try{
       await new NDEFReader().write({records:[{recordType:'url', data:url}]}, {overwrite, signal:ctl.signal});
       lastWrite=Date.now(); written=true;
       try{ navigator.vibrate?.(70); }catch{}
-      tz.className='tagzone ok'; st.textContent=`${label} tag written.`;
+      // A tick, and what to do next, long enough to take in (1.6 s); a tap anywhere closes it sooner.
+      tz.className='tagzone ok'; tz.querySelector('.tz-icon').innerHTML=ICONS.check; showBtn(false);
+      st.innerHTML = kind==='part' ? `<b>Tagged.</b> Write ${esc(label)} on the bag.` : '<b>Tagged.</b>';
       const kept=await S.db.doc((kind==='part'?'parts/':'bins/')+b.id).update(newBag?{tagWritten:true, bag:newBag}:{tagWritten:true}).then(()=>true, e=>{ if(e?.code!=='invalid_argument') writeFail(e); return false; });
-      el.querySelector('#done').textContent = kind==='part' ? 'Next bag' : 'Done';
-      setTimeout(()=>{ if(el.isConnected) close(); if(!kept) return; if(newBag) toast(`${label} tagged. Write ${label} on the bag.`,3500); else toast(`${label} tagged`); }, 900);
+      el.querySelector('#done').textContent = opts.from==='pack' ? 'Next bag' : 'Done';
+      let over=false; const finish=()=>{ if(over) return; over=true; clearTimeout(t); if(el.isConnected) close(); if(!kept) return; if(newBag) toast(`${label} tagged. Write ${label} on the bag.`,3500); else toast(`${label} tagged`); };
+      const t=setTimeout(finish, 1600); el.parentElement?.addEventListener('click', finish);
     }catch(e){
       if(e.name==='AbortError') return;
       try{ navigator.vibrate?.([40,60,40]); }catch{}
-      tz.className='tagzone bad';
+      tz.className='tagzone bad'; showBtn(false);
       if(e.name==='NotAllowedError' && !overwrite && !/permission|activation|gesture/i.test(e.message||'')){
         // Most likely another bag's sticker, held up by mistake: Chrome may have read it as it came near. Writing over it
         // would make that bag's sticker open this one, and nothing in the data would show it.
@@ -958,7 +967,7 @@ function tagSheet(b, kind='bin', opts={}){
     }
   }
   // the Write button, to write over what's on the sticker (with its icon)
-  function writeBtn(text){ const w=el.querySelector('#write'); w.innerHTML=`${ICONS.nfc} ${esc(text)}`; w.onclick=()=>write(true); }
+  function writeBtn(text){ btnText=text; showBtn(false); el.querySelector('#write').onclick=()=>write(true); }
   if(native){
     el.querySelector('#write').onclick=()=>write(false);
     // When NFC is already allowed, start listening straight away: no extra tap between saving and tagging.
@@ -1219,7 +1228,7 @@ function openFromInbox(b,x,matched){
     const bin=b.bin && [...S.bins.values()].find(z=>z.code.toLowerCase()===b.bin.toLowerCase()), dest=localGet('sr.packbox','');
     if(bin) base.binId=bin.id; else if(S.bins.has(dest)) base.binId=dest;
   }
-  editPart(base,{tag:!matched||!matched.bag, uncounted:!matched && x.qty==null, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); }});
+  editPart(base,{from:'pack', tag:!matched||!matched.bag, uncounted:!matched && x.qty==null, afterSave:()=>{ IN.resolve(INBOX,b.id,[x.k]); keepInbox(); render(); }});
 }
 function updateCard(b,x){
   const p=S.parts.get(x.id), d=IN.diff(p,x), bin=binOf(p);

@@ -228,6 +228,13 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .tagzone.wait{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
 .tagzone.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft);border-style:solid}
 .tagzone.bad{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+/* written: the zone settles in and the tick pops, where motion is welcome */
+@media (prefers-reduced-motion: no-preference){
+  .tagzone.ok{animation:tz-in .2s ease-out}
+  .tagzone.ok .tz-icon{animation:tz-tick .3s cubic-bezier(.3,1.5,.6,1)}
+}
+@keyframes tz-in{from{transform:scale(.96)}to{transform:none}}
+@keyframes tz-tick{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
 .cloud{position:relative;background:none;border:1px solid var(--line);border-radius:var(--r);padding:6px 8px;color:var(--ink2);display:inline-flex}
 .cloud svg{width:20px;height:20px}
 .cloud .dot{position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 1.5px var(--bg)}

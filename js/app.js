@@ -264,7 +264,7 @@ function renderBin(m, binId){
 }
 function printList(b, ps){
   const root=document.getElementById('print-root');
-  root.innerHTML=`<h1>${esc(b.code)} — ${esc(b.name||'')}</h1><div class="sub">${esc(b.location||'')} · ${ps.length} item${ps.length===1?'':'s'} · Parts Bin, ${new Date().toLocaleDateString()}</div>
+  root.innerHTML=`<h1>${esc(b.code)} — ${esc(b.name||'')}</h1><div class="sub">${esc(b.location||'')} · ${ps.length} ${isBox(b)?'bag':'part'}${ps.length===1?'':'s'} · Parts Bin, ${new Date().toLocaleDateString()}</div>
     <table><thead><tr><th>Bag</th><th>Item</th><th>Qty</th><th>From</th><th>Notes</th></tr></thead><tbody>${ps.slice().sort((a,c)=>(a.bag||9999)-(c.bag||9999)).map(p=>`<tr><td class="n">${esc(bagStr(p.bag))}</td><td>${esc(p.name)}${p.mpn?` <small>${esc(p.mpn)}</small>`:''}</td><td class="n">${esc(fmtQty(p))}</td><td>${esc(p.from||'')}</td><td>${esc((p.notes||'').split(' · ')[0])}</td></tr>`).join('')}</tbody></table>`;
   window.print();
 }
@@ -525,7 +525,8 @@ function editBin(b){
   const isNew=!b; const wantBox = b===null && localGet('sr.newkind','bin')==='box';
   b=b||{id:id(), kind:wantBox?'box':'bin', code:wantBox?nextBoxCode():nextBinCode(), name:'', location:wantBox?'Moving boxes':localGet('sr.lastloc',''), notes:''};
   const locs=[...new Set([...S.bins.values()].map(x=>x.location).filter(Boolean))].sort();
-  const {el,close}=sheet(`<h3>${isNew?'New bin':'Edit bin'}</h3>
+  const word=k=>k==='box'?'box':'bin'; // a box is called a box, as the Type says
+  const {el,close}=sheet(`<h3>${isNew?'New':'Edit'} ${word(b.kind)}</h3>
     <div class="grid2"><div class="field"><label for="f-code">Label code</label><input id="f-code" class="mono" value="${esc(b.code)}" placeholder="B07"></div>
     <div class="field"><label for="f-loc">Location</label><input id="f-loc" list="locs" value="${esc(b.location||'')}" placeholder="Rack A, shelf 2"><datalist id="locs">${locs.map(l=>`<option value="${esc(l)}">`).join('')}</datalist></div></div>
     <div class="grid2"><div class="field"><label for="f-kind">Type</label><select id="f-kind"><option value="bin" ${b.kind!=='box'?'selected':''}>Bin (permanent storage)</option><option value="box" ${b.kind==='box'?'selected':''}>Moving box</option></select></div>
@@ -533,16 +534,19 @@ function editBin(b){
     <div class="field"><label for="f-name">What's in it</label><input id="f-name" value="${esc(b.name||'')}" placeholder="${b.kind==='box'?'Workroom — sensors & boards':'Sensors — I2C breakouts'}"></div>
     <div class="field"><label for="f-notes">Notes</label><input id="f-notes" value="${esc(b.notes||'')}"></div>
     ${S.assets?`<div class="field"><label>Photo</label><div class="row"><label class="btn sm" for="f-cam">${ICONS.camera} Take photo<input id="f-cam" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn sm" for="f-pick">Choose photo<input id="f-pick" type="file" accept="image/*" class="sr"></label><img id="f-prev" alt="" style="height:40px;border-radius:4px" hidden></div></div>`:''}
-    <div class="actions">${!isNew?'<button class="btn danger left" id="del">Delete bin</button>':''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
+    <div class="actions">${!isNew?`<button class="btn danger left" id="del">Delete ${word(b.kind)}</button>`:''}<button class="btn" id="cancel">Cancel</button><button class="btn primary" id="save">Save</button></div>`);
   el.querySelector('#cancel').onclick=close;
-  el.querySelector('#del')?.addEventListener('click', async()=>{ const n=partsInBin(b.id).length; if(!confirm(n?`Delete this bin? Its ${n} part(s) will be left without a bin.`:'Delete this bin?')) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); go('bins'); });
+  el.querySelector('#f-kind').onchange=e=>{ el.querySelector('h3').textContent=`${isNew?'New':'Edit'} ${word(e.target.value)}`; const d=el.querySelector('#del'); if(d) d.textContent='Delete '+word(e.target.value); };
+  el.querySelector('#del')?.addEventListener('click', async()=>{ const n=partsInBin(b.id).length, box=isBox(b);
+    const left=!n?'':box?` Its ${n===1?'bag stays':n+' bags stay'}, without a box.`:` Its ${n===1?'part stays':n+' parts stay'}, without a bin.`;
+    if(!confirm(`Delete ${word(b.kind)} ${b.code}?${left}`)) return; try{ await S.db.doc('bins/'+b.id).delete(); for(const p of partsInBin(b.id)) await S.db.doc('parts/'+p.id).update({binId:''}); }catch(e){ writeFail(e); return; } close(); go('bins'); });
   el.querySelector('#save').onclick=async()=>{
     const code=el.querySelector('#f-code').value.trim(); if(!code){ toast('Label code is required'); return; }
     const dup=[...S.bins.values()].find(x=>x.code.toLowerCase()===code.toLowerCase()&&x.id!==b.id); if(dup){ toast(`Code ${code} already used`); return; }
     const doc={code, kind:el.querySelector('#f-kind').value, sealed:!!el.querySelector('#f-sealed').value, name:el.querySelector('#f-name').value.trim(), location:el.querySelector('#f-loc').value.trim(), notes:el.querySelector('#f-notes').value.trim(), photo:b.photo||'', tagWritten:!!b.tagWritten, updatedAt:new Date().toISOString()};
     const pf=picked(el,'f'); if(pf && S.assets){ try{ const up=await S.assets.upload(await shrink(pf),{type:'image/jpeg'}); doc.photo=up.id; }catch(e){ toast('Photo not saved: '+(e&&e.code||e&&e.message||'upload failed'),4000); } }
     localSet('sr.lastloc',doc.location); localSet('sr.newkind',doc.kind); if(isNew) localSet('sr.packbox',b.id); // the next Pack starts in it
-    try{ await S.db.doc('bins/'+b.id).set(doc); close(); toast(isNew?'Bin added':'Saved'); if(isNew) go('bin',b.id); }catch(e){ writeFail(e); }
+    try{ await S.db.doc('bins/'+b.id).set(doc); close(); toast(isNew?(doc.kind==='box'?'Box added':'Bin added'):'Saved'); if(isNew) go('bin',b.id); }catch(e){ writeFail(e); }
   };
 }
 function nextBoxCode(){ const nums=[...S.bins.values()].filter(isBox).map(b=>Number((b.code.match(/(\d+)/)||[])[1])).filter(n=>!isNaN(n)); return 'BOX '+String((nums.length?Math.max(...nums):0)+1).padStart(2,'0'); }

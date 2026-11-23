@@ -840,6 +840,7 @@ await desk.goto(base);
   assert.equal(bme.from, 'ENV');
   await pg.goto(base + '#bin/box-1'); await pg.evaluate(() => { window.print = () => {}; }); await pg.click('#print');
   assert.deepEqual(await pg.locator('#print-root tbody td').allTextContents(), ['#001', 'BME280 (Adafruit)', '3', 'ENV', '']);
+  assert.match(await pg.textContent('#print-root .sub'), / · 1 bag · /);
   // unpacking it puts it back in a bin, and it no longer says where it was
   await pg.selectOption('#unpack-to', 'bin-env'); await pg.click('button[aria-label="Move #001 to the chosen bin"]');
   await pg.waitForFunction(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme'].binId === 'bin-env');
@@ -967,6 +968,23 @@ await desk.goto(base);
   await np.waitForSelector('.sheet textarea');
   assert.equal(await np.inputValue('.sheet textarea'), base + '#bag/002'); assert.equal((await got('p-loose')).bag, 2);
   await np.click('.sheet #done');
+
+  // a box is called a box: + Box opens "New box" (it said "New bin", then "Bin added"), and the title follows the Type
+  await np.goto(base + '#scan'); await np.click('#newbox'); await np.waitForSelector('.sheet #f-kind');
+  assert.equal(await np.textContent('.sheet h3'), 'New box');
+  await np.selectOption('#f-kind', 'bin'); assert.equal(await np.textContent('.sheet h3'), 'New bin');
+  await np.selectOption('#f-kind', 'box'); assert.equal(await np.textContent('.sheet h3'), 'New box');
+  await np.click('.sheet #save'); await np.waitForSelector('#toast:has-text("Box added")');
+  await np.waitForFunction(() => location.hash.startsWith('#bin/') && !document.querySelector('.sheet'));
+  await np.click('#edit'); assert.equal(await np.textContent('.sheet h3'), 'Edit box'); assert.equal(await np.textContent('.sheet #del'), 'Delete box');
+  await np.click('.sheet #cancel');
+  // a bin's printed list counts parts, and deleting it says what happens to them, in words (it said "part(s)")
+  await np.goto(base + '#bin/b01'); await np.evaluate(() => { window.print = () => {}; }); await np.click('#print');
+  assert.match(await np.textContent('#print-root .sub'), / · 1 part · /);
+  await np.click('#edit'); assert.equal(await np.textContent('.sheet h3'), 'Edit bin');
+  const asked = new Promise(r => np.once('dialog', d => { r(d.message()); d.dismiss(); }));
+  await np.click('.sheet #del'); assert.equal(await asked, 'Delete bin B01? Its part stays, without a bin.');
+  await np.click('.sheet #cancel');
 
   assert.deepEqual(np.problems, [], 'problems with no NFC');
   await nCtx.close();

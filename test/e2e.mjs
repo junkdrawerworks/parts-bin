@@ -2451,6 +2451,32 @@ await desk.goto(base);
   await vCtx.close();
 }
 
+// ---- Copy as new part from Pack's sheet is one more bag packed: Next bag after its tag, listed under "Packed into … just
+// now", and the field emptied for the next one
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {},
+    bins: { 'b-pas': { code: 'PAS', name: 'Passives', t: 1 } },
+    parts: { 'p-10k': { name: 'Resistor 10k', binId: 'b-pas', category: 'Resistors', qty: 50, unit: 'pcs', tags: [], bag: 1, tagWritten: true, t: 1 } } } });
+  const qCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await qCtx.addInitScript(fakeNfc);
+  await qCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('sr.packbox', '"b-pas"'); } }, seed);
+  const qp = await qCtx.newPage();
+  qp.problems = []; qp.on('pageerror', e => qp.problems.push(e.message)); qp.on('console', m => { if (m.type() === 'error') qp.problems.push(m.text()); });
+  await qp.goto(base + '#scan'); await qp.waitForSelector('#desc');
+  await qp.fill('#desc', 'resistor 10k'); await qp.press('#desc', 'Enter'); await qp.waitForSelector('.sheet #copyp');
+  await qp.click('.sheet #copyp'); await qp.waitForSelector('.sheet h3:text("New part")');
+  await qp.fill('#p-name', 'Resistor 4.7k'); await qp.click('.sheet #save'); await qp.waitForSelector('#tz.wait');
+  assert.equal(await qp.textContent('.sheet #done'), 'Skip the tag');
+  await qp.evaluate(() => window.__tap()); await qp.waitForFunction(() => document.querySelector('.sheet #done')?.textContent === 'Next bag');
+  await qp.waitForFunction(() => !document.querySelector('.sheet'));
+  await qp.waitForSelector('.packed');
+  assert.deepEqual(await qp.locator('.packed .item .t').allTextContents(), ['Resistor 4.7k']);
+  assert.equal(await qp.inputValue('#desc'), '');
+  assert.equal(await qp.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-10k'].qty), 50, 'the part copied changed');
+  assert.deepEqual(qp.problems, []);
+  await qCtx.close();
+}
+
 // ---- holding the wrong sticker while a tag is written: the sheet says whose sticker it is before offering to write over
 // it (it said only "already holds something", and one tap made bag #011's sticker open #012); a tag held while another
 // sheet is open says to close it (it did nothing)

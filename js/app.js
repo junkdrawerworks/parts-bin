@@ -1171,7 +1171,7 @@ function editPart(p, opts={}){
     const v=k=>PART_FORM[k][2](el.querySelector(PART_FORM[k][0]).value), binId=v('binId'), name=v('name')||p.name;
     const seed={name, qty:1, binId}; for(const k of ['category','unit','tags','minQty','iface','addr','volts','logic']) seed[k]=v(k);
     if(isBox(S.bins.get(binId)) && was?.binId===binId) seed.from=was.from||''; // in the same box, it came from the same bin
-    close(); editPart(seed,{copyOf:name});
+    close(); editPart(seed,{copyOf:name, ...(opts.stay?{stay:true, from:opts.from, afterSave:opts.afterSave}:{})}); // from Pack: one more bag packed
   });
   if(opts.copyOf){ const f=el.querySelector('#p-name'); f.focus(); f.select(); }
   el.querySelector('#del')?.addEventListener('click', async()=>{ const name=was?.name||p.name, n=BG.bagOf(was);

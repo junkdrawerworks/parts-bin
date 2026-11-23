@@ -165,6 +165,7 @@ function find(w, x) {
 // it holds a quarter more of the line: "JST-PH 2-pin female" is the 2-pin cable before the 3-pin female one. Of two parts
 // that hold as much of the line, the one with fewer other words in its name wins: "Pi Pico" is the Pico, not the Pico W.
 // A designator in front ("LED1 5mm red LED", "U1 NE555") is looked past, but tried too ("D1 mini", "C3 SuperMini").
+// near: the part lacks a value or variant the line has, so it may be the wrong one (BOM check says check, not have).
 export function matchPart(name, parts) {
   parts = [...parts];
   const all = bestPart(name, parts), d = designators(String(name || ''));
@@ -178,7 +179,7 @@ function bestPart(name, parts) {
   const t = words(name); if (!t.length) return null;
   const weight = w => (isPartNumber(w) ? 2 : 1) * w.length, all = t.reduce((n, w) => n + weight(w), 0);
   const numbered = t.some(isPartNumber), values = t.filter(isValue);
-  let best = null, bs = 0, br = -1, bx = Infinity;
+  let best = null, bs = 0, br = -1, bx = Infinity, bl = false;
   for (const p of parts) {
     const x = index(p), hit = new Set(), got = t.map(w => find(w, x));
     // two words of the line can be one of the part's: lock nut for locknut
@@ -188,9 +189,9 @@ function bestPart(name, parts) {
     let cov = s / all;
     if (numbered ? !shared : cov < 0.5) continue;
     const lacks = values.some(w => !x.forms.has(w)), rank = lacks ? cov - 0.25 : cov, extra = x.name.filter(w => !hit.has(w)).length;
-    if (rank > br + 1e-9 || (rank > br - 1e-9 && extra < bx)) { br = rank; bx = extra; bs = lacks ? Math.min(cov, FUZZY) : cov; best = p; }
+    if (rank > br + 1e-9 || (rank > br - 1e-9 && extra < bx)) { br = rank; bx = extra; bs = lacks ? Math.min(cov, FUZZY) : cov; bl = lacks; best = p; }
   }
-  return best ? { p: best, conf: numbered ? Math.max(bs, 0.6) : bs } : null;
+  return best ? { p: best, conf: numbered ? Math.max(bs, 0.6) : bs, near: bl } : null;
 }
 
 // How many more a line needs than there are, to the thousandth: 0.3 m wanted with 0.1 m in stock is short 0.2 (plain

@@ -330,6 +330,19 @@ test('a line in another unit of the same kind is counted in its part’s', () =>
   assert.deepEqual(n.get('heat'), { qty: 1.41, lines: 3 });
 });
 
+test('a part without a value or variant the line has is a near match', () => {
+  // BOM check says check for these, not have: the part found may be the wrong one
+  const r10k = { id: 'r', name: '10k resistor' }, s3 = { id: 's3', name: 'XIAO ESP32-S3' }, scd = { id: 'scd', name: 'SCD41' };
+  assert.equal(matchPart('1k resistor', [r10k]).near, true);
+  assert.equal(matchPart('ESP32-C3', [s3]).near, true);
+  assert.equal(matchPart('Pico W', [{ id: 'p', name: 'Raspberry Pi Pico' }]).near, true);
+  assert.equal(matchPart('10k resistor', [r10k]).near, false);
+  assert.equal(matchPart('XIAO ESP32-S3', [s3]).near, false);
+  // a sure part with words the line adds isn't one: a breakout of the SCD41 is the SCD41
+  assert.equal(matchPart('SCD41 breakout board', [scd]).near, false);
+  assert.equal(matchPart('U1 SCD41', [scd]).near, false, 'a designator looked past');
+});
+
 test('a length or weight against a part counted in pieces is one piece', () => {
   // "2m USB-C cable" found the USB-C cable kept in pieces, and with one in stock said short 1 m
   const cable = { id: 'c', name: 'USB-C cable 2m', qty: 1, unit: 'pcs' }, jumpers = { id: 'j', name: 'Jumper wire kit', qty: 2 };

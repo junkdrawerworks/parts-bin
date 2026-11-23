@@ -394,6 +394,16 @@ assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs =>
 await page.click('#out #copy');
 await page.waitForFunction(() => window.__shared === '1 × 2 m USB-C cable');
 await inject('p-cable', null);
+// a near match (the part found lacks a value the line has: 5mm tubing finds the 3mm) says check in amber, not have: it's
+// counted in its own total, isn't "You have everything", and goes on the shopping list with what was found (it said have,
+// and the list left it off)
+await page.fill('#bom', '0.1 m heat shrink tubing 5mm\n1 SCD41'); await page.click('#check');
+assert.deepEqual(await page.$$eval('.bom-table tbody td:last-child .chip', cs => cs.map(c => [c.textContent, c.className])), [['check', 'chip warn'], ['have', 'chip ok']]);
+assert.deepEqual(await page.locator('.bom-summary .chip').allTextContents(), ['1 have', '1 check']);
+await page.click('#out #copy');
+await page.waitForFunction(() => window.__shared === '0.1 m heat shrink tubing 5mm (check: you have a Heat shrink tubing 3mm)');
+await page.fill('#bom', '1 SCD41'); await page.click('#check');
+assert.match(await page.textContent('.bom-summary'), /^You have everything for this\./, 'a sure match is as it was');
 // two lines for one part are checked together: each fits the stock alone, but not both (both said have, and the shopping
 // list left them out); the shortfall is bought once
 const bmeStock = await page.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts['p-bme280'].qty);

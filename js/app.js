@@ -525,6 +525,10 @@ function renderPartPage(m, pid){
 }
 
 // ---- BOM check (reading the list and matching it: bom.js)
+// A part's name after "a" or "an", as it's said: an LED, an SCD41, an 18650 cell, a 10k resistor, a XIAO ESP32-S3.
+function aName(n){ n=String(n||'').trim(); const w=n.split(/\s/)[0]||'';
+  const an=/^[aeiou]/i.test(w) && !/^(?:uni|use|usb|eu|one)/i.test(w) || /^8|^1[18](?:\D|$|\d{2})/.test(w) || /^[FHLMNRS](?:[A-Z0-9]|$)/.test(w) || /^X[0-9]/.test(w);
+  return (an?'an ':'a ')+n; }
 let bomPicked=''; // the saved BOM in the box, picked or just saved, so the picker still shows it when the screen is drawn again
 function renderBom(m){
   m.append(h('<div class="topbar"><h2>BOM check</h2></div>'));
@@ -548,20 +552,24 @@ function renderBom(m){
     // lines for the same part are checked against its stock together, and each says so when they're short
     const need=needs(items), stock=r=>Number(r.m.p.qty||0), lacks=r=>!r.m || stock(r)<need.get(r.m.p.id).qty;
     const u=x=>x?' '+x:''; // a length or a weight says what in: need 0.5 m, short 0.2 m
-    let have=0, short=0, missing=0;
+    // A near match (the part found has another value or variant than the line: a 10k resistor for "1k resistor") isn't
+    // counted as had: it says check, and goes on the shopping list with what was found, in case it's the wrong part.
+    const near=r=>!!r.m?.near;
+    let have=0, short=0, missing=0, check=0;
     const trs=items.map(r=>{
       if(r.heading) return `<tr class="sect"><th colspan="5" scope="colgroup">${esc(r.name)}</th></tr>`; // a heading in the list, over the lines after it
       let st, cls, where='', note='';
       if(!r.m){ st='missing'; cls='bad'; missing++; }
       else { const b=binOf(r.m.p), n=need.get(r.m.p.id); where=(b?`<span class="label ${isBox(b)?'box':''}">${esc(b.code)}</span>`:'<span class="tiny">no bin</span>')+(r.m.p.bag?` <span class="bagno">${bagStr(r.m.p.bag)}</span>`:'')+(b?.name?`<div class="tiny">${esc(b.name)}</div>`:''); // the bin, then the bag in it
-        if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
+        if(near(r)){ st='check'; cls='warn'; check++; }
+        else if(!lacks(r)){ st='have'; cls='ok'; have++; } else { st=`short ${shortBy(n.qty,stock(r))}${u(unitOf(r))}`; cls='warn'; short++; if(n.lines>1) note=`<div class="tiny">${n.qty}${u(unitOf(r))} needed across ${n.lines} lines</div>`; } }
       const unit=r.unit||unitOf(r);
       return `<tr><td class="n${unit?'':' x'}">${r.qty}${esc(u(unit))}</td><td><span class="it">${esc(r.name)}</span>${r.m?`<div class="tiny"><span aria-hidden="true">→</span><span class="sr">matched to</span> ${esc(r.m.p.name)}${r.m.conf<0.8?' <span class="chip">fuzzy</span>':''}</div>`:''}${note}</td><td class="n">${r.m?esc(fmtQty(r.m.p)):'—'}</td><td>${where}</td><td><span class="chip ${cls}">${st}</span></td></tr>`;
     }).join('');
     // Everything on hand says so, and where it all is (the bins in the order the list comes to them). Otherwise a count of
     // none isn't shown: a red "0 missing" read as something wrong.
     let sum, say;
-    if(!short && !missing){
+    if(!short && !missing && !check){
       const ids=new Set(), bins=[], loose=new Set();
       for(const r of items) if(r.m){ ids.add(r.m.p.id); const b=binOf(r.m.p); if(!b) loose.add(r.m.p.id); else if(!bins.includes(b)) bins.push(b); }
       const and=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1], n=ids.size;
@@ -569,15 +577,17 @@ function renderBom(m){
       sum=`<div class="bom-summary allhave"><span><b>You have everything for this.</b> ${many(n,'part')}${where?', '+where:''}</span></div>`;
       say=`You have everything for this. ${many(n,'part')}`;
     } else {
-      const counts=[[have,'have','ok'],[short,'short','warn'],[missing,'missing','bad']].filter(([k])=>k);
+      const counts=[[have,'have','ok'],[check,'check','warn'],[short,'short','warn'],[missing,'missing','bad']].filter(([k])=>k);
       // the shopping list from the top as well, so a phone needn't scroll past every line to it
       sum=`<div class="bom-summary">${counts.map(([k,w,c])=>`<span class="chip ${c}">${k} ${w}</span>`).join('')}<span class="grow"></span><button class="btn sm" id="copytop">Copy shopping list</button></div>`;
       say=counts.map(([k,w])=>`${k} ${w}`).join(', ');
     }
     out.innerHTML=`${sum}<div class="tablewrap"><table class="bom-table"><caption class="sr">BOM check results</caption><thead><tr><th class="n">Need</th><th>Item</th><th class="n">Stock</th><th>Where</th><th>Status</th></tr></thead><tbody>${trs}</tbody></table></div>
-      ${missing+short?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
+      ${missing+short+check?`<div class="row" style="margin-top:10px"><button class="btn sm" id="copy">Copy shopping list</button></div>`:''}`;
     const listed=new Set(); // a part short across two lines is bought once, for both
-    const shopping=items.filter(r=>!r.heading && lacks(r)).filter(r=>!r.m || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>`${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${asPiece(r)?`${r.qty} ${r.unit} `:''}${r.name}`); // 0.2 m heat shrink, 1 × BME280, 1 × 2 m USB-C cable
+    const shopping=items.filter(r=>!r.heading && (near(r) || lacks(r))).filter(r=>!r.m || near(r) || (!listed.has(r.m.p.id) && listed.add(r.m.p.id))).map(r=>near(r)
+      ? `${r.qty} ${r.unit||'×'} ${r.name} (check: you have ${aName(r.m.p.name)})` // all of it, in case what was found is the wrong part
+      : `${r.m?shortBy(need.get(r.m.p.id).qty,stock(r)):r.qty} ${(r.m?unitOf(r):r.unit)||'×'} ${asPiece(r)?`${r.qty} ${r.unit} `:''}${r.name}`); // 0.2 m heat shrink, 1 × BME280, 1 × 2 m USB-C cable
     out.querySelectorAll('#copy,#copytop').forEach(b=>b.onclick=()=>copyText(shopping.join('\n'),'Shopping list copied','Copy the shopping list'));
     if(!quiet) said(say); // the table is drawn below the button, out of hearing
   }

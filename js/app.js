@@ -96,19 +96,35 @@ function localSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{}
 
 // ------------------------------------------------------------------ search
 // Each word typed has to be in the part's details, as written or with their spaces taken out (esp32s3 finds ESP32-S3,
-// which reads as "esp32 s3"). A bare number (220, #220) lists that bag's part first, then the parts with the number in
+// which reads as "esp32 s3"), or be its bag number. A bag number matches only as the whole number: 17 isn't bag 117, and
+// 40 isn't bag 140 or 400. A bare number (220, #220) lists that bag's part first, then the parts with the number in
 // their details: bag numbers run into the hundreds, so 220 is a bag and a resistor too.
+const isBagWord=(w,p)=>/^\d{1,9}$/.test(w) && !!p.bag && Number(w)===Number(p.bag);
+const bareBag=q=>String(q||'').trim().match(/^#?0*(\d{1,4})$/);
 function searchParts(q){
-  const all=[...S.parts.values()], bm=String(q||'').trim().match(/^#?0*(\d{1,4})$/);
+  const all=[...S.parts.values()], bm=bareBag(q);
   const bag=bm?all.filter(p=>Number(p.bag)===Number(bm[1])):[];
   const t=norm(q).split(' ').filter(Boolean); if(!t.length) return all;
   const hits=all.filter(p=>!bag.includes(p)).map(p=>{
-    const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name, p.bag&&!bm?('bag '+p.bag+' '+String(p.bag).padStart(3,'0')):''].join(' ')); // another bag's number isn't a match for a bare one
+    const hay = norm([p.name,p.mpn,p.category,(p.tags||[]).join(' '),p.notes,(p.iface||[]).join(' '),p.addr,p.volts,p.logic,binOf(p)?.code,binOf(p)?.name].join(' '));
     const flat=hay.replace(/ /g,''), name=norm(p.name), nameFlat=name.replace(/ /g,'');
-    let score=0; for(const w of t){ if(!hay.includes(w) && !flat.includes(w)) return null; score += name.includes(w)||nameFlat.includes(w)?2:1; if(name.startsWith(w)) score+=2; }
+    let score=0; for(const w of t){
+      if(hay.includes(w) || flat.includes(w)){ score += name.includes(w)||nameFlat.includes(w)?2:1; if(name.startsWith(w)) score+=2; }
+      else if(!bm && isBagWord(w,p)) score += 1; // another bag's number isn't a match for a bare one: that's the bag's own part
+      else return null;
+    }
     return {p,score};
   }).filter(Boolean).sort((a,b)=>b.score-a.score||a.p.name.localeCompare(b.p.name)).map(x=>x.p);
   return [...bag, ...hits];
+}
+// Whether every word typed is in a part's name or part number, which Pack's Enter needs before it opens that part instead
+// of a new one: a match on its bag number, notes or bin isn't the part named. A number has to be a whole number there, so
+// "JST 2 pin" isn't the JST 12 pin, nor "Widget 1" Widget 10. A bag number on its own (117, #117) names that bag's part.
+function namesIt(q,p){
+  const bm=bareBag(q); if(bm && p.bag && Number(p.bag)===Number(bm[1])) return true;
+  const s=norm((p.name||'')+' '+(p.mpn||'')), flat=s.replace(/ /g,''), nums=(s.match(/\d+/g)||[]).map(Number);
+  const t=norm(q).split(' ').filter(Boolean);
+  return !!t.length && t.every(w=>/^\d+$/.test(w) ? nums.includes(Number(w)) : s.includes(w)||flat.includes(w));
 }
 function searchBins(q){
   const t=norm(q); if(!t) return [...S.bins.values()].sort(binCodeSort);
@@ -612,16 +628,20 @@ Reply with only a JSON object: {"matchId": "<inventory id if this is the same pa
   // type-ahead over the inventory, no AI needed
   const desc=ui.querySelector('#desc'); let tt, listedFor=null; // listedFor: what the matches showing were found for
   desc.oninput=()=>{ clearTimeout(tt); tt=setTimeout(()=>localList(desc.value.trim()),120); };
-  // Enter picks the first row. Straight after typing (a pasted name, the keyboard's Go) the matches aren't there yet, so
-  // they're found there and then.
+  // Enter picks the first part listed that's named by every word typed, and otherwise a new part: a part listed for its bag
+  // number or its notes isn't what's in the bag, and opening it would save the count over its own. (On a phone the list is
+  // under the keyboard, so Go is pressed without seeing it.) The list stays for a tap. Straight after typing (a pasted
+  // name, the keyboard's Go) the matches aren't there yet, so they're found there and then.
   desc.onkeydown=e=>{ if(e.key!=='Enter') return; e.preventDefault(); const q=desc.value.trim(); if(!q) return;
     if(listedFor!==q || !res.querySelector('.matchlist')){ clearTimeout(tt); localList(q); }
-    res.querySelector('[data-id]')?.click(); };
+    const rows=[...res.querySelectorAll('.matchlist [data-id]')];
+    (rows.find(b=>b.dataset.id && namesIt(q,S.parts.get(b.dataset.id)||{})) || rows.find(b=>!b.dataset.id))?.click(); };
   function localList(q){
     res.querySelector('.matchlist')?.parentElement?.remove();
     listedFor=q||null;
     if(!q) return;
-    const hits=searchParts(q).slice(0,6);
+    // the parts every word names first, so the one Enter opens is the top row
+    const all=searchParts(q), hits=[...all.filter(p=>namesIt(q,p)), ...all.filter(p=>!namesIt(q,p))].slice(0,6);
     const box=h(`<div><div class="matchlist">${hits.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
       <button type="button" data-id=""><span><b>${esc(q)}</b><div class="s">Not in the inventory yet</div></span><span class="chip warn">new part</span></button></div></div>`);
     res.append(box);

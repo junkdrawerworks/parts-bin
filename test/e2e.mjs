@@ -1838,6 +1838,47 @@ await desk.goto(base);
   await sCtx.close();
 }
 
+// ---- a number in a name isn't a bag number: in Pack, Enter on "Pin header 40 pin" opened the 6-pin header in bag #040
+// and saved the count typed over its own, and Parts listed NEMA 23 (bag #117) for "nema 17"
+{
+  const P = (name, bag, qty) => ({ name, bag, qty, binId: 'bin-c', category: 'Connectors', unit: 'pcs', tags: [], t: 1 });
+  const seed = { app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-c': { code: 'C1', name: 'Connectors', t: 1 } }, parts: {
+    'p-ph6': P('Pin header 6 pin', 40, 12), 'p-nema': P('NEMA 23 stepper motor', 117, 2), 'p-10k': P('Resistor 10k', 220, 100),
+    'p-jst': P('JST-XH 12 pin', 9, 4), 'p-led': P('LED 3mm red', 15, 30), 'p-555': P('555 timer', 3, 10) } } };
+  const kCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await kCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) localStorage.setItem('parts-bin', d); }, JSON.stringify(seed));
+  const kp = await kCtx.newPage();
+  kp.problems = []; kp.on('pageerror', e => kp.problems.push(e.message));
+  const got = id => kp.evaluate(id => JSON.parse(localStorage.getItem('parts-bin')).items.parts[id], id);
+  const enter = async (q, h3) => {
+    await kp.goto(base + '#scan'); await kp.waitForSelector('#desc'); await kp.fill('#desc', q); await kp.press('#desc', 'Enter');
+    await kp.waitForSelector('.sheet #p-name', { timeout: 2000 });
+    assert.equal(await kp.textContent('.sheet h3'), h3, q); return kp.inputValue('#p-name');
+  };
+  assert.equal(await enter('Pin header 40 pin', 'New part'), 'Pin header 40 pin');
+  await kp.click('.sheet #save'); await kp.waitForFunction(() => !document.querySelector('.sheet'));
+  const ph6 = await got('p-ph6');
+  assert.deepEqual([ph6.qty, ph6.binId, ph6.bag], [12, 'bin-c', 40], 'the 6-pin header kept its count, bin and bag');
+  assert.ok(await kp.evaluate(() => Object.values(JSON.parse(localStorage.getItem('parts-bin')).items.parts).some(x => x.name === 'Pin header 40 pin')), 'the 40-pin header was made');
+  // the list still offers the part with that bag number, for a tap
+  await kp.goto(base + '#scan'); await kp.fill('#desc', 'Pin header 40 pin'); await kp.waitForSelector('.matchlist [data-id="p-ph6"]');
+  for (const q of ['NEMA 17 stepper motor', 'Resistor 220', 'LED 1', 'JST-XH 2 pin']) { await enter(q, 'New part'); await kp.click('.sheet #cancel'); await kp.waitForFunction(() => !document.querySelector('.sheet')); }
+  // a part named by every word still opens on Enter
+  assert.equal(await enter('NEMA 23', 'Edit part'), 'NEMA 23 stepper motor'); await kp.click('.sheet #cancel');
+  assert.equal(await enter('jst xh 12', 'Edit part'), 'JST-XH 12 pin'); await kp.click('.sheet #cancel');
+  assert.equal(await enter('#117', 'Edit part'), 'NEMA 23 stepper motor', 'a bag number on its own opens its part'); await kp.click('.sheet #cancel');
+  assert.equal(await enter('555', 'Edit part'), '555 timer', 'and a number that’s the whole name, its part'); await kp.click('.sheet #cancel');
+  // Parts: a number in the search is a bag only as the whole number, and a bag number on its own still lists that bag first
+  await kp.goto(base + '#parts'); await kp.waitForSelector('.list .item');
+  const found = async q => { await kp.fill('#q', q); await kp.waitForTimeout(400); return kp.locator('#main .list .item .t').allTextContents(); };
+  assert.deepEqual(await found('nema 17'), []);
+  assert.deepEqual(await found('nema 117'), ['NEMA 23 stepper motor'], 'its own bag number with a word finds it');
+  assert.equal((await found('117'))[0], 'NEMA 23 stepper motor'); assert.equal((await found('#117'))[0], 'NEMA 23 stepper motor');
+  assert.deepEqual(await found('resistor 22'), []);
+  assert.deepEqual(kp.problems, [], 'problems in Pack and search');
+  await kCtx.close();
+}
+
 // ---- a long inventory on a phone
 {
   const seed = { app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-a': { code: 'A1', name: 'Resistor drawer', location: 'Workroom', t: 1 } }, parts: {} } };

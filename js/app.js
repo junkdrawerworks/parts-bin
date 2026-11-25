@@ -1,7 +1,8 @@
 
 import { db as localDb, store } from './store.js';
 import { drive } from './sync.js';
-import { ai, makeSample, DEFAULT_MODEL } from './ai.js';
+import { ai, makeSample, DEFAULT_MODEL, readParts, testKey } from './ai.js';
+import * as PID from './photoid.js';
 import * as IN from './inbox.js';
 import { norm, parseBom, matchLine, shortBy, needs, unitOf, asPiece, together, takeFrom } from './bom.js';
 import * as BG from './bags.js';
@@ -597,6 +598,7 @@ const PART_LISTS=[
   ['__low','Low stock',isLow],
   ['__out','Out of stock',isOut],
   ['__check','To check',p=>!!p.check],
+  ['__fill','To fill in',p=>lacksDetails(p)],
   ['__untagged','Bag tag not written',p=>!!BG.bagOf(p) && !p.tagWritten,'bag'],
   ['__recent','Recently changed',p=>changedAt(p)>Date.now()-7*864e5,'new'],
   ['__unbagged','Not yet bagged',p=>!BG.bagOf(p)],
@@ -625,6 +627,7 @@ function renderParts(m){
   if(!parts.length && cur==='__clash' && !S.q){ m.append(h('<div class="empty"><p>No bag number is on more than one part.</p></div>')); return; }
   if(!parts.length && S.parts.size){ noMatch(m, list ? list[1] : cur, !!list); return; }
   if(!parts.length){ m.append(h('<div class="empty"><p>No parts here yet. Add one, or use Pack to bag and tag them as you go.</p></div>')); return; }
+  if(cur==='__fill' && ai.on) m.append(fillRow(parts));
   if(cur==='__low'){ const r=h(`<div class="row" style="margin-bottom:10px"><button class="btn sm" id="reorder">Copy reorder list</button></div>`);
     r.querySelector('#reorder').onclick=()=>copyText(parts.map(reorderLine).join('\n'), `Reorder list copied: ${many(parts.length,'part')}`, 'Copy the reorder list'); m.append(r); }
   const l=h('<div class="list"></div>'); for(const p of parts) l.append(partRow(p,true)); m.append(l);
@@ -699,7 +702,12 @@ function renderPartPage(m, pid){
       render(); toast('Removed your photo', 4000, src?{label:'Undo', run:async()=>{ try{ await photos.put(p.id, src); render(); toast('Your photo is back'); }catch{ toast('This browser couldn’t keep the photo.'); } }}:undefined); });
     m.append(r);
   }
-  if(lacksDetails(p)){ const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask">Ask Claude for details</button><span class="tiny">Interface, voltages, a part number, a reference photo</span></div>`); ask.querySelector('#ask').onclick=()=>sendToClaude([p]); m.append(ask); }
+  if(lacksDetails(p)){
+    // With a key it's asked here and the suggestion waits in the Inbox; without one, the request is handed to a chat
+    const here=ai.on, busy=here && FILL.busy && FILL.ids.has(p.id), off=here && !online();
+    const ask=h(`<div class="row" style="margin-top:14px"><button class="btn sm" id="ask" ${busy||off?'disabled':''}>${off?'Needs a connection':'Ask Claude for details'}</button><span class="tiny" id="ask-note">${busy?'<span class="think">Asking…</span>':here?'Interface, voltages, a part number':'Interface, voltages, a part number, a reference photo'}</span></div>`);
+    ask.querySelector('#ask').onclick=()=>here ? fillIn([p]) : sendToClaude([p]); m.append(ask);
+  }
   if(changedAt(p)) m.append(h(`<p class="tiny" id="changed" style="margin-top:16px">Last changed ${esc(dayOf(changedAt(p)))}</p>`)); // any edit, on any device
   const rp=m.querySelector('.refphoto'); if(rp){ rp.onclick=()=>zoomRef(p); rp.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); zoomRef(p); } }; }
   wireRefs(m);
@@ -1009,7 +1017,7 @@ function renderScan(m){
   const help=`Bag it and ${S.imgOk?'photograph it, or ':''}type what it is. Pick the matching part (or a new one), check the count, save, then hold the bag's sticker to the top of the phone. ${S.imgOk?'':'To skip the typing, send Claude a photo of the bags and open the link it replies with: they land in the Inbox, filled in.'}`;
   const ui=h(`<div>
     ${localGet('pb.packed',false)?`<details class="more packhelp"><summary>How Pack works</summary><p class="muted" style="margin:0 0 10px">${help}</p></details>`:`<div class="note" style="margin-bottom:12px">${help}</div>`}
-    ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px"><label class="btn primary" for="file">Take photo<input id="file" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="file2">Choose photo<input id="file2" type="file" accept="image/*" class="sr"></label></div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
+    ${S.imgOk?`<div class="drop" id="drop">${ICONS.camera}<div class="row" style="justify-content:center;margin-top:8px">${photoButtons('file','file2')}</div><div class="tiny" style="margin-top:6px">Bag contents, label, or silkscreen</div></div>`:''}
     <div class="field" style="margin-top:12px"><label for="desc">${S.imgOk?'Or type it':'What is it?'}</label><input id="desc" placeholder="e.g. BME280, or 'soldering iron'" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="go"></div>
     <div class="row">${S.sample?`<button class="btn" id="identify" ${identBusy?'disabled':''}>Identify</button>`:''}<span id="status" class="tiny"></span></div>
     <div id="result" style="margin-top:14px"></div></div>`);
@@ -1018,7 +1026,7 @@ function renderScan(m){
   const done=packedList(dest); if(done) ui.querySelector('#result').append(done);
   let file=null; const st=ui.querySelector('#status'), res=ui.querySelector('#result');
   const drop=ui.querySelector('#drop'); const fi=ui.querySelector('#file');
-  if(drop){
+  if(drop && fi){
     fi.onchange=()=>{ if(identBusy){ fi.value=''; toast('Still identifying the last one'); return; } file=fi.files[0]||null; SHOT=null; showPreview(); if(file) identify(); };
     const fi2=ui.querySelector('#file2'); fi2.onchange=()=>{ if(identBusy){ fi2.value=''; toast('Still identifying the last one'); return; } file=fi2.files[0]||null; SHOT=null; showPreview(); if(file) identify(); };
     drop.ondragover=e=>{e.preventDefault();drop.classList.add('over');}; drop.ondragleave=()=>drop.classList.remove('over');
@@ -1044,8 +1052,10 @@ function renderScan(m){
       for(const k of AGAIN) if(again[k]!=null) base[k]=Array.isArray(again[k])?[...again[k]]:again[k];
       editPart(base, {stay:true, from:'pack', tag:true, againOf:again, afterSave:p=>packed(p,seed)}); return; }
     const base = matched ? {...matched} : {name:seed.name||'', category:seed.category||'', mpn:seed.mpn||'', unit:seed.unit||'pcs', tags:Array.isArray(seed.tags)?seed.tags.map(String):[], notes:seed.notes||''};
-    if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · '); }
-    else base.qty=Number(seed.qty)||1;
+    if(matched){ base.qty = Number(seed.qty)||matched.qty||1; if(seed.notes && !(matched.notes||'').includes(seed.notes)) base.notes=[matched.notes,seed.notes].filter(Boolean).join(' · ');
+      for(const k of SPEC_KEYS) if(!blank(seed[k]) && blank(base[k])) base[k]=seed[k]; // its blanks filled, nothing it says written over
+      if(seed.check) base.check=addCheck(matched.check, seed.check); }
+    else { base.qty=Number(seed.qty)||1; for(const k of [...SPEC_KEYS,'check']) if(!blank(seed[k])) base[k]=seed[k]; }
     // A part already in a bag keeps its number, as the sticker on that bag carries it; one with no bag yet gets the next
     // number when the sheet opens, and its tag is written.
     if(!BG.bagOf(matched)) base.bag=''; if(destId) base.binId=destId;
@@ -1056,22 +1066,17 @@ function renderScan(m){
     if(identBusy){ toast('Still identifying the last one'); return; } // each one is billed to the key
     identBusy=true; const btn=ui.querySelector('#identify'); if(btn) btn.disabled=true;
     st.innerHTML='<span class="think">Identifying…</span>';
-    const inv=[...S.parts.values()].map(p=>({id:p.id,name:p.name,cat:p.category||'',qty:p.qty??0}));
-    const cats=[...new Set(inv.map(p=>p.cat).filter(Boolean))];
-    // A photo often has several parts on it: each comes back with the box round it, and its picture is cut from that.
-    const prompt=`You are helping pack a maker's workroom into bags. Identify the item for an inventory entry, and say whether it is ALREADY in the inventory list below (same physical part, e.g. a photo of three BME280 breakouts matches "BME280 (Adafruit)"). ${file?'The image shows the bagged item, its label, packaging, or silkscreen. It may show several different parts: list each different part once, the largest or most central first (several of one part are one entry, with their count as qty). ':''}${desc?`Description from the user: "${desc}". `:''}
-INVENTORY (JSON, id + name + category + current qty): ${JSON.stringify(inv)}
-Categories in use (reuse one if it fits, else a short new one; tools go in "Tools", spools in "Filament", partial builds in "Projects"): ${JSON.stringify(cats)}.
-Reply with only a JSON object: {"items": [{"matchId": "<inventory id if this is the same part, else null>", "matchConfidence": 0-1, "name": "<short specific name, brand + part>", "category": "<category>", "mpn": "<manufacturer part number or ''>", "qty": <count visible/stated, else 1>, "unit": "pcs", "tags": ["<up to 4 lowercase tags>"], "notes": "<one line: key specs or what it's for>", "box": ${file?`[left, top, right, bottom], the smallest rectangle round this part (all its pieces), as fractions of the image's width and height from its top left corner, 0 to 1; null if you can't place it`:'null'}}]}`;
     try{
-      const j=await S.sample.json(prompt, file?{images:file}:{});
-      // an answer in the old shape, one part without "items", is read as that one part
-      const items=(Array.isArray(j?.items)&&j.items.length?j.items:[j]).filter(x=>x && typeof x==='object' && !Array.isArray(x)).slice(0,12);
-      if(!items.length) throw {code:'invalid_json'};
+      const dest=S.bins.get(head.querySelector('#dest').value);
+      const r=await readParts({mode:'bags', file, desc, bin:dest?.code||'', inventory:invText(), where:'pack'});
+      // each part as the Inbox would take it (inbox.js), with Claude's match only when it was sure (photoid.js), and the box
+      // round it on the photo, for its picture
+      const items=PID.process(r,{mode:'bags', names:partNames()}).map(x=>{ const c=IN.cleanItem(x); return c && {...c, matchId:c.match||null, matchConfidence:x.matchConfidence, box:x.box}; }).filter(Boolean).slice(0,12);
+      if(!items.length) throw r.cut ? {code:'cut_off'} : {code:'none'};
       if(file) for(const x of items) x.thumb=await thumb(file, x.box).catch(()=>null);
-      SHOT={file, desc, items, at:0}; listedFor=desc||null;
+      SHOT={file, desc, items, at:0, cut:r.cut}; listedFor=desc||null;
       showShot();
-    }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : e.code==='invalid_json' ? 'The answer couldn’t be read. Try again, or fill it in by hand.' : ['not_granted','refused'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(e.code==='not_granted') toast(e.message,4000); openEditor({name:desc}, null); }
+    }catch(e){ st.textContent = e.code==='cut_off' ? 'The answer was cut off. Try again, or fill it in by hand.' : e.code==='invalid_json' ? 'The answer couldn’t be read. Try again, or fill it in by hand.' : e.code==='none' ? NONE_FOUND : ['not_granted','refused','no_credits','offline','busy'].includes(e.code) ? e.message : e.code==='rate_limited' ? 'Too many requests — wait a moment.' : 'Could not identify — fill it in by hand.'; if(['not_granted','no_credits'].includes(e.code)) toast(e.message,4000); openEditor({name:desc}, null); }
     finally{ identBusy=false; const b=document.getElementById('identify'); if(b) b.disabled=false; }
   }
   // What the last photo (or description) was identified as: with several parts on it, a row of them to pick from, then the
@@ -1081,12 +1086,12 @@ Reply with only a JSON object: {"items": [{"matchId": "<inventory id if this is 
     if(!SHOT) return;
     const {items}=SHOT, j=items[SHOT.at]||items[0], many=items.length>1, desc=SHOT.desc||'';
     const matched = j.matchId && S.parts.get(j.matchId) ? S.parts.get(j.matchId) : null;
-    st.textContent = many ? `${items.length} parts in this photo` : matched ? `Looks like: ${matched.name}` : (j.name ? `New: ${j.name}` : '');
+    st.textContent = (many ? `Found ${items.length} parts` : matched ? `Looks like: ${matched.name}` : (j.name ? `New: ${j.name}` : ''))+(SHOT.cut?'. The answer was cut off, so any parts after these were lost.':'');
     // candidates list: model's match first, then local text matches on the name
     const local=searchParts(j.name||desc).slice(0,4).filter(p=>!matched||p.id!==matched.id);
     const mineNote=j.thumb?`<div class="shotmine"><img src="${esc(j.thumb)}" alt=""><span class="tiny">Cut from your photo. It’s kept as the part’s picture, in this browser, if the part has no reference photo.</span></div>`:'';
     const box=h(`<div>${many?`<div class="shotstrip" role="group" aria-label="Parts in this photo">${items.map((x,i)=>`<button type="button" data-shot="${i}" aria-pressed="${x===j}">${x.thumb?`<img src="${esc(x.thumb)}" alt="">`:''}<span>${esc(x.name||'Part '+(i+1))}</span></button>`).join('')}</div>
-        <div class="row" style="margin:-2px 0 4px"><span class="tiny grow">Pick one, save it, and the rest stay here for the next bag.</span><button type="button" class="btn sm" id="shotdone">Done with this photo</button></div>`:''}
+        <div class="row" style="margin:-2px 0 4px"><span class="tiny grow">Pick one, save it, and the rest stay here for the next bag. Or check them all in the Inbox.</span><button type="button" class="btn sm primary" id="shotinbox">Open in Inbox</button><button type="button" class="btn sm" id="shotdone">Done with this photo</button></div>`:''}
       <div class="matchlist">${matched?`<button type="button" class="pick" data-id="${matched.id}"><span><b>${esc(matched.name)}</b><div class="s">${subLine(matched)}</div></span><span class="chip ok">match ${Math.round((j.matchConfidence||0.8)*100)}%</span></button>`:''}
       ${matched?againRow(matched):''}${local.map(p=>`<button type="button" data-id="${p.id}"><span><b>${esc(p.name)}</b><div class="s">${subLine(p)}</div></span><span class="chip">existing</span></button>`).join('')}
       <button type="button" data-id=""><span><b>${esc(j.name||desc||'New item')}</b><div class="s">${esc(j.category||'')}${j.mpn?' · '+esc(j.mpn):''} · qty ${esc(j.qty??1)}</div></span><span class="chip warn">new entry</span></button></div>
@@ -1094,6 +1099,12 @@ Reply with only a JSON object: {"items": [{"matchId": "<inventory id if this is 
     res.insertBefore(box, res.querySelector('.packed'));
     box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{ SHOT.at=Number(b.dataset.shot); showShot(); res.querySelector(`[data-shot="${SHOT.at}"]`)?.focus(); });
     box.querySelector('#shotdone')?.addEventListener('click',()=>{ SHOT=null; reset(); render(); });
+    // the parts not saved yet, as a batch in the Inbox, going into the bin being packed (a card each, with its match)
+    box.querySelector('#shotinbox')?.addEventListener('click',()=>{
+      const dest=S.bins.get(head.querySelector('#dest').value);
+      const b=PID.toBatch(SHOT.items.map(({matchId, matchConfidence, box, thumb, ...x})=>x), {mode:'bags', bin:dest?.code||''});
+      if(!b || !inboxAdd(b)) return;
+      SHOT=null; reset(); go('inbox'); toast(`${b.items.length} part${b.items.length===1?'':'s'} in the Inbox to check`); });
     box.querySelectorAll('[data-id]').forEach(btn=>btn.onclick=()=>openEditor(j, btn.dataset.id?S.parts.get(btn.dataset.id):null));
     wireAgain(box, j);
   }
@@ -1575,6 +1586,94 @@ function bareChunk(){
 }
 function noteSent(parts){ const live=new Set(S.parts.keys()); localSet(SENT_KEY,[...new Set([...localGet(SENT_KEY,[]).filter(id=>live.has(id)), ...parts.map(p=>p.id)])]); }
 
+// ------------------------------------------------------------------ reading parts here, with the API key (photoid.js, ai.js)
+// A photo of bags or a receipt read in the page, and details asked for here, land in the Inbox as a batch, exactly as a
+// link from Claude would. Every control for it shows only with a key saved; without one, everything is as it was.
+const online=()=>navigator.onLine!==false;
+const NONE_FOUND='Couldn’t make out any parts. Try closer, or type it.';
+const SPEC_KEYS=['category','mpn','iface','addr','volts','logic'];
+const blank=v=>v==null||v===''||(Array.isArray(v)&&!v.length);
+const addCheck=(was,add)=>!was ? add : String(was).includes(add) ? was : (was+' · '+add).slice(0,300);
+function invText(){ return PID.inventoryText(S.parts.values(), S.bins); }
+function partNames(){ return new Map([...S.parts.values()].map(p=>[p.id,p.name])); }
+// Take photo and Choose photo, or, with no connection, a button that says it needs one
+function photoButtons(take, pick){
+  if(!online()) return '<button type="button" class="btn" disabled>Needs a connection</button>';
+  return `<label class="btn primary" for="${take}">Take photo<input id="${take}" type="file" accept="image/*" capture="environment" class="sr"></label><label class="btn" for="${pick}">Choose photo<input id="${pick}" type="file" accept="image/*" class="sr"></label>`;
+}
+// A batch read here, into the Inbox. false (having said why) when it's full or this browser can't keep it.
+function inboxAdd(b){
+  const r=IN.addBatch(INBOX,b);
+  if(r==='full'){ toast('The inbox is full. Finish or dismiss a batch, then try again.',4500); return false; }
+  if(r!=='added') return true;
+  if(!IN.saveInbox(INBOX)){ INBOX=IN.loadInbox(); toast('This browser’s storage is full, so that wasn’t kept. Dismiss a batch or free some room, then try again.',5000); return false; }
+  TALLY.delete(b.id); return true;
+}
+// Details asked for here: from a part's page (one part) or Parts › To fill in (the list), 20 parts a request, into one
+// batch. What came back before a request failed is kept.
+const FILL={busy:false, ids:new Set(), note:''};
+function fillNote(t){ FILL.note=t; const el=document.getElementById('fill-note'); if(el) el.innerHTML=`<span class="think">${esc(t)}</span>`; }
+async function fillIn(parts){
+  if(FILL.busy){ toast('Still asking about the last ones'); return; }
+  if(!online()){ toast('Needs a connection'); return; }
+  FILL.busy=true; FILL.ids=new Set(parts.map(p=>p.id)); FILL.note='Asking…'; render();
+  const names=partNames(), got=[]; let err=null, cut=false;
+  for(let i=0;i<parts.length;i+=PID.DETAILS_CHUNK){
+    const chunk=parts.slice(i,i+PID.DETAILS_CHUNK);
+    if(parts.length>1) fillNote(`Asking about ${i+1}–${i+chunk.length} of ${num(parts.length)}…`);
+    try{ const r=await readParts({mode:'details', parts:chunk.map(p=>PID.detailsRow(p, binOf(p)?.code||'')), inventory:invText()});
+      got.push(...PID.process(r,{mode:'details', names, asked:new Set(chunk.map(p=>p.id))})); cut ||= r.cut; }
+    catch(e){ err=e; break; }
+  }
+  // only what would change something (the Inbox leaves the rest out anyway)
+  const useful=got.filter(x=>{ const c=IN.cleanItem(x), p=c&&S.parts.get(c.id); return p && IN.diff(p,c).some(r=>!r.full); });
+  const b=useful.length ? PID.toBatch(useful,{mode:'details'}) : null;
+  FILL.busy=false; FILL.ids=new Set();
+  const n = b && inboxAdd(b) ? b.items.length : 0, one=parts.length===1;
+  const msg = err ? `${err.message||'That didn’t work. Try again.'}${n?` ${n===1?'One suggestion is':n+' suggestions are'} in the Inbox from before that.`:''}`
+    : n ? (one?'Suggestion in the Inbox':`Suggestions for ${many(n,'part')} in the Inbox`)+(cut?'. The answer was cut off, so some may have none; ask again for those.':'')
+    : b ? '' : one ? 'Claude had nothing to add for this part' : 'Claude had nothing to add for these parts';
+  FILL.note = one ? '' : msg;
+  render();
+  if(msg) toast(msg, err||cut?5000:3000, n?{label:'Open', run:()=>go('inbox')}:undefined);
+}
+function fillRow(parts){
+  const off=!online();
+  const r=h(`<div class="row" style="margin-bottom:10px"><button class="btn sm" id="fill" ${FILL.busy||off?'disabled':''}>${off?'Needs a connection':`Fill in details for these ${num(parts.length)}`}</button><span class="tiny" id="fill-note" role="status">${FILL.busy?`<span class="think">${esc(FILL.note||'Asking…')}</span>`:esc(FILL.note)}</span></div>`);
+  r.querySelector('#fill').onclick=()=>fillIn(parts);
+  return r;
+}
+// The Inbox's Read a photo: bags on the bench, or a receipt or order page, read here. A photo that couldn't be read stays
+// for Try again.
+const READ={busy:false, note:'', file:null, mode:'bags', failed:false};
+function readCard(){
+  const mode=localGet('pb.readmode','bags')==='receipt'?'receipt':'bags', again=READ.failed && READ.file && !READ.busy && online();
+  const c=h(`<section class="card" id="readphoto"><h3>Read a photo</h3>
+    <p class="muted">Bags on the bench, or a receipt or order page. Each part lands here as a card to check, the same as from a link. A receipt’s counts are added to parts you have.</p>
+    <div class="row" role="group" aria-label="What’s in the photo"><button type="button" class="btn sm" data-mode="bags" aria-pressed="${mode==='bags'}">Bags</button><button type="button" class="btn sm" data-mode="receipt" aria-pressed="${mode==='receipt'}">Receipt</button></div>
+    <div class="row">${READ.busy?'':photoButtons('rp-take','rp-pick')}${again?'<button type="button" class="btn" id="rp-again">Try again</button>':''}</div>
+    <div class="tiny" id="rp-note" role="status">${READ.busy?'<span class="think">Reading…</span>':esc(READ.note)}</div></section>`);
+  c.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{ localSet('pb.readmode',b.dataset.mode); render(); });
+  for(const i of c.querySelectorAll('input[type=file]')) i.onchange=()=>{ const f=i.files[0]; if(f) readPhoto(f, mode); };
+  c.querySelector('#rp-again')?.addEventListener('click',()=>readPhoto(READ.file, READ.mode));
+  return c;
+}
+async function readPhoto(file, mode){
+  if(READ.busy){ toast('Still reading the last one'); return; }
+  Object.assign(READ,{busy:true, file, mode, failed:false, note:''}); render();
+  // new parts in a bag go where Pack is packing; a receipt's aren't in a bag yet
+  const bin=mode==='bags' ? S.bins.get(localGet('sr.packbox',''))?.code||'' : '';
+  try{
+    const r=await readParts({mode, file, bin, inventory:invText()});
+    const b=PID.toBatch(PID.process(r,{mode, names:partNames()}), {mode, bin});
+    if(!b) Object.assign(READ,{note:r.cut?'The answer was cut off before any part. Try again.':NONE_FOUND, failed:true});
+    else if(inboxAdd(b)){ const left=r.left_out.filter(Boolean);
+      Object.assign(READ,{file:null, note:`Found ${many(b.items.length,'part')}.${r.cut?' The answer was cut off, so any after these were lost.':''}${left.length?` Left out: ${left.join('; ')}.`:''}`}); }
+    else READ.failed=true;
+  }catch(e){ Object.assign(READ,{note:e.message||'That didn’t work. Try again.', failed:true}); }
+  finally{ READ.busy=false; if(S.route.view==='inbox') render(); }
+}
+
 // ------------------------------------------------------------------ inbox: batches from Claude
 // Claude reads a photo, a receipt or a product page and replies with a link. Opening it puts the parts here to check;
 // each one is saved (and its bag tagged) from its card. Suggested details for parts already listed arrive the same way.
@@ -1660,6 +1759,7 @@ function renderInbox(m){
   const open=async()=>{ const t=paste.value.trim(); if(!t){ toast('Paste the link first'); return; } if(await takeBatch(t)){ paste.value=''; render(); } };
   intake.querySelector('#inb-go').onclick=open; paste.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); open(); } };
   intake.querySelector('#inb-file').onclick=importJson;
+  if(ai.on) m.append(readCard());
   m.append(intake);
   const {bare, next, sent}=bareChunk(), left=bare.length-sent, one=bare.length<=CHUNK && !sent;
   const det=h(`<section class="card"><h3>Fill in details</h3>
@@ -1836,15 +1936,21 @@ function renderSettings(m){
   const dc=h('<section class="card" id="drivecard"></section>'); m.append(dc);
   if(drive.ready) drive.card(dc); else dc.innerHTML='<h3>Save across devices</h3><p class="muted">Google Drive saving works at parts-bin.junkdrawer.works. Here the inventory stays in this browser.</p>';
   const aic=h(`<section class="card"><h3>Photo identification <span class="tiny">optional</span></h3>
-    <p class="muted">With your own Anthropic API key, the camera button in Pack identifies the parts on a photo, and keeps a small picture of each in this browser, and BOM check can match loosely worded lists. The key is kept in this browser only and sent only to Anthropic; calls are billed to your API account, not a Claude plan. Each device needs it entered once.</p>
+    <p class="muted">With your own Anthropic API key, Pack and the Inbox read parts off a photo or a receipt, parts can have their details filled in here, and BOM check can match loosely worded lists. The key stays in this browser and goes only to Anthropic.</p>
+    <p class="muted">Calls use the monthly credits of the key’s Console organization first. With no payment method on it, running out stops the calls until next month and never costs money. Make one key for each device, named for it, so a lost phone means one key to revoke.</p>
     <div class="grid2"><div class="field"><label for="ai-key">API key</label><input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" value="${esc(ai.key)}"></div>
     <div class="field"><label for="ai-model">Model</label><input id="ai-model" class="mono" spellcheck="false" value="${esc(ai.model)}"></div></div>
-    <div class="row"><button class="btn primary" id="ai-save">Save</button>${ai.key?'<button class="btn" id="ai-clear">Remove key</button>':''}</div></section>`);
+    <div class="row"><button class="btn primary" id="ai-save">Save</button>${ai.key?'<button class="btn" id="ai-test">Test key</button><button class="btn" id="ai-clear">Remove key</button>':''}<span class="tiny" id="ai-test-note" role="status"></span></div></section>`);
   m.append(aic);
   const keyIn=aic.querySelector('#ai-key'), modelIn=aic.querySelector('#ai-model');
   const kept=()=>{ keyIn.value=ai.key; modelIn.value=ai.model; S.sample=makeSample(); S.imgOk=!!S.sample; render(); }; // the fields show what was kept, not what was typed
   aic.querySelector('#ai-save').onclick=()=>{ ai.save({key:keyIn.value, model:modelIn.value}); toast(ai.key?'Saved':'No key saved'); kept(); };
   aic.querySelector('#ai-clear')?.addEventListener('click',()=>{ ai.save({key:'',model:ai.model}); toast('Key removed'); kept(); });
+  // one tiny request with the saved key and model: "Key works", or what the API said
+  aic.querySelector('#ai-test')?.addEventListener('click',async e=>{ const b=e.currentTarget, note=aic.querySelector('#ai-test-note');
+    b.disabled=true; note.innerHTML='<span class="think">Testing…</span>';
+    try{ await testKey(); note.textContent='Key works'; }catch(err){ note.textContent=err?.message||'That didn’t work.'; }
+    finally{ b.disabled=false; } });
   const bk=h(`<section class="card"><h3>Backup</h3><p class="muted">A file with every bin, part and saved BOM. Loading a file merges it with what’s here, item by item, so nothing is lost. This is also how the Stockroom artifact’s export comes in.</p>
     <div class="row"><button class="btn" id="exp">Save a backup file</button><button class="btn" id="imp">Load a file</button></div>
     <p class="muted" style="margin-top:12px">A spreadsheet has one row a part, by bin and bag, with every detail: for a move, an insurance list or sharing with a club. Only the backup file loads back in.</p>
@@ -1955,5 +2061,6 @@ window.addEventListener('storage',e=>{ if(e.key==='parts-bin') store.reload(); i
 takeLink(); // a link from Claude carries a batch for the inbox
 listen(); // starts on its own once NFC has been allowed for the site
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') listen(); });
+for(const ev of ['online','offline']) window.addEventListener(ev,()=>{ if(S.loaded) render(); });
 // offline copy (sw.js); localhost too, so the tests can check it works with no network
 if('serviceWorker' in navigator && !FRAMED && (location.protocol==='https:'||location.hostname==='localhost')) navigator.serviceWorker.register('sw.js').catch(()=>{});

@@ -377,6 +377,8 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* a new screen's 
 .shotstrip button{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:8px;max-width:100%;min-height:48px;padding:4px 10px 4px 4px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);color:var(--ink);font:inherit;font-size:14px;text-align:left}
 .shotstrip button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shotstrip button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+/* a two-way switch made of buttons (Inbox › Read a photo: Bags / Receipt) */
+#readphoto [data-mode][aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
 .shotstrip img{width:40px;height:40px;object-fit:contain;background:var(--panel2);border-radius:4px;flex:none}
 .shotmine{display:flex;align-items:center;gap:10px;margin:0 0 8px}
 .shotmine img{width:56px;height:56px;object-fit:contain;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);flex:none}

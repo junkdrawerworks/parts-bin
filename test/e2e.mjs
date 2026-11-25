@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fakeGoogle } from './fake-google.mjs';
+import { fakeAnthropic, FIVE } from './fake-anthropic.mjs';
 
 const require = createRequire(import.meta.url);
 let pw;
@@ -1582,6 +1583,16 @@ await page.waitForSelector('#ai-clear');
 assert.equal(await page.inputValue('#ai-key'), 'sk-ant-not-a-real-key'); assert.equal(await page.inputValue('#ai-model'), (await import('../js/ai.js')).DEFAULT_MODEL);
 await page.click('#ai-clear'); await page.waitForFunction(() => !document.querySelector('#ai-clear'));
 assert.equal(await page.inputValue('#ai-key'), '');
+// with no key, none of what reads parts in the page shows, and everything is as it was: the part page's Ask Claude hands
+// the request to a chat, and no request goes to Anthropic (a request that leaves the site is a problem, checked at the end)
+assert.equal(await page.locator('#ai-test').count(), 0, 'no Test key');
+await page.goto(base + '#inbox'); await page.waitForSelector('text=Fill in details'); assert.equal(await page.locator('#readphoto').count(), 0, 'no Read a photo');
+await page.goto(base + '#scan'); await page.waitForSelector('#desc'); assert.equal(await page.locator('#drop, #identify').count(), 0, 'no photo buttons in Pack');
+await page.goto(base + '#parts'); await page.selectOption('#cat', '__fill'); await page.waitForSelector('.item');
+assert.equal(await page.locator('#fill').count(), 0, 'To fill in lists the parts, with no Fill in button');
+await page.click('.item'); await page.waitForSelector('#ask');
+assert.equal(await page.textContent('#ask-note'), 'Interface, voltages, a part number, a reference photo', 'Ask Claude is the chat hand-off');
+await page.goto(base + '#parts'); await page.selectOption('#cat', ''); await page.goto(base + '#settings');
 await tabB.close();
 
 // ---- an API key the API refuses (a stand-in for the API, and no real key): it says so, and the part can be typed in
@@ -1605,17 +1616,19 @@ await ai.goto(base + '#bom'); await ai.fill('#bom', '1 SCD41'); await ai.click('
 await ai.waitForSelector('#toast:has-text("The API key was refused")');
 await ai.waitForSelector('.bom-summary');
 // the API answering: Identify fills in the part. There's room for the model's thinking as well as the answer (it thinks
-// first, and that counts against max_tokens, which was 1,500), and no effort is sent, which some models refuse.
-const identified = { matchId: null, matchConfidence: 0, name: 'Bosch BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 3, unit: 'pcs', tags: ['i2c'], notes: 'Temperature, humidity, pressure' };
-apiSays = { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: JSON.stringify(identified) }] };
+// first, and that counts against max_tokens), no effort is sent, which some models refuse, and the answer is held to a
+// schema (output_config.format) rather than dug out of the text.
+const identified = { name: 'Bosch BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 3, unit: 'pcs', tags: ['i2c'], notes: 'Temperature, humidity, pressure', iface: ['I2C', 'SPI'], addr: '0x76, 0x77', check: 'Bench Identifier Port A: ID 0x60 is a BME280.' };
+apiSays = { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: JSON.stringify({ items: [identified], left_out: [] }) }] };
 await ai.goto(base + '#scan'); await ai.fill('#desc', 'BME280'); await ai.click('#identify');
 await ai.waitForSelector('#status:has-text("New: Bosch BME280 breakout")');
-assert.equal(apiAsked.max_tokens, 16000); assert.equal(apiAsked.output_config, undefined);
+assert.equal(apiAsked.max_tokens, 8000); assert.equal(apiAsked.output_config.format.type, 'json_schema'); assert.equal(apiAsked.output_config.effort, undefined);
 await ai.click('.matchlist [data-id=""]'); await ai.waitForSelector('.sheet #p-name');
 assert.deepEqual([await ai.inputValue('#p-name'), await ai.inputValue('#p-cat'), await ai.inputValue('#p-mpn'), await ai.inputValue('#p-qty')], ['Bosch BME280 breakout', 'Sensors', 'BME280', '3']);
+assert.deepEqual([await ai.inputValue('#p-iface'), await ai.inputValue('#p-addr')], ['I2C, SPI', '0x76, 0x77'], 'the interface and address come with it');
 await ai.click('.sheet #cancel');
 // an answer cut off at max_tokens says so, rather than "Could not identify", and the part can still be typed in
-apiSays = { stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: '{"matchId": null, "name": "Bosch BME' }] };
+apiSays = { stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: '{"items": [{"name": "Bosch BME' }] };
 await ai.goto(base + '#scan'); await ai.fill('#desc', 'BME280'); await ai.click('#identify');
 await ai.waitForSelector('.sheet #p-name');
 assert.equal(await ai.textContent('#status'), 'The answer was cut off. Try again, or fill it in by hand.');
@@ -1727,12 +1740,13 @@ await aiCtx.close();
     g.fillStyle = '#888'; g.fillRect(0, 0, 800, 400); g.fillStyle = '#d00'; g.fillRect(60, 60, 260, 280); g.fillStyle = '#00d'; g.fillRect(480, 60, 260, 280);
     return c.toDataURL('image/png').split(',')[1]; }), 'base64');
   says = { items: [
-    { matchId: null, matchConfidence: 0, name: 'Red driver board', category: 'Modules', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: [0.075, 0.15, 0.4, 0.85] },
-    { matchId: 'p-bme', matchConfidence: 0.9, name: 'BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 2, unit: 'pcs', tags: [], notes: '', box: [0.6, 0.15, 0.925, 0.85] },
-    { matchId: null, matchConfidence: 0, name: 'Mystery cable', category: 'Cables', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: null }] };
+    { name: 'Red driver board', category: 'Modules', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: [0.075, 0.15, 0.4, 0.85] },
+    { match: 'p-bme', matchConfidence: 0.9, name: 'BME280 breakout', category: 'Sensors', mpn: 'BME280', qty: 2, unit: 'pcs', tags: [], notes: '', box: [0.6, 0.15, 0.925, 0.85] },
+    { name: 'Mystery cable', category: 'Cables', mpn: '', qty: 1, unit: 'pcs', tags: [], notes: '', box: null }] };
   await fp.setInputFiles('#file', { name: 'bench.png', mimeType: 'image/png', buffer: bench });
-  await fp.waitForSelector('#status:has-text("3 parts in this photo")');
-  assert.match(asked.messages[0].content.at(-1).text, /"box": \[left, top, right, bottom\]/, 'a box is asked for each part');
+  await fp.waitForSelector('#status:has-text("Found 3 parts")');
+  assert.match(asked.messages[0].content.at(-1).text, /with a "box" for each/, 'a box is asked for each part');
+  assert.ok(asked.output_config.format.schema.properties.items.items.properties.box, 'and the schema has room for it');
   assert.deepEqual(await fp.locator('.shotstrip button').evaluateAll(bs => bs.map(b => [b.textContent, !!b.querySelector('img'), b.getAttribute('aria-pressed')])),
     [['Red driver board', true, 'true'], ['BME280 breakout', true, 'false'], ['Mystery cable', false, 'false']]);
   // each picture is cut from its own box, with a margin: the red one is red, the blue one blue
@@ -1747,7 +1761,7 @@ await aiCtx.close();
   await fp.click('.matchlist [data-id=""]'); await fp.waitForSelector('.sheet #p-name');
   assert.equal(await fp.inputValue('#p-name'), 'Red driver board');
   await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
-  await fp.waitForSelector('#status:has-text("2 parts in this photo")');
+  await fp.waitForSelector('#status:has-text("Found 2 parts")');
   assert.deepEqual(await fp.locator('.shotstrip button').allTextContents(), ['BME280 breakout', 'Mystery cable']);
   // the BME280 is matched to the part already listed, which has no reference photo: it takes its picture
   await fp.click('.matchlist .pick'); await fp.waitForSelector('.sheet #p-name');
@@ -1757,7 +1771,7 @@ await aiCtx.close();
   await fp.click('.matchlist [data-id=""]'); await fp.waitForSelector('.sheet #p-name'); await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
   await fp.waitForFunction(() => !document.querySelector('.matchlist') && !document.querySelector('#status').textContent, null, { timeout: 3000 });
   // a photo of the SSD1306, which has a reference photo: that stays its picture, and no picture is kept for it
-  says = { items: [{ matchId: 'p-ref', matchConfidence: 0.9, name: 'SSD1306', category: 'Displays', qty: 1, unit: 'pcs', box: [0.6, 0.15, 0.925, 0.85] }] };
+  says = { items: [{ match: 'p-ref', matchConfidence: 0.9, name: 'SSD1306', category: 'Displays', qty: 1, unit: 'pcs', box: [0.6, 0.15, 0.925, 0.85] }] };
   await fp.setInputFiles('#file', { name: 'oled.png', mimeType: 'image/png', buffer: bench });
   await fp.waitForSelector('#status:has-text("Looks like: SSD1306 OLED")');
   await fp.click('.matchlist .pick'); await fp.waitForSelector('.sheet #p-name'); await fp.click('.sheet #save'); await fp.waitForFunction(() => !document.querySelector('.sheet'));
@@ -1804,6 +1818,153 @@ await aiCtx.close();
   assert.equal(await fp.locator('.matchlist').count(), 0);
   assert.deepEqual(fp.problems, []);
   await fCtx.close();
+}
+
+// ---- reading parts in the page with a key (a stand-in for the API, test/fake-anthropic.mjs): Test key; a five-part photo
+// in Pack, opened in the Inbox, one saved and tagged with the next bag number; one part keeps Pack's match list, with the
+// interface and address filled in; a receipt read in the Inbox adds to a part's count; details for Parts › To fill in
+// change only the ticked fields; a reply cut off is asked for again at double, then kept as far as it goes; a failed
+// photo stays for Try again; and with no connection the photo buttons say so while typing still works
+{
+  const seed = JSON.stringify({ app: 'parts-bin', v: 1, items: { projects: {}, bins: { 'bin-env': { code: 'ENV', name: 'Environmental', t: 1 } }, parts: {
+    'p-bme280': { name: 'BME280 (Adafruit)', category: 'Sensors', mpn: 'BME280', qty: 5, unit: 'pcs', binId: 'bin-env', bag: 1, tagWritten: true, tags: [], t: 1 },
+    'p-scd41': { name: 'SCD41', category: 'Sensors', mpn: 'SCD41', qty: 3, unit: 'pcs', binId: 'bin-env', bag: 2, tagWritten: true, tags: [], t: 1 },
+    'p-tca': { name: 'TCA9548A I2C multiplexer', category: 'Sensors', mpn: 'TCA9548A', qty: 2, unit: 'pcs', binId: 'bin-env', bag: 3, tagWritten: true, tags: [], t: 1 },
+    'p-loose': { name: 'Light sensor module', qty: 1, unit: 'pcs', tags: [], t: 1 },
+    'p-bare2': { name: 'Small OLED', qty: 2, unit: 'pcs', tags: [], t: 1 },
+    'p-other': { name: 'Other thing', mpn: 'X1', qty: 1, unit: 'pcs', tags: [], t: 1 } } } });
+  const aCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block' });
+  await aCtx.addInitScript(fakeNfc);
+  await aCtx.addInitScript(d => { if (!localStorage.getItem('parts-bin')) { localStorage.setItem('parts-bin', d); localStorage.setItem('parts-bin.ai', JSON.stringify({ key: 'sk-ant-not-a-real-key', model: '' })); localStorage.setItem('sr.packbox', '"bin-env"'); } }, seed);
+  const api = fakeAnthropic(); await api.install(aCtx);
+  const ap = await aCtx.newPage();
+  ap.problems = []; ap.on('pageerror', e => ap.problems.push(e.message));
+  ap.on('console', m => { if (m.type() === 'error' && !/^Failed to load resource/.test(m.text())) ap.problems.push(m.text()); });
+  const parts = () => ap.evaluate(() => JSON.parse(localStorage.getItem('parts-bin')).items.parts);
+  const named = async n => Object.entries(await parts()).map(([id, x]) => ({ id, ...x })).find(x => x.name === n);
+  const tag = async () => { await ap.waitForSelector('#tz.wait'); await ap.evaluate(() => window.__tap()); await ap.waitForFunction(() => !document.querySelector('.sheet')); };
+  const dismiss = async () => { ap.once('dialog', d => d.accept()); await ap.click('[data-a="drop"]'); await ap.waitForSelector('text=Nothing waiting'); };
+  const asked = () => api.calls.at(-1), askedText = () => asked().messages[0].content.at(-1).text;
+
+  // Settings: Test key makes one tiny request, and says what the API said
+  await ap.goto(base + '#settings');
+  assert.match(await ap.textContent('#main'), /monthly credits of the key’s Console organization first/);
+  assert.doesNotMatch(await ap.textContent('#main'), /billed to your API account/);
+  await ap.click('#ai-test'); await ap.waitForSelector('#ai-test-note:text-is("Key works")');
+  assert.equal(asked().max_tokens, 1);
+  api.next.push({ status: 400, error: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' });
+  await ap.click('#ai-test'); await ap.waitForSelector('#ai-test-note:text-is("Out of API credits until next month. Sending the photo to Claude in a chat still works.")');
+  const png = Buffer.from(await ap.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 300; const g = c.getContext('2d'); g.fillStyle = '#888'; g.fillRect(0, 0, 600, 300); g.fillStyle = '#d00'; g.fillRect(20, 30, 80, 240); return c.toDataURL('image/png').split(',')[1]; }), 'base64');
+  const photo = { name: 'bench.png', mimeType: 'image/png', buffer: png };
+
+  // Pack: a photo of five parts says so, and opens them in the Inbox as a batch
+  await ap.goto(base + '#scan'); await ap.waitForSelector('#file', { state: 'attached' });
+  await ap.setInputFiles('#file', photo);
+  await ap.waitForSelector('#status:has-text("Found 5 parts")');
+  const req = asked();
+  assert.equal(req.model, 'claude-sonnet-5-5'); assert.equal(req.max_tokens, 8000);
+  assert.deepEqual(req.system[1].cache_control, { type: 'ephemeral' }, 'the inventory is in a cached system block');
+  assert.match(req.system[1].text, /\np-bme280 \| BME280 \(Adafruit\) \| Sensors \| ENV \| 5 \| BME280\n/);
+  assert.match(req.system[0].text, /^You catalog parts into Parts Bin/); assert.match(req.system[0].text, /Blank beats wrong\./);
+  assert.equal(req.output_config.format.type, 'json_schema'); assert.equal(req.tool_choice, undefined); assert.equal(req.fallbacks, 'default');
+  assert.equal(req.messages[0].content[0].type, 'image'); assert.match(askedText(), /^Mode: bags\.\nHe is packing into bin ENV\./);
+  await ap.click('#shotinbox');
+  await ap.waitForFunction(() => location.hash === '#inbox'); await ap.waitForSelector('.card.inb');
+  assert.equal(await ap.locator('.card.inb').count(), 5, 'five cards: the part seen twice is one');
+  assert.match(await ap.textContent('.batch h3'), /^Photo, \d+ \w+ \d+:\d\d [AP]M$/);
+  // the right match chips: the BME280 is the part already listed; the SCD41 Claude wasn't sure of is a check, not a match
+  assert.equal(await ap.textContent('.card.inb[data-k="i0"] button.pick b'), 'BME280 (Adafruit)');
+  assert.equal(await ap.textContent('.card.inb[data-k="i0"] button.pick .chip'), 'same part');
+  assert.equal(await ap.locator('.card.inb[data-k="i1"] button.pick').count(), 0);
+  assert.match(await ap.textContent('.card.inb[data-k="i1"] .checknote'), /Might be SCD41/);
+  assert.equal(await ap.locator('.card.inb[data-k="i2"] img.ref').count(), 0, 'no reference photo the app made up');
+  // Save & tag one: it's in the inventory with the next bag number, in the bin being packed
+  await ap.click('.card.inb[data-k="i3"] [data-id=""]'); await ap.waitForSelector('.sheet #p-name');
+  assert.equal(await ap.inputValue('#p-name'), 'HW-611 pressure sensor'); assert.equal(await ap.inputValue('#p-qty'), '6'); assert.equal(await ap.inputValue('#p-bin'), 'bin-env');
+  assert.equal(await ap.textContent('.sheet #save'), 'Save & tag');
+  await ap.click('.sheet #save'); await tag();
+  const hw = await named('HW-611 pressure sensor');
+  assert.equal(hw.bag, 4); assert.equal(hw.tagWritten, true); assert.equal(hw.binId, 'bin-env'); assert.match(hw.check, /BMP280/); assert.deepEqual(hw.iface, ['I2C', 'SPI']);
+  assert.equal((await ap.evaluate(() => window.__written)).at(-1), base + '#bag/004');
+  assert.equal(await ap.locator('.card.inb').count(), 4);
+  await dismiss();
+
+  // Pack, one part: the match list as before, with the interface and address filled in
+  api.photo = 'one';
+  await ap.goto(base + '#scan'); await ap.waitForSelector('#file', { state: 'attached' });
+  await ap.setInputFiles('#file', photo);
+  await ap.waitForSelector('#status:has-text("Looks like: BME280 (Adafruit)")');
+  assert.equal(await ap.locator('#shotinbox').count(), 0, 'one part stays in Pack');
+  await ap.click('.matchlist .pick'); await ap.waitForSelector('.sheet #p-name');
+  assert.deepEqual([await ap.inputValue('#p-iface'), await ap.inputValue('#p-addr'), await ap.inputValue('#p-qty')], ['I2C, SPI', '0x77, 0x76', '2']);
+  await ap.click('.sheet #cancel');
+
+  // Inbox › Read a photo › Receipt: the batch lands at the top, and a part already listed has the count added
+  await ap.goto(base + '#inbox'); await ap.waitForSelector('#readphoto');
+  await ap.click('#readphoto [data-mode="receipt"]'); await ap.waitForSelector('#readphoto [data-mode="receipt"][aria-pressed="true"]');
+  await ap.setInputFiles('#rp-pick', photo);
+  await ap.waitForSelector('#rp-note:has-text("Found 2 parts.")');
+  assert.match(await ap.textContent('#rp-note'), /Left out: Shipping; Sales tax\./);
+  assert.match(askedText(), /^Mode: receipt\./); assert.equal(asked().max_tokens, 16000);
+  assert.match(await ap.textContent('.batch h3'), /^Receipt, /);
+  await ap.click('.card.inb[data-k="i0"] button.pick'); await ap.waitForSelector('.sheet #p-name');
+  assert.equal(await ap.inputValue('#p-qty'), '6', 'two in stock and four bought');
+  await ap.click('.sheet #save'); await ap.waitForFunction(() => !document.querySelector('.sheet'));
+  assert.equal((await parts())['p-tca'].qty, 6);
+  await dismiss();
+
+  // Parts › To fill in › Fill in details for these 2: one details batch; Apply changes only the ticked fields
+  await ap.goto(base + '#parts'); await ap.selectOption('#cat', '__fill');
+  await ap.waitForSelector('#fill'); assert.equal(await ap.textContent('#fill'), 'Fill in details for these 2');
+  await ap.click('#fill'); await ap.waitForSelector('#toast:has-text("Suggestions for 2 parts in the Inbox")');
+  assert.match(askedText(), /^Mode: details\./); assert.match(askedText(), /"id":"p-loose"/); assert.match(askedText(), /"id":"p-bare2"/);
+  assert.equal(asked().messages[0].content.length, 1, 'no image');
+  await ap.goto(base + '#inbox'); await ap.waitForSelector('.diff');
+  assert.equal(await ap.locator('.card.inb').count(), 2, 'a part not asked about (p-other) isn’t suggested');
+  const loose = ap.locator('.card.inb', { has: ap.locator('a[href="#part/p-loose"]') });
+  assert.deepEqual(await loose.locator('.diff .k').allTextContents(), ['Category', 'Part number', 'Interface', 'I2C address', 'Supply'], 'no count, no new name');
+  await loose.locator('.diff input[data-k="addr"]').uncheck();
+  await loose.locator('[data-a="apply"]').click();
+  await ap.waitForFunction(() => document.querySelectorAll('.card.inb').length === 1);
+  const lp = (await parts())['p-loose'];
+  assert.equal(lp.mpn, 'BH1750'); assert.deepEqual(lp.iface, ['I2C']); assert.equal(lp.volts, '3–5 V'); assert.equal(lp.category, 'Sensors');
+  assert.ok(!lp.addr, 'the unticked field was left alone'); assert.equal(lp.qty, 1); assert.equal(lp.name, 'Light sensor module');
+  await dismiss();
+  // a part's page asks for its own details here
+  await ap.goto(base + '#part/p-bare2'); await ap.click('#ask');
+  await ap.waitForSelector('#toast:has-text("Suggestion in the Inbox")');
+  assert.deepEqual(JSON.parse(askedText().slice(askedText().indexOf('['))).map(x => x.id), ['p-bare2']);
+  await ap.goto(base + '#inbox'); await ap.waitForSelector('.diff'); await dismiss();
+
+  // a reply cut off: asked again at double max_tokens, then what was complete is kept, and it says so
+  await ap.click('#readphoto [data-mode="bags"]'); await ap.waitForSelector('#readphoto [data-mode="bags"][aria-pressed="true"]');
+  const cut = JSON.stringify(FIVE).slice(0, JSON.stringify(FIVE).indexOf('HW-611') + 10);
+  api.next.push({ stop: 'max_tokens', text: '{"items": [{"name": "BM' }, { stop: 'max_tokens', text: cut });
+  const n = api.calls.length;
+  await ap.setInputFiles('#rp-take', photo);
+  await ap.waitForSelector('#rp-note:has-text("Found 3 parts. The answer was cut off, so any after these were lost.")');
+  assert.deepEqual(api.calls.slice(n).map(c => c.max_tokens), [16000, 32000]);
+  await dismiss();
+
+  // a failed photo stays for Try again; no parts found says so
+  api.photo = 'five'; api.next.push({ status: 429, error: 'rate_limit_error' });
+  await ap.setInputFiles('#rp-pick', photo);
+  await ap.waitForSelector('#rp-note:text-is("Too many requests. Wait a moment.")');
+  await ap.click('#rp-again'); await ap.waitForSelector('#rp-note:has-text("Found 5 parts.")');
+  await dismiss();
+  api.next.push({ text: JSON.stringify({ items: [], left_out: ['Too blurry to read'] }) });
+  await ap.setInputFiles('#rp-pick', photo);
+  await ap.waitForSelector('#rp-note:text-is("Couldn’t make out any parts. Try closer, or type it.")');
+
+  // no connection: the photo buttons say they need one, and typing in Pack still finds parts
+  await aCtx.setOffline(true);
+  await ap.waitForSelector('#readphoto button:text-is("Needs a connection")');
+  await ap.evaluate(() => { location.hash = '#scan'; }); await ap.waitForSelector('#drop button:text-is("Needs a connection")');
+  await ap.fill('#desc', 'SCD'); await ap.waitForSelector('.matchlist button:has-text("SCD41")');
+  await aCtx.setOffline(false);
+  await ap.waitForSelector('#drop label:has-text("Take photo")');
+  assert.deepEqual(ap.problems, []);
+  await aCtx.close();
 }
 
 // ---- in a browser that can't write tags, a bag's tag sheet says tags need Chrome on Android and offers the link to copy.
@@ -2735,7 +2896,7 @@ await desk.goto(base);
   assert.equal(await sp.getAttribute('#cat', 'aria-label'), 'Show');
   const menu = () => sp.locator('#cat').evaluate(s => [...s.children].map(c => c.tagName === 'OPTGROUP' ? [c.label, [...c.children].map(o => o.textContent)] : c.textContent));
   assert.deepEqual(await menu(), ['All parts (4)',
-    ['Lists', ['Low stock (1)', 'Out of stock (0)', 'To check (1)', 'Bag tag not written (2)', 'Recently changed (0)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
+    ['Lists', ['Low stock (1)', 'Out of stock (0)', 'To check (1)', 'To fill in (4)', 'Bag tag not written (2)', 'Recently changed (0)', 'Not yet bagged (1)', 'Not in a bin (1)', 'Bagged (3)', 'Bag numbers to sort out (0)']],
     ['Categories', ['Passives (1)', 'Power (1)', 'Sensors (2)']]]);
   await sp.selectOption('#cat', '__untagged');
   assert.deepEqual(await sp.locator('.item .t').allTextContents(), ['Buck converter', 'SHT31'], 'in bag order');
